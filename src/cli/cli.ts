@@ -6,6 +6,7 @@ import { getWorkflowStatus } from "../installer/status.js";
 import { runWorkflow } from "../installer/run.js";
 import { getNextStep, completeStep } from "../installer/step-runner.js";
 import { runOrchestrator, orchestrateOnce, listSpawnQueue, removeFromSpawnQueue } from "../daemon/orchestrator.js";
+import { getCronSetupInstructions } from "../installer/setup-cron.js";
 
 function printUsage() {
   process.stdout.write(
@@ -19,6 +20,7 @@ function printUsage() {
       "antfarm workflow next <task-title>",
       "antfarm workflow complete <task-title> <success|fail> [output]",
       "",
+      "antfarm setup                        Show cron setup instructions (run once after install)",
       "antfarm check [--verbose]            Run orchestration check (detect completions, queue spawns)",
       "antfarm queue                        List pending spawn requests",
       "antfarm dequeue <file>               Remove a spawn request",
@@ -31,6 +33,11 @@ async function main() {
   const [group, action, target] = args;
   
   // Handle single-word commands first (before length check)
+  if (group === "setup") {
+    process.stdout.write(getCronSetupInstructions());
+    return;
+  }
+  
   if (group === "check") {
     await handleCheck(args.slice(1));
     return;
@@ -68,7 +75,10 @@ async function main() {
   }
 
   if (action === "install") {
-    await installWorkflow({ source: target });
+    const result = await installWorkflow({ source: target });
+    process.stdout.write(`Installed workflow: ${result.workflowId}\n`);
+    process.stdout.write(`\nIMPORTANT: Run 'antfarm setup' to configure the orchestrator cron job.\n`);
+    process.stdout.write(`Without this, workflows won't auto-advance.\n`);
     return;
   }
 
