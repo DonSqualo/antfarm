@@ -28,12 +28,9 @@ function printUsage() {
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length < 2) {
-    printUsage();
-    process.exit(1);
-  }
   const [group, action, target] = args;
   
+  // Handle single-word commands first (before length check)
   if (group === "check") {
     await handleCheck(args.slice(1));
     return;
@@ -53,6 +50,12 @@ async function main() {
   if (group === "daemon") {
     await handleCheck(args.slice(1));
     return;
+  }
+  
+  // Workflow commands require at least 2 args
+  if (args.length < 2) {
+    printUsage();
+    process.exit(1);
   }
   
   if (group !== "workflow") {
