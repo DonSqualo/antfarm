@@ -1673,18 +1673,18 @@ function placeWarehouseAt(x,y){
 
 function structureMarkup(kind){
   if (kind === 'base') {
-    return `<img class="building-sprite" src="/rts-sprites/base-core-ogame-map-20260212m.png?v=20260212m" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/base_core_sprite.png?v=20260212u" alt="" />`;
   }
   if (kind === 'feature') {
-    return `<img class="building-sprite" src="/rts-sprites/feature-forge-ogame-map-20260212i.png?v=20260212i" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.png?v=20260212u" alt="" />`;
   }
   if (kind === 'research') {
-    return `<img class="building-sprite" src="/rts-sprites/research-lab-ogame-map-20260212m.png?v=20260212m" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/research_lab_sprite.png?v=20260212u" alt="" />`;
   }
   if (kind === 'warehouse') {
-    return `<img class="building-sprite" src="/rts-sprites/warehouse-ogame-map-20260212m.png?v=20260212m" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/warehouse_sprite.png?v=20260212u" alt="" />`;
   }
-  return `<img class="building-sprite" src="/rts-sprites/feature-forge-ogame-map-20260212i.png?v=20260212i" alt="" />`;
+  return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.png?v=20260212u" alt="" />`;
 }
 
 function snapPlacement(kind, worldX, worldY){
@@ -2512,6 +2512,8 @@ function renderSkillTree(type, heading){
 
 function renderRunAgentsConsole(run, selectedAgentId){
   const panel = document.getElementById('actionPanel');
+  panel.dataset.mode = 'agents';
+  panel.dataset.featureId = '';
   setFeatureMode(false);
   if (!run) {
     panel.innerHTML = `<h3>Action Console</h3><div class="notice">No run selected.</div>`;
@@ -2627,6 +2629,8 @@ function renderSelection(){
     const baseLabel = b.portLabel || pathLabel(b.repo || '');
     panel.innerHTML = `<h3>Base Intel</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Role:</strong> ${esc(baseLabel)}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(basePort)}</div><div class="kv"><strong>Buildings:</strong> ${(b.runs || []).length}</div>${renderSkillTree('orchestrator','Base Systems')}`;
     const actionPanel = document.getElementById('actionPanel');
+    actionPanel.dataset.mode = 'base';
+    actionPanel.dataset.featureId = '';
     actionPanel.innerHTML = `
       <h3>Base Command Console</h3>
       <div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div>
@@ -2643,7 +2647,10 @@ function renderSelection(){
       setFeatureMode(true);
       const port = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
       panel.innerHTML = `<h3>Feature Forge</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || '-')}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(port)}</div><div class="kv"><strong>Status:</strong> ${esc(prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'draft')))}</div><div class="kv"><strong>Progress:</strong> ${b.progress || 0}%</div>${b.prUrl ? `<a class="pr-link" href="${b.prUrl}" target="_blank">OPEN PULL REQUEST</a>` : '<div class="notice">No PR link detected yet.</div>'}${renderSkillTree('builder','Run Build Matrix')}`;
-      if (!isEditingActionPanel()) renderRunSetupPanel(b.id);
+      const actionPanel = document.getElementById('actionPanel');
+      const shownFeatureId = String(actionPanel?.dataset?.featureId || '');
+      const isSameFeaturePanel = actionPanel?.dataset?.mode === 'feature' && shownFeatureId === String(b.id || '');
+      if (!isEditingActionPanel() || !isSameFeaturePanel) renderRunSetupPanel(b.id);
       return;
     }
     if (b.kind === 'research') {
@@ -2807,18 +2814,19 @@ function statusTone(status){
   if (status === 'running') return 'var(--warn)';
   if (status === 'stale') return '#ff8faa';
   if (status === 'failed') return 'var(--bad)';
+  if (status === 'pending') return '#88a9be';
   if (status === 'skipped') return '#9fb5c6';
   return '#6b859e';
 }
 
 function prettyStatus(status){
-  if (status === 'pending') return 'waiting';
+  if (status === 'pending') return 'queued';
   return status || 'idle';
 }
 
 function canRestartAgentStatus(status){
   const s = String(status || '').toLowerCase();
-  return s !== 'waiting' && s !== 'idle' && s !== 'skipped';
+  return s !== 'waiting' && s !== 'pending' && s !== 'idle' && s !== 'skipped';
 }
 
 function findRelevantRun(draft){
@@ -2846,7 +2854,7 @@ function deriveRunAgents(run){
       else if (statuses.includes('running')) status = 'running';
       else if (statuses.includes('failed')) status = 'failed';
       else if (statuses.length && statuses.every((s) => s === 'done' || s === 'skipped')) status = 'done';
-      else if (statuses.includes('pending')) status = 'waiting';
+      else if (statuses.includes('pending')) status = 'pending';
       const base = baseAgentId(agentId);
       return {
         slotId: `${wfStep.id}:${idx + 1}`,
@@ -2871,7 +2879,7 @@ function deriveRunAgents(run){
     else if (statuses.includes('running')) status = 'running';
     else if (statuses.includes('failed')) status = 'failed';
     else if (statuses.every((s) => s === 'done' || s === 'skipped')) status = 'done';
-    else if (statuses.includes('pending')) status = 'waiting';
+    else if (statuses.includes('pending')) status = 'pending';
     return { slotId: agentId, stepId: '', agentId, status, displayName: baseAgentId(agentId) };
   });
 }
@@ -3191,6 +3199,8 @@ function consumeResearchPlanAny(planId, preferredRepoKey = ''){
 
 function renderResearchLabPanel(targetLabId){
   const panel = document.getElementById('actionPanel');
+  panel.dataset.mode = 'research';
+  panel.dataset.featureId = '';
   const lab = (state.researchBuildings || []).find((it) => String(it.id) === String(targetLabId || ''))
     || (state.selected?.type === 'building' && state.selected?.data?.kind === 'research' ? state.selected.data : null);
   if (!lab) {
@@ -3324,6 +3334,8 @@ function renderResearchLabPanel(targetLabId){
 
 function renderWarehousePanel(targetWarehouseId){
   const panel = document.getElementById('actionPanel');
+  panel.dataset.mode = 'warehouse';
+  panel.dataset.featureId = '';
   const warehouse = (state.warehouseBuildings || []).find((it) => String(it.id) === String(targetWarehouseId || ''))
     || (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse' ? state.selected.data : null);
   if (!warehouse) {
@@ -3404,11 +3416,15 @@ function renderRunSetupPanel(targetDraftId){
     }
   }
   if (!draft) {
+    panel.dataset.mode = 'default';
+    panel.dataset.featureId = '';
     setFeatureMode(false);
     panel.innerHTML = `<h3>Action Console</h3><div class="notice">Use command cards to place Base, Feature Request, Research Lab, or Warehouse structures.</div>`;
     stopAgentStream();
     return;
   }
+  panel.dataset.mode = 'feature';
+  panel.dataset.featureId = String(draft.id || '');
   setFeatureMode(true);
   if (!draft.worktreePath) draft.worktreePath = getWorktreeDefault(draft.repo || 'antfarm', draft.id || 'feature');
   if (typeof draft.prompt !== 'string') draft.prompt = String(draft.prompt || '');
