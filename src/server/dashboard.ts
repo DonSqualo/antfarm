@@ -100,6 +100,21 @@ function normalizePathKey(raw: string): string {
   return String(raw || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+function resolveResearchRepoPath(rawRepoPath: string): string {
+  const candidates = [
+    normalizePathKey(rawRepoPath),
+    normalizePathKey(process.cwd()),
+    normalizePathKey(path.resolve(process.cwd(), "..", "antfarm")),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      if (!fs.existsSync(candidate)) continue;
+      if (fs.existsSync(path.join(candidate, ".git"))) return candidate;
+    } catch {}
+  }
+  return "";
+}
+
 function absolutizePath(pathValue: string, repoPath: string): string {
   const key = normalizePathKey(pathValue);
   if (!key) return "";
@@ -147,6 +162,7 @@ function getRtsState(): Record<string, unknown> {
   }>;
   const customBases: Array<Record<string, unknown>> = [];
   const featureBuildings: Array<Record<string, unknown>> = [];
+  const researchBuildings: Array<Record<string, unknown>> = [];
   const runLayoutOverrides: Record<string, { x: number; y: number }> = {};
   const runs = db.prepare("SELECT id, status, context FROM runs").all() as Array<{ id: string; status: string; context: string }>;
   const runIdSet = new Set(runs.map((r) => r.id));
@@ -227,6 +243,18 @@ function getRtsState(): Record<string, unknown> {
       });
       continue;
     }
+    if (r.entity_type === "research") {
+      const repoPath = String(r.repo_path ?? payload.repo ?? "");
+      researchBuildings.push({
+        ...payload,
+        id: payload.id ?? r.id,
+        kind: "research",
+        x: Number(r.x),
+        y: Number(r.y),
+        repo: repoPath,
+      });
+      continue;
+    }
     if (r.entity_type === "run") {
       const runId = r.run_id || (String(r.id || "").startsWith("run:") ? String(r.id).slice(4) : String(r.id || ""));
       if (!runId) continue;
@@ -237,7 +265,7 @@ function getRtsState(): Record<string, unknown> {
       runLayoutOverrides[runId] = { x: Number(r.x), y: Number(r.y) };
     }
   }
-  return { ...state, customBases, featureBuildings, runLayoutOverrides };
+  return { ...state, customBases, featureBuildings, researchBuildings, runLayoutOverrides };
 }
 
 function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void {
@@ -254,11 +282,13 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
   const deleteById = db.prepare("DELETE FROM rts_layout_entities WHERE id = ?");
   const customBases = Array.isArray(nextState.customBases) ? nextState.customBases as Array<Record<string, unknown>> : [];
   const featureBuildings = Array.isArray(nextState.featureBuildings) ? nextState.featureBuildings as Array<Record<string, unknown>> : [];
+  const researchBuildings = Array.isArray(nextState.researchBuildings) ? nextState.researchBuildings as Array<Record<string, unknown>> : [];
   const runLayoutOverrides = (nextState.runLayoutOverrides && typeof nextState.runLayoutOverrides === "object")
     ? nextState.runLayoutOverrides as Record<string, { x?: number; y?: number }>
     : {};
   const seenBaseIds = new Set<string>();
   const seenFeatureIds = new Set<string>();
+  const seenResearchIds = new Set<string>();
   const seenRunIds = new Set<string>();
   const runs = db.prepare("SELECT id, context FROM runs").all() as Array<{ id: string; context: string }>;
   const runIdSet = new Set(runs.map((r) => r.id));
@@ -343,6 +373,19 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       };
       upsert.run(id, "feature", runId, repoPath || null, worktreePath || null, x, y, JSON.stringify(payload), now);
     }
+    for (const research of researchBuildings) {
+      const id = String(research?.id ?? "");
+      if (!id) continue;
+      seenResearchIds.add(id);
+      const repoPath = String(research?.repo ?? "");
+      const incomingX = Number(research?.x ?? 0);
+      const incomingY = Number(research?.y ?? 0);
+      const existing = existingPosById.get(id);
+      const x = Number.isFinite(existing?.x) ? Number(existing!.x) : (Number.isFinite(incomingX) ? incomingX : 0);
+      const y = Number.isFinite(existing?.y) ? Number(existing!.y) : (Number.isFinite(incomingY) ? incomingY : 0);
+      const payload = { ...research, kind: "research", repo: repoPath, x, y };
+      upsert.run(id, "research", null, repoPath || null, null, x, y, JSON.stringify(payload), now);
+    }
     for (const [runId, pos] of Object.entries(runLayoutOverrides)) {
       if (!runId) continue;
       seenRunIds.add(runId);
@@ -365,6 +408,10 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       if (row2.run_id && runIdSet.has(row2.run_id)) continue;
       deleteById.run(row2.id);
     }
+    const researchRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'research'").all() as Array<{ id: string }>;
+    for (const row2 of researchRows) {
+      if (!seenResearchIds.has(row2.id)) deleteById.run(row2.id);
+    }
     const runRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'run'").all() as Array<{ id: string; run_id: string | null }>;
     for (const row2 of runRows) {
       const id = row2.run_id || (String(row2.id || "").startsWith("run:") ? String(row2.id).slice(4) : "");
@@ -384,6 +431,7 @@ function saveRtsState(nextState: unknown): Record<string, unknown> {
   const nonLayoutState: Record<string, unknown> = { ...safe };
   delete nonLayoutState.customBases;
   delete nonLayoutState.featureBuildings;
+  delete nonLayoutState.researchBuildings;
   delete nonLayoutState.runLayoutOverrides;
   upsertLayoutEntitiesFromState(safe);
   const derived = getRtsState();
@@ -391,6 +439,7 @@ function saveRtsState(nextState: unknown): Record<string, unknown> {
     ...nonLayoutState,
     customBases: Array.isArray(derived.customBases) ? derived.customBases : [],
     featureBuildings: Array.isArray(derived.featureBuildings) ? derived.featureBuildings : [],
+    researchBuildings: Array.isArray(derived.researchBuildings) ? derived.researchBuildings : [],
     runLayoutOverrides: (derived.runLayoutOverrides && typeof derived.runLayoutOverrides === "object")
       ? derived.runLayoutOverrides
       : {},
@@ -437,6 +486,45 @@ function getRtsLiveStatus(): Record<string, unknown> {
       ageSec: 0,
     })),
   };
+}
+
+async function deployPendingRuns(maxRuns = 25): Promise<{ attempted: number; kicked: number; runIds: string[] }> {
+  const db = getDb();
+  const rows = db.prepare(
+    "SELECT s.id AS step_id, s.run_id AS run_id, r.workflow_id AS workflow_id " +
+    "FROM steps s JOIN runs r ON r.id = s.run_id " +
+    "WHERE s.status = 'pending' " +
+    "ORDER BY s.updated_at ASC, s.step_index ASC"
+  ).all() as Array<{ step_id: string; run_id: string; workflow_id: string }>;
+
+  const perRun = new Map<string, { stepId: string; workflowId: string }>();
+  for (const row of rows) {
+    if (!row?.run_id || perRun.has(row.run_id)) continue;
+    perRun.set(row.run_id, { stepId: row.step_id, workflowId: row.workflow_id });
+  }
+
+  const targets = Array.from(perRun.entries()).slice(0, Math.max(1, Number(maxRuns) || 1));
+  let kicked = 0;
+  const runIds: string[] = [];
+  for (const [runId, target] of targets) {
+    runIds.push(runId);
+    const evt = {
+      ts: new Date().toISOString(),
+      event: "step.pending" as const,
+      runId,
+      workflowId: target.workflowId,
+      stepId: target.stepId,
+      detail: "RTS deploy requested from live panel",
+    };
+    emitEvent(evt);
+    try {
+      await immediateHandoff(evt);
+      kicked += 1;
+    } catch {
+      // keep iterating through remaining pending runs
+    }
+  }
+  return { attempted: targets.length, kicked, runIds };
 }
 
 function serveHTML(res: http.ServerResponse, fileName = "index.html") {
@@ -486,6 +574,134 @@ function branchExists(baseRepoPath: string, branchName: string): boolean {
   } catch {
     return false;
   }
+}
+
+function summarizeText(raw: string, max = 3000): string {
+  return String(raw || "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function extractTestFailureFeedback(runId: string, testStepId: string, testOutput: string | null): string {
+  const fromStep = summarizeText(String(testOutput || ""));
+  if (fromStep) return fromStep;
+  const events = getRunEvents(runId, 400);
+  const matched = [...events].reverse().find((evt) => {
+    if (evt.stepId && evt.stepId === testStepId && evt.detail) return true;
+    if (evt.event === "run.failed" && evt.detail) return true;
+    return false;
+  });
+  return summarizeText(String(matched?.detail || "")) || "Test step failed with no detailed output captured.";
+}
+
+async function redoDeveloperFromFailedTest(runIdOrPrefix: string): Promise<{
+  runId: string;
+  developerStepId: string;
+  testStepId: string;
+  storyId: string;
+  kicked: boolean;
+  feedback: string;
+}> {
+  const run = resolveRunRecord(runIdOrPrefix);
+  if (!run) throw new Error("run_not_found");
+
+  const db = getDb();
+  const steps = db.prepare(
+    "SELECT id, step_id, agent_id, step_index, status, output, type FROM steps WHERE run_id = ? ORDER BY step_index ASC"
+  ).all(run.id) as Array<{
+    id: string;
+    step_id: string;
+    agent_id: string;
+    step_index: number;
+    status: string;
+    output: string | null;
+    type: string;
+  }>;
+
+  const testStep = steps.find((s) => String(s.step_id || "").toLowerCase() === "test");
+  if (!testStep) throw new Error("test_step_not_found");
+
+  const developerStep = steps.find((s) => String(s.step_id || "").toLowerCase() === "implement")
+    || [...steps]
+      .filter((s) => s.step_index < testStep.step_index && String(s.agent_id || "").toLowerCase().endsWith("/developer"))
+      .sort((a, b) => b.step_index - a.step_index)[0];
+  if (!developerStep) throw new Error("developer_step_not_found");
+
+  const feedback = extractTestFailureFeedback(run.id, testStep.id, testStep.output);
+  const now = new Date().toISOString();
+  const storyIndexRow = db.prepare("SELECT COALESCE(MAX(story_index), -1) AS m FROM stories WHERE run_id = ?").get(run.id) as { m: number };
+  const nextStoryIndex = Number(storyIndexRow?.m ?? -1) + 1;
+  const storyId = `rerun-${nextStoryIndex + 1}`;
+  const storyPk = `${run.id}-redo-${Date.now()}`;
+  const acceptance = JSON.stringify([
+    "Address the failed integration test findings from TEST_FEEDBACK",
+    "Relevant tests pass",
+    "Typecheck passes",
+  ]);
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const contextRow = db.prepare("SELECT context FROM runs WHERE id = ?").get(run.id) as { context: string } | undefined;
+    const context = parseRunContext(contextRow?.context ?? "{}");
+    context.test_feedback = feedback;
+    context.verify_feedback = feedback;
+
+    db.prepare("UPDATE runs SET status = 'running', context = ?, updated_at = ? WHERE id = ?").run(
+      JSON.stringify(context),
+      now,
+      run.id
+    );
+
+    db.prepare(
+      "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, output, retry_count, max_retries, created_at, updated_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, 0, 2, ?, ?)"
+    ).run(
+      storyPk,
+      run.id,
+      nextStoryIndex,
+      storyId,
+      "Address failed integration test feedback",
+      feedback.slice(0, 4000),
+      acceptance,
+      now,
+      now
+    );
+
+    db.prepare(
+      "UPDATE steps SET status = 'pending', output = NULL, retry_count = 0, current_story_id = NULL, updated_at = ? WHERE id = ?"
+    ).run(now, developerStep.id);
+
+    db.prepare(
+      "UPDATE steps SET status = 'waiting', output = NULL, retry_count = 0, current_story_id = NULL, updated_at = ? WHERE run_id = ? AND step_index >= ? AND id <> ?"
+    ).run(now, run.id, testStep.step_index, developerStep.id);
+
+    db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw err;
+  }
+
+  const evt = {
+    ts: new Date().toISOString(),
+    event: "step.pending" as const,
+    runId: run.id,
+    workflowId: run.workflow_id,
+    stepId: developerStep.id,
+    detail: "Developer redo requested from failed test output",
+  };
+  emitEvent(evt);
+  let kicked = false;
+  try {
+    await immediateHandoff(evt);
+    kicked = true;
+  } catch {}
+
+  return {
+    runId: run.id,
+    developerStepId: developerStep.id,
+    testStepId: testStep.id,
+    storyId,
+    feedback,
+    kicked,
+  };
 }
 
 function resolveRunRecord(runIdOrPrefix: string): { id: string; status: string; workflow_id: string; context: string } | null {
@@ -632,7 +848,7 @@ function deleteRunWithArtifacts(runIdOrPrefix: string): { deleted: boolean; stat
 }
 
 function upsertLayoutPosition(input: {
-  entityType: "base" | "feature" | "run";
+  entityType: "base" | "feature" | "research" | "run";
   entityId?: string;
   runId?: string | null;
   repoPath?: string | null;
@@ -668,6 +884,10 @@ function upsertLayoutPosition(input: {
         throw new Error("feature_layout_create_not_allowed");
       }
     }
+  } else if (entityType === "research") {
+    if (!id) id = `research-${Date.now()}`;
+    const exists = db.prepare("SELECT 1 as ok FROM rts_layout_entities WHERE id = ? LIMIT 1").get(id) as { ok: number } | undefined;
+    if (!exists && !input.allowCreate) throw new Error("research_layout_create_not_allowed");
   } else {
     if (!id) throw new Error("entityId is required for base layout");
   }
@@ -692,6 +912,216 @@ function upsertLayoutPosition(input: {
   ).run(id, entityType, runId, repoPath, worktreePath, x, y, JSON.stringify(nextPayload), now);
 
   return { id, entityType, runId };
+}
+
+type ResearchPlanType = "feature" | "bug" | "placeholder";
+type ResearchPlan = {
+  id: string;
+  type: ResearchPlanType;
+  title: string;
+  summary: string;
+  prompt: string;
+  evidence: string[];
+};
+
+function buildResearchPrompt(input: {
+  type: ResearchPlanType;
+  title: string;
+  repoPath: string;
+  summary: string;
+  evidence: string[];
+}): string {
+  const lane = input.type === "bug" ? "bug-fix" : "feature-dev";
+  const acceptance = input.type === "bug"
+    ? [
+      "Root cause is identified and explained.",
+      "A targeted fix is implemented with regression coverage.",
+      "No unrelated refactors are included."
+    ]
+    : input.type === "placeholder"
+      ? [
+        "Placeholder logic is replaced with production-ready behavior.",
+        "Tests cover success and failure paths.",
+        "Any temporary markers are removed or documented."
+      ]
+      : [
+        "Feature behavior is implemented and documented.",
+        "Tests cover new behavior and edge cases.",
+        "No regressions in nearby modules."
+      ];
+  const evidenceBlock = input.evidence.length
+    ? input.evidence.map((e) => `- ${e}`).join("\n")
+    : "- Repository-wide structural scan results";
+  return [
+    `Task: ${input.title}`,
+    `Preferred workflow: ${lane}`,
+    `Base repo path: ${input.repoPath}`,
+    "",
+    "Goal:",
+    input.summary,
+    "",
+    "Evidence:",
+    evidenceBlock,
+    "",
+    "Expected deliverables:",
+    "- Implementation changes scoped to this task.",
+    "- Tests added/updated for behavior changes.",
+    "- Short PR-ready summary of what changed and why.",
+    "",
+    "Acceptance criteria:",
+    ...acceptance.map((line) => `- ${line}`),
+  ].join("\n");
+}
+
+function generateResearchPlans(repoPath: string, maxPlansRaw: number): { plans: ResearchPlan[]; stats: Record<string, unknown> } {
+  const maxPlans = Number.isFinite(maxPlansRaw) ? Math.max(1, Math.min(20, Math.floor(maxPlansRaw))) : 8;
+  const skipDirs = new Set([".git", "node_modules", "dist", "build", ".next", "target", ".turbo", ".cache", "coverage"]);
+  const textExt = new Set([
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".md", ".yml", ".yaml", ".toml", ".rs",
+    ".go", ".py", ".java", ".kt", ".swift", ".c", ".cc", ".cpp", ".h", ".hpp", ".sh", ".sql", ".html", ".css"
+  ]);
+  const stack: string[] = [repoPath];
+  const files: string[] = [];
+  let truncated = false;
+  while (stack.length) {
+    const dir = stack.pop() as string;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      if (ent.name.startsWith(".") && ent.name !== ".env.example") continue;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (skipDirs.has(ent.name)) continue;
+        stack.push(full);
+        continue;
+      }
+      if (!ent.isFile()) continue;
+      files.push(full);
+      if (files.length >= 3000) {
+        truncated = true;
+        break;
+      }
+    }
+    if (truncated) break;
+  }
+
+  const extCounts = new Map<string, number>();
+  const todoEvidence: string[] = [];
+  const placeholderEvidence: string[] = [];
+  let srcCount = 0;
+  let testCount = 0;
+  const todoRegex = /\b(TODO|FIXME|HACK|XXX)\b/i;
+  const placeholderRegexes = [
+    /throw new Error\((['"`])(todo|not implemented|nyi|implement me)\1\)/i,
+    /\bnotImplemented\b/i,
+    /\breturn\s+(null|undefined)\s*;[\t ]*(?:\/\/[^\n]*)?$/im,
+    /\bplaceholder\b/i,
+  ];
+  for (const full of files) {
+    const rel = path.relative(repoPath, full).replace(/\\/g, "/");
+    const ext = path.extname(rel).toLowerCase();
+    extCounts.set(ext, Number(extCounts.get(ext) || 0) + 1);
+    if (/(^|\/)(src|app|server|client)\//.test(rel)) srcCount += 1;
+    if (/(^|\/)(test|tests|__tests__|spec)\//.test(rel) || /\.(test|spec)\./.test(rel)) testCount += 1;
+    if (!textExt.has(ext)) continue;
+    let body = "";
+    try {
+      const st = fs.statSync(full);
+      if (st.size > 220000) continue;
+      body = fs.readFileSync(full, "utf-8");
+    } catch {
+      continue;
+    }
+    if (todoEvidence.length < 12 && todoRegex.test(body)) {
+      const lines = body.split("\n");
+      for (let i = 0; i < lines.length && todoEvidence.length < 12; i++) {
+        if (todoRegex.test(lines[i])) {
+          todoEvidence.push(`${rel}:${i + 1} ${lines[i].trim().slice(0, 120)}`);
+        }
+      }
+    }
+    if (placeholderEvidence.length < 12) {
+      const lines = body.split("\n");
+      for (let i = 0; i < lines.length && placeholderEvidence.length < 12; i++) {
+        const line = lines[i];
+        if (placeholderRegexes.some((rx) => rx.test(line))) {
+          placeholderEvidence.push(`${rel}:${i + 1} ${line.trim().slice(0, 120)}`);
+        }
+      }
+    }
+  }
+
+  const topExt = [...extCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([ext, count]) => `${ext || "(none)"}:${count}`);
+  const plans: ResearchPlan[] = [];
+  const pushPlan = (type: ResearchPlanType, title: string, summary: string, evidence: string[]) => {
+    if (plans.length >= maxPlans) return;
+    plans.push({
+      id: `plan-${Date.now()}-${plans.length + 1}`,
+      type,
+      title,
+      summary,
+      evidence,
+      prompt: buildResearchPrompt({ type, title, repoPath, summary, evidence }),
+    });
+  };
+
+  if (todoEvidence.length) {
+    pushPlan(
+      "bug",
+      "Triage and fix high-signal TODO/FIXME hotspots",
+      "Resolve the most actionable TODO/FIXME markers that indicate real defects or broken behavior.",
+      todoEvidence.slice(0, 5)
+    );
+  }
+  if (placeholderEvidence.length) {
+    pushPlan(
+      "placeholder",
+      "Replace placeholder implementations with production behavior",
+      "Implement incomplete stubs and remove temporary placeholders discovered in the code scan.",
+      placeholderEvidence.slice(0, 5)
+    );
+  }
+  pushPlan(
+    "feature",
+    "Improve core developer workflow and reliability",
+    "Add one incremental, user-facing improvement in the core flow and verify with automated tests.",
+    [`Dominant file types: ${topExt.join(", ") || "unknown"}`]
+  );
+  if (srcCount > 20 && testCount < Math.max(3, Math.floor(srcCount / 6))) {
+    pushPlan(
+      "feature",
+      "Expand test coverage for critical runtime paths",
+      "Increase automated coverage around high-change or high-risk paths to reduce regressions.",
+      [`Source-like files: ${srcCount}`, `Test-like files: ${testCount}`]
+    );
+  }
+  while (plans.length < Math.min(maxPlans, 4)) {
+    pushPlan(
+      "bug",
+      "Repo health pass for edge-case regressions",
+      "Run a focused quality pass over error handling, null paths, and state consistency in active modules.",
+      ["Generated from repository-wide static scan."]
+    );
+  }
+  return {
+    plans: plans.slice(0, maxPlans),
+    stats: {
+      filesScanned: files.length,
+      truncated,
+      srcCount,
+      testCount,
+      topExt,
+      todoHits: todoEvidence.length,
+      placeholderHits: placeholderEvidence.length,
+    },
+  };
 }
 
 export function startDashboard(port = 3333): http.Server {
@@ -779,6 +1209,56 @@ export function startDashboard(port = 3333): http.Server {
           startedAt: new Date().toISOString(),
         },
       });
+    }
+
+    if (p === "/api/rts/agent/redo-developer" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { runId?: string };
+        const runId = String(body?.runId ?? "").trim();
+        if (!runId) return json(res, { ok: false, error: "runId is required" }, 400);
+        const result = await redoDeveloperFromFailedTest(runId);
+        return json(res, { ok: true, ...result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
+    if (p === "/api/rts/deploy" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { maxRuns?: number };
+        const maxRuns = Number(body?.maxRuns ?? 25);
+        const result = await deployPendingRuns(maxRuns);
+        return json(res, { ok: true, ...result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
+    if (p === "/api/rts/research/generate" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { repoPath?: string; maxPlans?: number };
+        const requestedRepoPath = normalizePathKey(String(body.repoPath || ""));
+        const repoPath = resolveResearchRepoPath(requestedRepoPath);
+        if (!repoPath) {
+          return json(res, {
+            ok: false,
+            error: `No usable git repo found for research. Requested=${requestedRepoPath || "(empty)"} cwd=${normalizePathKey(process.cwd())}`
+          }, 400);
+        }
+        const { plans, stats } = generateResearchPlans(repoPath, Number(body.maxPlans ?? 8));
+        return json(res, {
+          ok: true,
+          repoPath,
+          generatedAt: new Date().toISOString(),
+          plans,
+          stats,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
     }
 
     if (p === "/api/rts/feature/run" && method === "POST") {
@@ -927,7 +1407,7 @@ export function startDashboard(port = 3333): http.Server {
     if (p === "/api/rts/layout/position" && method === "POST") {
       try {
         const body = JSON.parse(await readBody(req)) as {
-          entityType?: "base" | "feature" | "run";
+          entityType?: "base" | "feature" | "research" | "run";
           entityId?: string;
           runId?: string | null;
           repoPath?: string | null;
@@ -937,8 +1417,8 @@ export function startDashboard(port = 3333): http.Server {
           allowCreate?: boolean;
         };
         const entityType = body.entityType;
-        if (entityType !== "base" && entityType !== "feature" && entityType !== "run") {
-          return json(res, { ok: false, error: "entityType must be base|feature|run" }, 400);
+        if (entityType !== "base" && entityType !== "feature" && entityType !== "research" && entityType !== "run") {
+          return json(res, { ok: false, error: "entityType must be base|feature|research|run" }, 400);
         }
         const result = upsertLayoutPosition({
           entityType,

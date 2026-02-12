@@ -533,7 +533,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     </div>
     <div class="hud">
       <div class="hud-left panel">
-        <div class="command-title">BUILD TRACE 2</div>
+        <div class="command-title">BUILD TRACE 3</div>
         <button id="cancelPlacementBtn" class="command-icon-btn" title="Cancel placement (Esc)" aria-label="Cancel placement (Escape)">
           <img src="/rts-sprites/cancel-button.svg?v=20260212" alt="" aria-hidden="true" />
         </button>
@@ -554,7 +554,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
         </div>
         <div class="panel" id="actionPanel">
           <h3>Action Console</h3>
-          <div class="notice">Use build icons to place Base or Feature Forge.</div>
+          <div class="notice">Use build icons to place Base, Feature Forge, or Research Lab.</div>
         </div>
       </div>
     </div>
@@ -569,6 +569,10 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
           <img class="palette-sprite" src="/rts-sprites/feature-forge-corpus-test.png?v=20260212b" alt="" />
           <span class="hotkey">F</span>
         </button>
+        <button class="palette-card" draggable="true" data-building="research" title="Research Lab (L)">
+          <img class="palette-sprite" src="/rts-sprites/research-lab-corpus-test.png?v=20260212d" alt="" />
+          <span class="hotkey">L</span>
+        </button>
       </div>
     </section>
   </div>
@@ -582,10 +586,14 @@ const state = {
   customBases: [],
   baseDrafts: [],
   featureBuildings: [],
+  researchBuildings: [],
+  researchPlansByRepo: {},
   runLayoutOverrides: {},
   portByPath: {},
   runtime: null,
   live: { ts:'', activeRunCount:0, pendingRunCount:0, runningAgentCount:0, activeAgents:[] },
+  liveDeployInFlight: false,
+  liveDeployNotice: '',
   diag: null,
   liveStream: null,
   runSig: '',
@@ -620,6 +628,9 @@ const skillTrees = {
 };
 
 function esc(s){ return (s||'').replace(/[&<>\"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+function dbg(tag, data){
+  try { console.log(`[rts:${tag}]`, data || ''); } catch {}
+}
 function baseAgentId(agentId){
   return String(agentId || '').replace(/@run:[^/]+$/, '');
 }
@@ -645,6 +656,8 @@ function snapshotPersistableState(){
     customBases: state.customBases || [],
     baseDrafts: state.baseDrafts || [],
     featureBuildings: state.featureBuildings || [],
+    researchBuildings: state.researchBuildings || [],
+    researchPlansByRepo: state.researchPlansByRepo || {},
     runLayoutOverrides: state.runLayoutOverrides || {},
     portByPath: state.portByPath || {},
     camera: state.camera || { x:0, y:0 }
@@ -682,6 +695,10 @@ function resolveDraggedEntityPosition(drag){
     const f = (state.featureBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
     return f ? { x:Number(f.x)||0, y:Number(f.y)||0 } : null;
   }
+  if (drag.type === 'research') {
+    const r = (state.researchBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
+    return r ? { x:Number(r.x)||0, y:Number(r.y)||0 } : null;
+  }
   if (drag.type === 'run') {
     const p = state.runLayoutOverrides?.[drag.runId || drag.id];
     if (p) return { x:Number(p.x)||0, y:Number(p.y)||0 };
@@ -694,7 +711,9 @@ function resolveDraggedEntityPosition(drag){
 async function persistDraggedEntityPosition(drag){
   const pos = resolveDraggedEntityPosition(drag);
   if (!pos) return;
-  const entityType = drag.type === 'base' ? 'base' : (drag.type === 'feature' ? 'feature' : 'run');
+  const entityType = drag.type === 'base'
+    ? 'base'
+    : (drag.type === 'feature' ? 'feature' : (drag.type === 'research' ? 'research' : 'run'));
   await postJson('/api/rts/layout/position', {
     entityType,
     entityId: drag.id,
@@ -742,6 +761,14 @@ async function hydratePersistedState(){
       seen.add(key);
       return true;
     });
+  }
+  if (Array.isArray(persisted.researchBuildings)) {
+    state.researchBuildings = persisted.researchBuildings
+      .map(normalizeResearchBuilding)
+      .filter((rb) => !!rb.repo);
+  }
+  if (persisted.researchPlansByRepo && typeof persisted.researchPlansByRepo === 'object') {
+    state.researchPlansByRepo = persisted.researchPlansByRepo;
   }
   if (persisted.runLayoutOverrides && typeof persisted.runLayoutOverrides === 'object') state.runLayoutOverrides = persisted.runLayoutOverrides;
   if (persisted.portByPath && typeof persisted.portByPath === 'object') {
@@ -872,11 +899,12 @@ const GRID_SIZE = 22;
 const FOOTPRINTS = {
   base: { cols: 8, rows: 6, spriteW: 206, spriteH: 132 },
   feature: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
+  research: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
   run: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 }
 };
 
 function buildingFootprint(kind){
-  const key = (kind === 'base' || kind === 'feature' || kind === 'run') ? kind : 'run';
+  const key = (kind === 'base' || kind === 'feature' || kind === 'research' || kind === 'run') ? kind : 'run';
   const fp = FOOTPRINTS[key];
   return {
     cols: fp.cols,
@@ -907,7 +935,8 @@ function runTargetCenterMap(){
   (state.buildings || []).forEach((b) => {
     const rid = b.run?.id || b.runId || (b.kind === 'run' ? b.id : '');
     if (!rid) return;
-    const centerRaw = centerPointFor(b.kind === 'feature' ? 'feature' : 'run', b.x, b.y);
+    const kind = b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : 'run');
+    const centerRaw = centerPointFor(kind, b.x, b.y);
     const center = { x: centerRaw.x, y: centerRaw.y, kind: b.kind };
     const current = targets.get(rid);
     if (!current || (current.kind === 'run' && b.kind === 'feature')) targets.set(rid, center);
@@ -936,6 +965,8 @@ function renderLiveConsole(){
   const workerTotal = Number(live?.workerTotal || cronCount || 0);
   const blocked = diag?.likelyBlockedReason ? `WARN ${diag.likelyBlockedReason}` : '';
   const runtimeLine = state.runtime?.cwd ? `${state.runtime.cwd} @ :${state.runtime.port || 3333}` : '';
+  const deployWaiting = Number(live.pendingRunCount || 0);
+  const deployDisabled = state.liveDeployInFlight || deployWaiting <= 0;
   const lines = agents.length
     ? agents.slice(0, 120).map((a) => {
       const age = typeof a.ageSec === 'number' ? String(a.ageSec).padStart(3, ' ') : ' --';
@@ -951,13 +982,35 @@ function renderLiveConsole(){
     <div class="cli-panel">
       <div class="cli-head">
         <span>RUN ${live.activeRunCount || 0} | WAIT ${live.pendingRunCount || 0} | AGENT ${live.runningAgentCount || 0} | WORKERS ${workerTotal}</span>
+        <button id="deployWaitingBtn" class="agent-restart" ${deployDisabled ? 'disabled' : ''}>deploy</button>
         <span>${esc(stamp)}</span>
       </div>
       <div class="cli-body">${esc(lines)}</div>
     </div>
-    <div class="notice" style="margin-top:6px">Source: Antfarm DB step state on this machine. ${esc(blocked)}</div>
+    <div class="notice" style="margin-top:6px">Source: Antfarm DB step state on this machine. ${esc(blocked)}${state.liveDeployNotice ? ` ${esc(state.liveDeployNotice)}` : ''}</div>
     ${runtimeLine ? `<div class="notice" style="margin-top:4px">Serving: ${esc(runtimeLine)}</div>` : ''}
   `;
+  const deployBtn = document.getElementById('deployWaitingBtn');
+  deployBtn?.addEventListener('click', async () => {
+    if (state.liveDeployInFlight) return;
+    state.liveDeployInFlight = true;
+    state.liveDeployNotice = `Deploying up to ${deployWaiting} waiting run(s)...`;
+    renderLiveConsole();
+    try {
+      const result = await postJson('/api/rts/deploy', { maxRuns: deployWaiting });
+      state.liveDeployNotice = result.kicked > 0
+        ? `Deploy kicked ${result.kicked}/${result.attempted} run(s).`
+        : 'No pending runs were kickable.';
+      await refreshRuntimeState();
+      rebuildScene();
+      renderSelection();
+    } catch (err) {
+      state.liveDeployNotice = `Deploy failed: ${err.message || err}`;
+    } finally {
+      state.liveDeployInFlight = false;
+      renderLiveConsole();
+    }
+  });
 }
 
 function runsSignature(runs){
@@ -1025,7 +1078,7 @@ async function refreshRuntimeState(throwOnError = false){
       Object.keys(state.runStatusOverrides).forEach((runId) => {
         const liveRun = runs.find((r) => String(r.id) === runId);
         const liveStatus = String(liveRun?.status || '').trim().toLowerCase();
-        if (!liveRun || ['running', 'done', 'completed', 'success', 'failed', 'error', 'cancelled', 'canceled'].includes(liveStatus)) {
+        if (!liveRun || ['running', 'retrying', 'queued', 'claimed', 'in_progress', 'done', 'completed', 'success'].includes(liveStatus)) {
           delete state.runStatusOverrides[runId];
         }
       });
@@ -1183,6 +1236,45 @@ function rebuildScene(){
       });
     });
   });
+  (state.researchBuildings || []).forEach((rb) => {
+    const repoPath = baseRepoKey(String(rb.repo || ''));
+    const researchCenter = centerPointFor('research', Number(rb.x || 0), Number(rb.y || 0));
+    const linkedBase = (mergedBases || []).reduce((best, base) => {
+      const c = centerPointFor('base', Number(base.x || 0), Number(base.y || 0));
+      const d = Math.hypot(c.x - researchCenter.x, c.y - researchCenter.y);
+      if (!best || d < best.dist) return { base, dist: d };
+      return best;
+    }, null)?.base || null;
+    buildings.push({
+      ...rb,
+      kind: 'research',
+      repo: repoPath,
+      run: null,
+      runId: null,
+      progress: 0,
+      phase: 'idle',
+      worktreePath: '',
+      port: Number(getPortForPath(repoPath || '')) || 3333,
+      portLabel: pathLabel(repoPath || '')
+    });
+    if (linkedBase) {
+      units.push({
+        id: `research-${rb.id}-u-0`,
+        runId: `research:${rb.id}`,
+        label: 'cephalon',
+        full: `research/cephalon/${rb.id}`,
+        faction: 'research',
+        model: 'antfarm/research',
+        x: Number(linkedBase.x || 0) + baseFp.w + 22,
+        y: Number(linkedBase.y || 0) + 22,
+        homeX: Number(linkedBase.x || 0) + baseFp.w + 22,
+        homeY: Number(linkedBase.y || 0) + 22,
+        baseCenterX: Number(linkedBase.x || 0) + (baseFp.w / 2),
+        baseCenterY: Number(linkedBase.y || 0) + (baseFp.h / 2),
+        subagents: 1
+      });
+    }
+  });
 
   (state.featureBuildings || []).forEach((fb) => {
     const repoPath = baseRepoKey(String(fb.repo || ''));
@@ -1255,8 +1347,9 @@ function rebuildScene(){
   renderWorld();
   if (Number(state.live?.runningAgentCount || 0) > 0) ensureMotionLoop();
   if (state.selected) renderSelection();
-  if (state.selected?.type === 'building' && state.selected.data?.kind === 'feature' && !isEditingActionPanel()) {
-    renderRunSetupPanel(state.selected.data.id);
+  if (state.selected?.type === 'building' && !isEditingActionPanel()) {
+    if (state.selected.data?.kind === 'feature') renderRunSetupPanel(state.selected.data.id);
+    else if (state.selected.data?.kind === 'research') renderResearchLabPanel(state.selected.data.id);
   }
 }
 
@@ -1309,6 +1402,7 @@ function setPlacement(mode){
   const notice = document.getElementById('placementNotice');
   if (!mode) notice.textContent = 'IDLE';
   else if (mode === 'base') notice.textContent = 'BASE';
+  else if (mode === 'research') notice.textContent = 'LAB';
   else notice.textContent = 'FORGE';
   document.querySelectorAll('.palette-card[data-building]').forEach((card) => {
     card.classList.toggle('active', card.getAttribute('data-building') === mode);
@@ -1342,13 +1436,16 @@ function nearBase(x,y){
   }) || null;
 }
 
-function placeFeatureAt(x,y){
+function placeFeatureAt(x,y,prefillPrompt = '', forcedRepoPath = ''){
+  dbg('placeFeatureAt:start', { x, y, hasPrompt: !!prefillPrompt, forcedRepoPath });
   const center = centerPointFor('feature', x, y);
   const base = nearBase(center.x, center.y);
   if (!base) {
+    dbg('placeFeatureAt:blocked_no_base', { x, y, center });
     alert('Feature Request structures must be placed near a Base.');
-    return;
+    return null;
   }
+  const repoPath = forcedRepoPath || base.repo || 'unlinked-repo';
   const featureBuilding = {
     id: `feature-${Date.now()}`,
     kind:'feature',
@@ -1356,10 +1453,10 @@ function placeFeatureAt(x,y){
     committed:false,
     runId: null,
     x, y,
-    repo: base.repo || 'unlinked-repo',
-    worktreePath: getWorktreeDefault(base.repo || 'repo'),
-    port: (Number(base.port) || getPortForPath(base.repo || '') || 3333) + 1,
-    prompt: ''
+    repo: repoPath,
+    worktreePath: getWorktreeDefault(repoPath || 'repo'),
+    port: (Number(base.port) || getPortForPath(repoPath || '') || 3333) + 1,
+    prompt: String(prefillPrompt || '')
   };
   state.featureBuildings.push(featureBuilding);
   void postJson('/api/rts/layout/position', {
@@ -1373,10 +1470,44 @@ function placeFeatureAt(x,y){
     allowCreate: true
   }).catch(() => {});
   state.selected = { type:'building', data:featureBuilding };
+  dbg('placeFeatureAt:created', { id: featureBuilding.id, repo: featureBuilding.repo, x: featureBuilding.x, y: featureBuilding.y });
   queuePersist();
   rebuildScene();
   renderSelection();
   renderRunSetupPanel(featureBuilding.id);
+  return featureBuilding;
+}
+
+function placeResearchAt(x,y){
+  const center = centerPointFor('research', x, y);
+  const base = nearBase(center.x, center.y);
+  if (!base) {
+    alert('Research Labs must be placed near a Base.');
+    return;
+  }
+  const researchBuilding = {
+    id: `research-${Date.now()}`,
+    kind:'research',
+    x, y,
+    repo: base.repo || 'unlinked-repo',
+    baseId: base.id
+  };
+  state.researchBuildings.push(researchBuilding);
+  void postJson('/api/rts/layout/position', {
+    entityType: 'research',
+    entityId: researchBuilding.id,
+    runId: null,
+    repoPath: researchBuilding.repo || null,
+    worktreePath: null,
+    x: researchBuilding.x,
+    y: researchBuilding.y,
+    allowCreate: true
+  }).catch(() => {});
+  state.selected = { type:'building', data:researchBuilding };
+  queuePersist();
+  rebuildScene();
+  renderSelection();
+  renderResearchLabPanel(researchBuilding.id);
 }
 
 function structureMarkup(kind){
@@ -1385,6 +1516,9 @@ function structureMarkup(kind){
   }
   if (kind === 'feature') {
     return `<img class="building-sprite" src="/rts-sprites/feature-forge-corpus-test.png?v=20260212b" alt="" />`;
+  }
+  if (kind === 'research') {
+    return `<img class="building-sprite" src="/rts-sprites/research-lab-corpus-test.png?v=20260212d" alt="" />`;
   }
   return `<img class="building-sprite" src="/rts-sprites/feature-forge-corpus-test.png?v=20260212b" alt="" />`;
 }
@@ -1429,7 +1563,7 @@ function showPlacementGhost(kind, worldX, worldY){
   const point = snapPlacement(kind, worldX, worldY);
   const screen = worldToScreen(point.x, point.y);
   const center = centerPointFor(kind, point.x, point.y);
-  const invalid = kind === 'feature' && !nearBase(center.x, center.y);
+  const invalid = (kind === 'feature' || kind === 'research') && !nearBase(center.x, center.y);
   const className = kind === 'base' ? 'base' : 'building';
   const fp = buildingFootprint(kind);
   placementLayerEl.innerHTML = `
@@ -1481,6 +1615,12 @@ function updateFeaturePosition(id, x, y){
   const b = (state.buildings || []).find((it) => it.id === id && it.kind === 'feature');
   const runId = b?.runId || b?.run?.id || '';
   if (runId) updateRunBuildingPosition(runId, x, y);
+}
+
+function updateResearchPosition(id, x, y){
+  const i = state.researchBuildings.findIndex((b) => b.id === id);
+  if (i < 0) return;
+  state.researchBuildings[i] = { ...state.researchBuildings[i], x, y };
 }
 
 function updateRunBuildingPosition(id, x, y){
@@ -1561,6 +1701,15 @@ async function deleteSelectedStructure(){
     renderRunSetupPanel(null);
     return;
   }
+  if (s.type === 'building' && s.data?.kind === 'research') {
+    state.researchBuildings = (state.researchBuildings || []).filter((b) => b.id !== s.data.id);
+    state.selected = null;
+    queuePersist();
+    rebuildScene();
+    renderSelection();
+    renderRunSetupPanel(null);
+    return;
+  }
   if (s.type === 'building' && s.data?.kind === 'run') {
     try {
       await postJson('/api/rts/building/delete', { runId: s.data.id });
@@ -1629,6 +1778,20 @@ function normalizeFeatureDraft(raw){
   };
 }
 
+function normalizeResearchBuilding(raw){
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const repo = baseRepoKey(String(src.repo || ''));
+  return {
+    ...src,
+    id: String(src.id || `research-${Date.now()}`),
+    kind: 'research',
+    repo,
+    baseId: String(src.baseId || ''),
+    x: Number(src.x || 0),
+    y: Number(src.y || 0)
+  };
+}
+
 function featureStructureVisualState(building){
   if (!building) return 'draft';
   if (!building.committed || !building.runId) return 'draft';
@@ -1685,6 +1848,29 @@ function renderWorld(){
         line.style.transform = `rotate(${angle}deg)`;
         pathLayer.appendChild(line);
       });
+    });
+    (state.buildings || []).filter((b) => b.kind === 'research').forEach((research) => {
+      const target = centerPointFor('research', Number(research.x || 0), Number(research.y || 0));
+      const nearest = (state.bases || []).reduce((best, base) => {
+        const from = centerPointFor('base', Number(base.x || 0), Number(base.y || 0));
+        const d = Math.hypot(from.x - target.x, from.y - target.y);
+        if (!best || d < best.dist) return { base, from, dist: d };
+        return best;
+      }, null);
+      if (!nearest || nearest.dist < 1) return;
+      const start = worldToScreen(nearest.from.x, nearest.from.y);
+      const dx = target.x - nearest.from.x;
+      const dy = target.y - nearest.from.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 1) return;
+      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+      const line = document.createElement('div');
+      line.className = 'rts-path active';
+      line.style.left = `${start.x}px`;
+      line.style.top = `${start.y}px`;
+      line.style.width = `${dist}px`;
+      line.style.transform = `rotate(${angle}deg)`;
+      pathLayer.appendChild(line);
     });
   }
 
@@ -1750,7 +1936,9 @@ function renderWorld(){
   });
 
   state.buildings.forEach(b => {
-    const status = prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting'));
+    const status = b.kind === 'research'
+      ? 'idle'
+      : prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting'));
     const color = status === 'done' ? 'var(--ok)' : status === 'failed' ? 'var(--bad)' : 'var(--warn)';
     const movable = true;
     const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';
@@ -1759,18 +1947,21 @@ function renderWorld(){
     const buildLabel = b.portLabel || pathLabel(b.worktreePath || b.repo || '');
     const el = renderIsoEntity({
       className,
-      kind: b.kind === 'feature' ? 'feature' : 'run',
+      kind: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : 'run'),
       x:b.x,
       y:b.y,
       innerHtml:`
-        ${structureMarkup(b.kind === 'feature' ? 'feature' : 'run')}
+        ${structureMarkup(b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : 'run'))}
         <div class="port-chip">${esc(buildLabel)} :${buildPort}</div>
-        <div class="progress" style="position:absolute;left:12px;right:12px;bottom:8px"><div class="bar" style="width:${b.progress || 0}%;background:${color}"></div></div>
+        ${b.kind === 'research'
+          ? '<div class="notice" style="position:absolute;left:12px;right:12px;bottom:8px">Research queue ready</div>'
+          : `<div class="progress" style="position:absolute;left:12px;right:12px;bottom:8px"><div class="bar" style="width:${b.progress || 0}%;background:${color}"></div></div>`}
       `,
       onClick:() => {
         state.selected = { type:'building', data:b };
         renderSelection();
         if (b.kind === 'feature') renderRunSetupPanel(b.id);
+        if (b.kind === 'research') renderResearchLabPanel(b.id);
         rebuildScene();
       }
     });
@@ -1781,7 +1972,7 @@ function renderWorld(){
         e.stopPropagation();
         const point = screenToWorld(e.clientX, e.clientY);
         state.draggingEntity = {
-          type: b.kind === 'feature' ? 'feature' : 'run',
+          type: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : 'run'),
           id: b.id,
           runId: b.runId || b.run?.id || (b.kind === 'run' ? b.id : ''),
           repoPath: b.repo || '',
@@ -1936,10 +2127,8 @@ function renderRunAgentsConsole(run, selectedAgentId){
         btn.disabled = true;
         if (restartNotice) restartNotice.textContent = 'Redoing Developer from failed test feedback...';
         const rr = await postJson('/api/rts/agent/redo-developer', { runId });
-        if (rr?.kicked) {
-          markRunRelaunched(runId);
-          rebuildScene();
-        }
+        markRunRelaunched(runId);
+        rebuildScene();
         state.runs = await json('/api/runs');
         rebuildScene();
         const refreshed = (state.runs || []).find(r => r.id === runId);
@@ -1997,6 +2186,12 @@ function renderSelection(){
       const port = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
       panel.innerHTML = `<h3>Feature Forge</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || '-')}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(port)}</div><div class="kv"><strong>Status:</strong> ${esc(prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'draft')))}</div><div class="kv"><strong>Progress:</strong> ${b.progress || 0}%</div>${b.prUrl ? `<a class="pr-link" href="${b.prUrl}" target="_blank">OPEN PULL REQUEST</a>` : '<div class="notice">No PR link detected yet.</div>'}${renderSkillTree('builder','Run Build Matrix')}`;
       if (!isEditingActionPanel()) renderRunSetupPanel(b.id);
+      return;
+    }
+    if (b.kind === 'research') {
+      setFeatureMode(false);
+      panel.innerHTML = `<h3>Research Lab</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Status:</strong> ready</div><div class="notice">Run repository analysis to generate drag-and-drop feature plans.</div>`;
+      if (!isEditingActionPanel()) renderResearchLabPanel(b.id);
       return;
     }
     const port = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
@@ -2439,6 +2634,167 @@ function renderAgentStatusList(agents, run){
   return `<div class="build-card" style="margin-top:8px"><div class="kv"><strong>Assigned Agents</strong></div><div class="agent-list" id="assignedAgentList">${rows}</div><div id="terminalViewerHost"></div></div>`;
 }
 
+function placeFeatureDraftFromPlan(plan, x, y, repo){
+  dbg('planDrop:placeFeatureDraftFromPlan', { planId: String(plan?.id || ''), x, y, repo });
+  const ok = !!placeFeatureAt(x, y, String(plan?.prompt || ''), String(repo || ''));
+  dbg('planDrop:placeFeatureDraftFromPlan:result', { ok });
+  return ok;
+}
+
+function consumeResearchPlan(repoKey, planId){
+  dbg('planQueue:consume:start', { repoKey, planId });
+  if (!repoKey || !planId) return null;
+  const list = Array.isArray(state.researchPlansByRepo?.[repoKey]) ? state.researchPlansByRepo[repoKey] : [];
+  const idx = list.findIndex((p) => String(p.id) === String(planId));
+  if (idx < 0) {
+    dbg('planQueue:consume:miss', { repoKey, planId, size: list.length });
+    return null;
+  }
+  const plan = list[idx];
+  const next = [...list.slice(0, idx), ...list.slice(idx + 1)];
+  state.researchPlansByRepo = { ...(state.researchPlansByRepo || {}), [repoKey]: next };
+  queuePersist();
+  dbg('planQueue:consume:ok', { repoKey, planId, remaining: next.length });
+  return plan;
+}
+
+function consumeResearchPlanAny(planId, preferredRepoKey = ''){
+  dbg('planQueue:consumeAny:start', { planId, preferredRepoKey, keys: Object.keys(state.researchPlansByRepo || {}) });
+  const preferred = String(preferredRepoKey || '');
+  const byRepo = state.researchPlansByRepo && typeof state.researchPlansByRepo === 'object'
+    ? state.researchPlansByRepo
+    : {};
+  if (preferred) {
+    const plan = consumeResearchPlan(preferred, planId);
+    if (plan) {
+      dbg('planQueue:consumeAny:hit_preferred', { repoKey: preferred, planId });
+      return { plan, repoKey: preferred };
+    }
+  }
+  const keys = Object.keys(byRepo);
+  for (const key of keys) {
+    const plan = consumeResearchPlan(key, planId);
+    if (plan) {
+      dbg('planQueue:consumeAny:hit_fallback', { repoKey: key, planId });
+      return { plan, repoKey: key };
+    }
+  }
+  dbg('planQueue:consumeAny:miss', { planId });
+  return null;
+}
+
+function renderResearchLabPanel(targetLabId){
+  const panel = document.getElementById('actionPanel');
+  const lab = (state.researchBuildings || []).find((it) => String(it.id) === String(targetLabId || ''))
+    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'research' ? state.selected.data : null);
+  if (!lab) {
+    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Select a Research Lab to generate plans.</div>`;
+    return;
+  }
+  const requestedRepo = baseRepoKey(String(lab.repo || ''));
+  const runtimeRepo = normalizePathKey(String(state.runtime?.cwd || ''));
+  const effectiveRepo = (requestedRepo && requestedRepo !== 'workspace-repo') ? requestedRepo : runtimeRepo;
+  const repoKey = effectiveRepo || requestedRepo || 'workspace-repo';
+  const plans = Array.isArray(state.researchPlansByRepo?.[repoKey]) ? state.researchPlansByRepo[repoKey] : [];
+  if (effectiveRepo && lab.repo !== effectiveRepo) {
+    lab.repo = effectiveRepo;
+    queuePersist();
+  }
+  panel.innerHTML = `
+    <h3>Research Console</h3>
+    <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
+    <button id="runResearchBtn">Research</button>
+    <div class="notice" style="margin-top:8px" id="researchNotice">Analyze repo via Antfarm and generate plan drafts.</div>
+    <div class="build-card" style="margin-top:8px">
+      <div class="kv"><strong>Generated Plans</strong></div>
+      <div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
+        <div class="agent-row research-plan" draggable="true" data-plan-id="${esc(plan.id)}">
+          <div class="agent-meta">
+            <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
+            <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Plan ${idx + 1}`)}</span>
+          </div>
+          <div class="agent-actions">
+            <button class="agent-restart" data-plan-deploy="${esc(plan.id)}">deploy</button>
+          </div>
+        </div>
+      `).join('') : '<div class="notice">No plans yet. Press Research.</div>'}</div>
+      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft with prewritten prompt.</div>
+    </div>
+  `;
+  const notice = document.getElementById('researchNotice');
+  const refreshPlanInteractions = () => {
+    const list = document.getElementById('researchPlanList');
+    if (!list) return;
+    list.querySelectorAll('[data-plan-deploy]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-plan-deploy');
+        dbg('planDeploy:click', { id, repoKey });
+        const plan = consumeResearchPlan(repoKey, String(id || ''));
+        if (!plan) return;
+        const fp = buildingFootprint('feature');
+        const placed = placeFeatureDraftFromPlan(plan, Number(lab.x || 0) + fp.w + GRID_SIZE, Number(lab.y || 0), effectiveRepo || requestedRepo);
+        if (!placed) {
+          state.researchPlansByRepo = {
+            ...(state.researchPlansByRepo || {}),
+            [repoKey]: [plan, ...(state.researchPlansByRepo?.[repoKey] || [])]
+          };
+          queuePersist();
+          dbg('planDeploy:restore_after_failed_place', { id, repoKey });
+        }
+        dbg('planDeploy:done', { id, placed });
+        renderResearchLabPanel(lab.id);
+      });
+    });
+    list.querySelectorAll('.research-plan').forEach((row) => {
+      row.addEventListener('dragstart', (e) => {
+        const id = row.getAttribute('data-plan-id') || '';
+        queuedResearchPlan = { id, repoKey, repoPath: (effectiveRepo || requestedRepo) };
+        dragBuildingType = 'feature';
+        setPlacement('feature');
+        dragResearchPlan = null;
+        researchDropHandled = false;
+        lastResearchDragSnap = null;
+        e.dataTransfer?.setData('text/plain', 'feature');
+        dbg('planDrag:start', { id, repoKey, repoPath: queuedResearchPlan.repoPath, types: e.dataTransfer?.types ? Array.from(e.dataTransfer.types) : [] });
+        worldWrapEl.classList.add('drop-armed');
+      });
+      row.addEventListener('dragend', () => {
+        dbg('planDrag:end', { queuedResearchPlan, dragResearchPlan, dragBuildingType });
+        if (!researchDropHandled && queuedResearchPlan && lastResearchDragSnap) {
+          dbg('planDrag:end:fallbackCommit', { queuedResearchPlan, lastResearchDragSnap });
+          commitQueuedResearchPlan(lastResearchDragSnap);
+        }
+        queuedResearchPlan = null;
+        dragResearchPlan = null;
+        dragBuildingType = null;
+        setPlacement(null);
+        researchDropHandled = false;
+        lastResearchDragSnap = null;
+        worldWrapEl.classList.remove('drop-armed');
+        hidePlacementGhost();
+      });
+    });
+  };
+  refreshPlanInteractions();
+  const runBtn = document.getElementById('runResearchBtn');
+  runBtn?.addEventListener('click', async () => {
+    try {
+      if (!effectiveRepo) throw new Error('No repo resolved for research. Place lab near a base with a repo, or run RTS from an Antfarm repo.');
+      if (notice) notice.textContent = 'Scanning repository and generating plans...';
+      const res = await postJson('/api/rts/research/generate', { repoPath: effectiveRepo, maxPlans: 10 });
+      state.researchPlansByRepo = { ...(state.researchPlansByRepo || {}), [repoKey]: Array.isArray(res.plans) ? res.plans : [] };
+      queuePersist();
+      if (notice) {
+        const count = Array.isArray(res.plans) ? res.plans.length : 0;
+        notice.textContent = `Generated ${count} plan(s) from ${res.repoPath || effectiveRepo}. Drag one onto the map or deploy directly.`;
+      }
+      renderResearchLabPanel(lab.id);
+    } catch (err) {
+      if (notice) notice.textContent = `Research failed: ${err.message || err}`;
+    }
+  });
+}
+
 function renderRunSetupPanel(targetDraftId){
   const panel = document.getElementById('actionPanel');
   let draft = null;
@@ -2470,7 +2826,7 @@ function renderRunSetupPanel(targetDraftId){
   }
   if (!draft) {
     setFeatureMode(false);
-    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Use command cards to place Base or Feature Request structures.</div>`;
+    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Use command cards to place Base, Feature Request, or Research Lab structures.</div>`;
     stopAgentStream();
     return;
   }
@@ -2649,10 +3005,8 @@ function renderRunSetupPanel(targetDraftId){
           const mutationNotice = document.getElementById('featureMutationNotice');
           if (mutationNotice) mutationNotice.textContent = 'Redoing Developer from failed test feedback...';
           const rr = await postJson('/api/rts/agent/redo-developer', { runId });
-          if (rr?.kicked) {
-            markRunRelaunched(runId);
-            rebuildScene();
-          }
+          markRunRelaunched(runId);
+          rebuildScene();
           state.runs = await json('/api/runs');
           rebuildScene();
           renderRunSetupPanel(draft.id);
@@ -2688,6 +3042,71 @@ const worldEl = document.getElementById('world');
 const worldWrapEl = document.getElementById('worldWrap');
 const placementLayerEl = document.getElementById('placementLayer');
 let dragBuildingType = null;
+let dragResearchPlan = null;
+let queuedResearchPlan = null;
+let researchDropHandled = false;
+let lastResearchDragSnap = null;
+function hasResearchPlanMime(e){
+  const types = e?.dataTransfer?.types;
+  if (!types) return false;
+  try {
+    const has = Array.from(types).includes('application/x-antfarm-research-plan');
+    dbg('planDrag:hasMime', { has, types: Array.from(types) });
+    return has;
+  } catch {
+    return false;
+  }
+}
+
+function commitResearchDropFromPayload(researchDrop, snapped){
+  if (!researchDrop || !snapped) return false;
+  const repoKey = String(researchDrop.repoKey || '');
+  const repoPath = String(researchDrop.repoPath || '');
+  const consumed = consumeResearchPlanAny(String(researchDrop.id || ''), repoKey);
+  dbg('planDrop:commit:consumed', { researchDrop, consumedRepoKey: consumed?.repoKey, found: !!consumed?.plan, snapped });
+  if (!consumed?.plan) return false;
+  const effectiveRepoPath = repoPath || consumed.repoKey || '';
+  const placed = placeFeatureDraftFromPlan(consumed.plan, snapped.x, snapped.y, effectiveRepoPath);
+  dbg('planDrop:commit:placed', { placed, effectiveRepoPath });
+  if (!placed) {
+    state.researchPlansByRepo = {
+      ...(state.researchPlansByRepo || {}),
+      [consumed.repoKey]: [consumed.plan, ...(state.researchPlansByRepo?.[consumed.repoKey] || [])]
+    };
+    queuePersist();
+    return false;
+  }
+  researchDropHandled = true;
+  if (state.selected?.type === 'building' && state.selected?.data?.kind === 'research') {
+    renderResearchLabPanel(state.selected.data.id);
+  }
+  return true;
+}
+function commitQueuedResearchPlan(snapped){
+  if (!queuedResearchPlan || !snapped) return false;
+  const payload = queuedResearchPlan;
+  dbg('planDrop:queued:commit:start', { payload, snapped });
+  const consumed = consumeResearchPlanAny(String(payload.id || ''), String(payload.repoKey || ''));
+  if (!consumed?.plan) {
+    dbg('planDrop:queued:commit:miss', { payload });
+    return false;
+  }
+  const effectiveRepoPath = String(payload.repoPath || consumed.repoKey || '');
+  const placed = placeFeatureDraftFromPlan(consumed.plan, snapped.x, snapped.y, effectiveRepoPath);
+  dbg('planDrop:queued:commit:placed', { placed, effectiveRepoPath });
+  if (!placed) {
+    state.researchPlansByRepo = {
+      ...(state.researchPlansByRepo || {}),
+      [consumed.repoKey]: [consumed.plan, ...(state.researchPlansByRepo?.[consumed.repoKey] || [])]
+    };
+    queuePersist();
+    return false;
+  }
+  if (state.selected?.type === 'building' && state.selected?.data?.kind === 'research') {
+    renderResearchLabPanel(state.selected.data.id);
+  }
+  return true;
+}
 document.getElementById('cancelPlacementBtn').addEventListener('click', () => setPlacement(null));
 document.getElementById('deleteSelectedBtn').addEventListener('click', () => deleteSelectedStructure());
 
@@ -2701,6 +3120,7 @@ worldWrapEl.addEventListener('mousedown', (e) => {
   const snapped = snapPlacement(state.placementMode, point.x, point.y);
   if (state.placementMode === 'base') placeBaseAt(snapped.x, snapped.y);
   if (state.placementMode === 'feature') placeFeatureAt(snapped.x, snapped.y);
+  if (state.placementMode === 'research') placeResearchAt(snapped.x, snapped.y);
   state.suppressWorldClick = false;
   setPlacement(null);
 }, true);
@@ -2722,24 +3142,82 @@ document.querySelectorAll('.palette-card[data-building]').forEach((card) => {
 });
 
 worldWrapEl.addEventListener('dragover', (e) => {
-  if (!dragBuildingType) return;
+  if (!dragBuildingType && !dragResearchPlan && !queuedResearchPlan && !hasResearchPlanMime(e)) return;
   e.preventDefault();
   const point = localPointInWorld(e);
-  showPlacementGhost(dragBuildingType, point.x, point.y);
+  if (dragResearchPlan || queuedResearchPlan || hasResearchPlanMime(e)) {
+    lastResearchDragSnap = snapPlacement('feature', point.x, point.y);
+  }
+  dbg('planDrop:dragover', { dragBuildingType, dragResearchPlan, queuedResearchPlan, x: point.x, y: point.y });
+  showPlacementGhost(dragBuildingType || 'feature', point.x, point.y);
 });
 worldWrapEl.addEventListener('drop', (e) => {
-  if (!dragBuildingType) return;
+  const plainData = String(e.dataTransfer?.getData('text/plain') || '');
+  const hasResearchPayload = /^research-plan:/.test(plainData) || hasResearchPlanMime(e) || !!queuedResearchPlan;
+  dbg('planDrop:drop:start', { plainData, hasResearchPayload, dragBuildingType, dragResearchPlan, queuedResearchPlan });
+  if (!dragBuildingType && !dragResearchPlan && !queuedResearchPlan && !hasResearchPayload) return;
   e.preventDefault();
   const point = localPointInWorld(e);
-  const snapped = snapPlacement(dragBuildingType, point.x, point.y);
-  if (dragBuildingType === 'base') placeBaseAt(snapped.x, snapped.y);
-  if (dragBuildingType === 'feature') placeFeatureAt(snapped.x, snapped.y);
+  const snapped = snapPlacement(dragBuildingType || 'feature', point.x, point.y);
+  dbg('planDrop:drop:snapped', { snapped });
+  if (dragBuildingType === 'feature' && queuedResearchPlan) {
+    const ok = commitQueuedResearchPlan(snapped);
+    researchDropHandled = ok;
+    if (!ok) {
+      const sid = String(queuedResearchPlan.id || '');
+      if (sid) alert(`Plan ${sid} not found in research queue. Re-run Research to refresh list.`);
+    }
+    dbg('planDrop:drop:end:queued', { ok, queuedResearchPlan });
+    dragBuildingType = null;
+    dragResearchPlan = null;
+    queuedResearchPlan = null;
+    researchDropHandled = false;
+    lastResearchDragSnap = null;
+    worldWrapEl.classList.remove('drop-armed');
+    setPlacement(null);
+    return;
+  }
+  let researchDrop = dragResearchPlan;
+  if (!researchDrop) {
+    try {
+      const raw = e.dataTransfer?.getData('application/x-antfarm-research-plan') || '';
+      if (raw) researchDrop = JSON.parse(raw);
+      dbg('planDrop:drop:jsonPayload', { raw, parsed: researchDrop });
+    } catch {}
+  }
+  if (!researchDrop) {
+    const plain = String(e.dataTransfer?.getData('text/plain') || '');
+    const m = plain.match(/^research-plan:(.+)$/);
+    if (m) {
+      const selectedLab = (state.selected?.type === 'building' && state.selected?.data?.kind === 'research') ? state.selected.data : null;
+      const repoPath = selectedLab ? baseRepoKey(String(selectedLab.repo || '')) : '';
+      const repoKey = repoPath || 'workspace-repo';
+      researchDrop = { id: m[1], repoKey, repoPath };
+      dbg('planDrop:drop:fallbackFromText', { researchDrop });
+    }
+  }
+  if (researchDrop) {
+    const ok = commitResearchDropFromPayload(researchDrop, snapped);
+    if (!ok) {
+      const sid = String(researchDrop.id || '');
+      if (sid) alert(`Plan ${sid} not found in research queue. Re-run Research to refresh list.`);
+    }
+  } else {
+    if (dragBuildingType === 'base') placeBaseAt(snapped.x, snapped.y);
+    if (dragBuildingType === 'feature') placeFeatureAt(snapped.x, snapped.y);
+    if (dragBuildingType === 'research') placeResearchAt(snapped.x, snapped.y);
+  }
+  dbg('planDrop:drop:end', { dragBuildingType, dragResearchPlan });
   dragBuildingType = null;
+  dragResearchPlan = null;
+  queuedResearchPlan = null;
+  researchDropHandled = false;
+  lastResearchDragSnap = null;
   worldWrapEl.classList.remove('drop-armed');
   setPlacement(null);
 });
 worldWrapEl.addEventListener('dragleave', (e) => {
-  if (!dragBuildingType) return;
+  if (!dragBuildingType && !dragResearchPlan) return;
   if (e.relatedTarget && worldWrapEl.contains(e.relatedTarget)) return;
   hidePlacementGhost();
 });
@@ -2763,7 +3241,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.target && ['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
-  if (e.key === 'r' || e.key === 'R') {
+  if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
     const activeRow = document.querySelector('#assignedAgentList .agent-row.active');
     const activeAgent = String(activeRow?.getAttribute?.('data-agent') || '');
     const activeIsDeveloper = /\/developer$/i.test(activeAgent);
@@ -2779,6 +3257,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'b' || e.key === 'B') setPlacement('base');
   if (e.key === 'f' || e.key === 'F') setPlacement('feature');
+  if (e.key === 'l' || e.key === 'L') setPlacement('research');
   if (e.key === 'Delete' || e.key === 'Backspace') deleteSelectedStructure();
 });
 
@@ -2798,12 +3277,15 @@ const handlePointerMove = (e) => {
   if (state.draggingEntity) {
     const autoPanned = edgeAutoPan(e.clientX, e.clientY);
     const point = localPointInWorld(e);
-    const kind = (state.draggingEntity.type === 'base' || state.draggingEntity.type === 'baseDraft') ? 'base' : 'feature';
+    const kind = (state.draggingEntity.type === 'base' || state.draggingEntity.type === 'baseDraft')
+      ? 'base'
+      : (state.draggingEntity.type === 'research' ? 'research' : 'feature');
     const snapped = snapPlacement(kind, point.x - state.draggingEntity.offsetX + (buildingFootprint(kind).w / 2), point.y - state.draggingEntity.offsetY + (buildingFootprint(kind).h / 2));
     state.draggingMoved = true;
     if (state.draggingEntity.type === 'base') updateCustomBasePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'baseDraft') updateBaseDraftPosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'feature') updateFeaturePosition(state.draggingEntity.id, snapped.x, snapped.y);
+    else if (state.draggingEntity.type === 'research') updateResearchPosition(state.draggingEntity.id, snapped.x, snapped.y);
     else updateRunBuildingPosition(state.draggingEntity.id, snapped.x, snapped.y);
     rebuildScene();
     if (autoPanned) queuePersist();
@@ -2853,6 +3335,7 @@ worldEl.addEventListener('click', (e) => {
     const snapped = snapPlacement(state.placementMode, point.x, point.y);
     if (state.placementMode === 'base') placeBaseAt(snapped.x, snapped.y);
     if (state.placementMode === 'feature') placeFeatureAt(snapped.x, snapped.y);
+    if (state.placementMode === 'research') placeResearchAt(snapped.x, snapped.y);
     state.suppressWorldClick = false;
     setPlacement(null);
     return;
