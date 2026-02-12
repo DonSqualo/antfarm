@@ -62,7 +62,6 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
 ---
-
 ## 2026-02-12 21:20 - US-001: Add research agenda field to Research Lab state and persistence
 - Extended Research Lab normalization in `src/server/rts.html` with `agenda` defaulting to empty string for backward-compatible loads.
 - Wired agenda-safe persistence by including normalized `researchBuildings` in `snapshotPersistableState()` and initializing new labs with `agenda: ''`.
@@ -85,4 +84,11 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-research-agenda-textarea-binding.test.ts` to assert agenda textarea rendering, agenda value binding, and persistence wiring in both `src/server/rts.html` and `dist/server/rts.html`.
 - Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-research-agenda-textarea-binding.test.ts`, `progress.txt`
 - **Learnings:** Research Console panel changes should include explicit src/dist parity checks because tests validate both authored and built RTS HTML.
+---
+## 2026-02-12 22:06 - US-001: Implement local git repository discovery API for RTS base setup
+- Replaced stubbed `/api/local-repos` response with server-side discovery from configured/default local roots
+- Added local repo discovery helpers in `src/server/dashboard.ts` to scan directories for `.git` (directory or file), normalize absolute paths, de-duplicate results, derive display name, and attach `suggestedPort` when inferable
+- Added regression coverage in `tests/local-repos-discovery.test.ts` for filtering non-repos, normalization/name mapping, dedupe behavior, and `suggestedPort` inference
+- Files changed: `src/server/dashboard.ts`, `tests/local-repos-discovery.test.ts`, `progress.txt`
+- **Learnings:** RTS path-based port suggestions are currently derived from path naming conventions (`/antfarm` -> 3333, `antfarm-feature-<n>` -> 3400 + n%400); backend helpers should stay in sync with this convention.
 ---
