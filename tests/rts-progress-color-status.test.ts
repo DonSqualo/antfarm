@@ -28,7 +28,9 @@ function run(): void {
 
     assert(html.includes("if (SUCCESS_RUN_STATUSES.has(status) && b.prUrl)"), `${label}: PR READY note success status mapping missing`);
     assert(html.includes("if (FAILED_RUN_STATUSES.has(status))"), `${label}: error note status mapping missing`);
-    assert(html.includes("note.innerHTML = `ERROR<br>Status: ${esc(prettyStatus(status || 'failed'))}`;"), `${label}: error notification content missing`);
+    assert(html.includes("function summarizeRunFailure(run)"), `${label}: run failure summarizer missing`);
+    assert(html.includes("function featureFailureNoteHtml(building, status)"), `${label}: error notification formatter missing`);
+    assert(html.includes("note.innerHTML = featureFailureNoteHtml(b, status);"), `${label}: error notification renderer missing`);
   }
 
   console.log("PASS: RTS feature progress and status color/notifications map active, success, and error states consistently.");

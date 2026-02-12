@@ -117,3 +117,11 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/dashboard.ts`, `tests/rts-base-existing-repo.e2e.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** RTS base creation server contract now explicitly supports existing-local-repo mode through `/api/rts/base/clone`; regression coverage should assert this contract directly.
 ---
+
+## 2026-02-12 23:26 - US-002: Show ERROR map notification for failed feature runs
+- Added failure-note helpers to `src/server/rts.html`: `summarizeRunFailure(run)` and `featureFailureNoteHtml(building, status)` to include ERROR label, run id snippet, normalized status, and failure reason (from run-level fields or failed step detail when present)
+- Kept PR READY behavior intact (success + PR URL only) and retained early-return rendering flow so success and error bubbles cannot render simultaneously for one feature building
+- Updated regression test `tests/rts-progress-color-status.test.ts` to assert new failure formatter/helper wiring in both `src/server/rts.html` and `dist/server/rts.html`
+- Files changed: `src/server/rts.html`, `tests/rts-progress-color-status.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** For map-level failure UX, prefer a formatter helper that composes run id/status/reason from both run and step contexts; this keeps render loops simple and avoids duplicating failure extraction logic.
+---
