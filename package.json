@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && cp src/server/index.html dist/server/index.html && cp src/server/rts.html dist/server/rts.html && mkdir -p dist/server/rts-sprites && cp -R src/server/rts-sprites/. dist/server/rts-sprites/ && chmod +x dist/cli/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/cli/cli.js",
     "test": "for f in tests/*.test.ts; do node \"$f\"; done"
   },

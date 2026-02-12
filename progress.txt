@@ -79,3 +79,10 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `package.json`, `src/server/rts.html`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** Existing RTS tests are strict string checks; even behavior-equivalent refactors can fail CI unless expected helper signatures and literal call-sites remain present.
 ---
+
+## 2026-02-12 18:34 - US-001: Add explicit typecheck script for verifier gate
+- Added `typecheck` npm script in `package.json` (`tsc -p tsconfig.json --noEmit`) so verifier-required `npm run typecheck` executes successfully
+- Re-ran full gates to confirm no regressions after script addition
+- Files changed: `package.json`, `progress.txt`
+- **Learnings:** Verifier command contracts (`npm run typecheck`, `npm test`) must exist explicitly in `package.json` even when equivalent build/test steps already run elsewhere.
+---
