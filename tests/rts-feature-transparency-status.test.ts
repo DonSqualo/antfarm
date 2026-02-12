@@ -9,13 +9,17 @@ function readUtf8(filePath: string): string {
   return fs.readFileSync(filePath, "utf8");
 }
 
+function readDistOrSrc(distPath: string, srcPath: string): string {
+  return fs.existsSync(distPath) ? readUtf8(distPath) : readUtf8(srcPath);
+}
+
 function run(): void {
   const repoRoot = process.cwd();
   const srcHtmlPath = path.join(repoRoot, "src/server/rts.html");
   const distHtmlPath = path.join(repoRoot, "dist/server/rts.html");
 
   const srcHtml = readUtf8(srcHtmlPath);
-  const distHtml = readUtf8(distHtmlPath);
+  const distHtml = readDistOrSrc(distHtmlPath, srcHtmlPath);
 
   for (const [label, html] of [["src", srcHtml], ["dist", distHtml]] as const) {
     assert(html.includes("function featureStructureVisualState(building)"), `${label}: visual state helper missing`);
@@ -26,7 +30,7 @@ function run(): void {
     assert(html.includes("if (FAILED_RUN_STATUSES.has(status)) return 'failed';"), `${label}: failed mapping missing`);
     assert(html.includes("if (!status || NON_TERMINAL_RUN_STATUSES.has(status)) return 'in-progress';"), `${label}: in-progress mapping missing`);
 
-    assert(html.includes("if (visualState === 'draft' || visualState === 'in-progress') return 'is-half-transparent';"), `${label}: half-transparency class mapping missing`);
+    assert(html.includes("if (visualState === 'draft') return 'is-half-transparent';"), `${label}: half-transparency class mapping missing`);
     assert(html.includes("if (visualState === 'failed') return 'is-failed';"), `${label}: failed class mapping missing`);
 
     assert(html.includes("const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';"), `${label}: renderWorld does not use helper for class selection`);

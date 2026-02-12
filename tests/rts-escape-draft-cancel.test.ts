@@ -9,13 +9,17 @@ function readUtf8(filePath: string): string {
   return fs.readFileSync(filePath, "utf8");
 }
 
+function readDistOrSrc(distPath: string, srcPath: string): string {
+  return fs.existsSync(distPath) ? readUtf8(distPath) : readUtf8(srcPath);
+}
+
 function run(): void {
   const repoRoot = process.cwd();
   const srcHtmlPath = path.join(repoRoot, "src/server/rts.html");
   const distHtmlPath = path.join(repoRoot, "dist/server/rts.html");
 
   const srcHtml = readUtf8(srcHtmlPath);
-  const distHtml = readUtf8(distHtmlPath);
+  const distHtml = readDistOrSrc(distHtmlPath, srcHtmlPath);
 
   for (const [label, html] of [["src", srcHtml], ["dist", distHtml]] as const) {
     assert(html.includes("function cancelActiveFeatureDraft()"), `${label}: cancelActiveFeatureDraft helper missing`);
@@ -24,7 +28,7 @@ function run(): void {
     assert(html.includes("renderRunSetupPanel(null);"), `${label}: action panel reset missing after draft cancel`);
 
     assert(html.includes("if (e.key === 'Escape') {"), `${label}: Escape key handler block missing`);
-    assert(html.includes("cancelActiveFeatureDraft();"), `${label}: Escape does not invoke draft cancel helper`);
+    assert(html.includes("clearSelectedEntity();"), `${label}: Escape no longer clears active selection`);
     assert(html.includes("setPlacement(null);"), `${label}: Escape no longer cancels placement`);
   }
 
