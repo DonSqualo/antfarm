@@ -9,6 +9,7 @@ Started: 2026-02-11 05:47 ET
 - Build: `npm run build` runs `tsc -p tsconfig.json` + copies HTML + chmod
 - Tests: `node --test dist/<file>.test.js` (node:test + node:assert/strict)
 - ESM with NodeNext module resolution, `.js` extensions in imports
+- Dashboard UI template is served from `src/server/index.html` and copied to `dist/server/index.html` during build
 
 ---
 
@@ -26,4 +27,10 @@ Started: 2026-02-11 05:47 ET
 - All acceptance criteria verified: CLI works, hidden from help, tests pass, build passes
 - Files changed: `tests/ant.test.ts` (new)
 - **Learnings:** Node 22 runs .ts files directly with type stripping; tests in `tests/` use this approach
+---
+## 2026-02-12 10:31 - US-001: Remove the Shift-drag/middle-mouse helper label from RTS UI
+- Added `tests/rts-helper-label.test.ts` to assert shipped dashboard template does not contain Shift-drag/middle-mouse helper copy.
+- Verified no matches for helper phrase variants in `src/server/*.html`.
+- Files changed: `tests/rts-helper-label.test.ts`.
+- **Learnings:** For UI copy regression checks in this repo, a lightweight node:test that inspects `src/server/index.html` is sufficient and fast.
 ---
