@@ -11,6 +11,7 @@ Started: 2026-02-11 05:47 ET
 - ESM with NodeNext module resolution, `.js` extensions in imports
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
+- Standard automated test command for this repo is `npm run test:e2e:rts`, which rebuilds and runs `tests/rts-building-palette.e2e.test.ts`
 
 ---
 
@@ -61,4 +62,11 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-assignment-ui-removal.test.ts` covering UI removal, automatic launch assignment derivation, and post-launch read-only assignment visibility in both `src/server/rts.html` and built `dist/server/rts.html`
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
+---
+## 2026-02-12 20:34 - US-001: Add and execute a basic automated test
+- Added a new e2e test case in `tests/rts-building-palette.e2e.test.ts` to verify `/rts` loads and renders a non-empty command grid
+- Kept the existing test framework (`node:test` + `puppeteer`) and naming conventions intact by extending the current `.e2e.test.ts` suite
+- Installed dependencies with `npm ci` so local TypeScript build and test scripts run successfully
+- Files changed: `tests/rts-building-palette.e2e.test.ts`, `progress.txt`
+- **Learnings:** In this repo, the standard test path is intentionally focused on a single e2e entrypoint and is expected to be extended with additional assertions as stories evolve
 ---

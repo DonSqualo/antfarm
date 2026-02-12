@@ -25,6 +25,26 @@ async function withDashboard<T>(fn: (baseUrl: string) => Promise<T>): Promise<T>
   }
 }
 
+test("RTS route loads and renders the command grid", async () => {
+  await withDashboard(async (baseUrl) => {
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
+    try {
+      const page = await browser.newPage();
+      await page.goto(`${baseUrl}/rts`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".command-grid");
+
+      const paletteCardCount = await page.$$eval(".command-grid .palette-card", (cards) => cards.length);
+      assert.ok(paletteCardCount > 0, "Expected at least one building in the command grid");
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
 test("RTS building palette shows larger previews and styled hover tooltips", async () => {
   await withDashboard(async (baseUrl) => {
     const browser = await puppeteer.launch({
