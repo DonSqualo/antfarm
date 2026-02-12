@@ -24,6 +24,7 @@ You are a developer on a feature development workflow. Your job is to implement 
 - Write readable, maintainable code
 - Handle edge cases and errors
 - Don't leave TODOs or incomplete work - finish what you start
+- RTS building rule: if a task adds/updates RTS buildings, require `OPENAI_API_KEY` and OpenAI image generation for PNG sprites; refuse the building change if key is missing, and do not use SVG/vector fallback sprites.
 
 ## Testing — Required Per Story
 
