@@ -612,7 +612,7 @@ function handleVerifyEachCompletion(
       if (newRetry > lastDoneStory.max_retries) {
         // Story retries exhausted — fail everything
         db.prepare("UPDATE stories SET status = 'failed', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, lastDoneStory.id);
-        db.prepare("UPDATE steps SET status = 'failed', updated_at = datetime('now') WHERE id = ?").run(loopStepId);
+        db.prepare("UPDATE steps SET status = 'failed', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(loopStepId);
         db.prepare("UPDATE runs SET status = 'failed', updated_at = datetime('now') WHERE id = ?").run(verifyStep.run_id);
         const wfId = getWorkflowId(verifyStep.run_id);
         emitEvent({ ts: new Date().toISOString(), event: "story.failed", runId: verifyStep.run_id, workflowId: wfId, stepId: verifyStep.id });
@@ -631,8 +631,8 @@ function handleVerifyEachCompletion(
       db.prepare("UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(context), verifyStep.run_id);
     }
 
-    // Set loop step back to pending for retry
-    db.prepare("UPDATE steps SET status = 'pending', updated_at = datetime('now') WHERE id = ?").run(loopStepId);
+    // Set loop step back to pending for retry and ensure no stale story pointer remains
+    db.prepare("UPDATE steps SET status = 'pending', current_story_id = NULL, updated_at = datetime('now') WHERE id = ?").run(loopStepId);
     emitEvent({ ts: new Date().toISOString(), event: "step.pending", runId: verifyStep.run_id, workflowId: getWorkflowId(verifyStep.run_id), stepId: loopStepId });
     return { advanced: false, runCompleted: false };
   }

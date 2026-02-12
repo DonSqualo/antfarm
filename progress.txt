@@ -12,6 +12,7 @@ Started: 2026-02-11 05:47 ET
 - ESM with NodeNext module resolution, `.js` extensions in imports
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
+- Loop/story retry exhaustion in `src/installer/step-ops.ts` uses `newRetry > max_retries`, and loop step retry/reset paths should explicitly clear `current_story_id`
 
 ---
 
@@ -85,4 +86,12 @@ Started: 2026-02-11 05:47 ET
 - Re-ran full gates to confirm no regressions after script addition
 - Files changed: `package.json`, `progress.txt`
 - **Learnings:** Verifier command contracts (`npm run typecheck`, `npm test`) must exist explicitly in `package.json` even when equivalent build/test steps already run elsewhere.
+---
+
+## 2026-02-12 18:39 - US-002: Stabilize loop retry state transitions for abandoned and verify-each paths
+- Tightened loop-step retry state handling in `src/installer/step-ops.ts` by explicitly clearing `current_story_id` when verify-each returns `STATUS: retry` and when verify-each retry exhaustion fails the loop
+- Preserved per-story retry semantics (`newRetry > max_retries`) while ensuring loop/story/run statuses remain aligned in retry and exhaustion paths
+- Added focused regression suite `tests/loop-retry-state-consistency.test.ts` covering abandoned running loop story reset, loop retry exhaustion via `failStep`, and verify-each retry re-queue + feedback persistence
+- Files changed: `src/installer/step-ops.ts`, `tests/loop-retry-state-consistency.test.ts`, `progress.txt`
+- **Learnings:** Loop retry state transitions are easiest to validate by seeding SQLite rows directly in temp-HOME tests and driving behavior through `claimStep`, `completeStep`, and `failStep` public APIs.
 ---
