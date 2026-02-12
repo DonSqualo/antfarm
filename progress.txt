@@ -11,6 +11,7 @@ Started: 2026-02-11 05:47 ET
 - ESM with NodeNext module resolution, `.js` extensions in imports
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
+- RTS HTTP endpoints are in `src/server/dashboard.ts`; prefer extracting exported pure helper functions there for API response shaping + focused node:test coverage
 
 ---
 
@@ -61,4 +62,12 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-assignment-ui-removal.test.ts` covering UI removal, automatic launch assignment derivation, and post-launch read-only assignment visibility in both `src/server/rts.html` and built `dist/server/rts.html`
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
+---
+## 2026-02-13 00:08 - US-001: Add mobile RTS tree API for hierarchical base and building data
+- Added `buildMobileRtsTree()` in `src/server/dashboard.ts` to build mobile-friendly hierarchical data with `bases[] -> buildings[]` and stable `id/kind/label` metadata
+- Added `GET /api/rts/mobile/tree` endpoint returning `{ ok, bases }` with safe fallback error response including `bases: []`
+- Implemented persisted linkage grouping rules: explicit `baseId` first, then repo-linked nearest base by coordinates, then synthetic repo base fallback for orphaned buildings
+- Added regression test `tests/rts-mobile-tree-api.test.ts` for hierarchical grouping, metadata contract, unique base grouping behavior, and no-data empty array behavior
+- Files changed: `src/server/dashboard.ts`, `tests/rts-mobile-tree-api.test.ts`, `progress.txt`
+- **Learnings:** RTS API behavior is implemented in `src/server/dashboard.ts`; reusable data transforms should be factored into exported pure helpers for low-friction node:test coverage.
 ---

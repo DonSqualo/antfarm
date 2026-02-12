@@ -134,6 +134,160 @@ function absolutizePath(pathValue: string, repoPath: string): string {
   return stack.join("/");
 }
 
+function asDisplayLabel(raw: unknown, fallback: string): string {
+  const text = String(raw ?? "").trim();
+  return text || fallback;
+}
+
+function titleFromKind(kind: string): string {
+  if (kind === "feature") return "Factory";
+  if (kind === "research") return "Research Lab";
+  if (kind === "warehouse") return "Warehouse";
+  return "Building";
+}
+
+function deriveBaseLabel(base: Record<string, unknown>): string {
+  const repoName = path.basename(String(base.repo ?? "").trim()) || "Base";
+  return asDisplayLabel(base.label ?? base.name ?? base.title, repoName);
+}
+
+function deriveBuildingLabel(building: Record<string, unknown>, kind: string): string {
+  const repo = String(building.repo ?? "").trim();
+  const repoName = path.basename(repo) || titleFromKind(kind);
+  const worktree = String(building.worktreePath ?? "").trim();
+  const worktreeName = path.basename(worktree) || "";
+  const fallback = worktreeName || repoName || titleFromKind(kind);
+  return asDisplayLabel(
+    building.label ?? building.name ?? building.title ?? building.taskTitle ?? building.branchName ?? building.prompt,
+    fallback
+  );
+}
+
+function centerFor(entity: Record<string, unknown>): { x: number; y: number } {
+  return { x: Number(entity.x ?? 0), y: Number(entity.y ?? 0) };
+}
+
+export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record<string, unknown>> } {
+  const rawBases = Array.isArray(state.customBases) ? state.customBases as Array<Record<string, unknown>> : [];
+  const rawFeature = Array.isArray(state.featureBuildings) ? state.featureBuildings as Array<Record<string, unknown>> : [];
+  const rawResearch = Array.isArray(state.researchBuildings) ? state.researchBuildings as Array<Record<string, unknown>> : [];
+  const rawWarehouse = Array.isArray(state.warehouseBuildings) ? state.warehouseBuildings as Array<Record<string, unknown>> : [];
+
+  const bases: Array<Record<string, unknown>> = [];
+  const baseById = new Map<string, Record<string, unknown>>();
+  const repoBaseIdByRepo = new Map<string, string>();
+
+  for (const base of rawBases) {
+    const id = String(base.id ?? "").trim();
+    if (!id || baseById.has(id)) continue;
+    const repo = String(base.repo ?? "").trim();
+    const node: Record<string, unknown> = {
+      id,
+      kind: "base",
+      label: deriveBaseLabel(base),
+      repo,
+      buildings: [],
+      x: Number(base.x ?? 0),
+      y: Number(base.y ?? 0),
+    };
+    baseById.set(id, node);
+    bases.push(node);
+    if (repo) repoBaseIdByRepo.set(normalizePathKey(repo), id);
+  }
+
+  const ensureRepoBase = (repoRaw: string): Record<string, unknown> => {
+    const repo = String(repoRaw || "").trim();
+    const key = normalizePathKey(repo);
+    const existingId = repoBaseIdByRepo.get(key);
+    if (existingId) return baseById.get(existingId) as Record<string, unknown>;
+    const id = key ? `base:${key}` : `base:unlinked`;
+    const node: Record<string, unknown> = {
+      id,
+      kind: "base",
+      label: path.basename(repo) || "Base",
+      repo,
+      buildings: [],
+      synthetic: true,
+      x: 0,
+      y: 0,
+    };
+    if (!baseById.has(id)) {
+      baseById.set(id, node);
+      bases.push(node);
+    }
+    if (key) repoBaseIdByRepo.set(key, id);
+    return baseById.get(id) as Record<string, unknown>;
+  };
+
+  const attachBuilding = (kind: string, building: Record<string, unknown>) => {
+    const buildingId = String(building.id ?? "").trim();
+    if (!buildingId) return;
+    const repo = String(building.repo ?? "").trim();
+    const explicitBaseId = String(building.baseId ?? "").trim();
+    let targetBase: Record<string, unknown> | null = null;
+
+    if (explicitBaseId) {
+      targetBase = baseById.get(explicitBaseId) ?? null;
+      if (!targetBase) {
+        targetBase = {
+          id: explicitBaseId,
+          kind: "base",
+          label: `Base ${explicitBaseId}`,
+          repo,
+          buildings: [],
+          synthetic: true,
+          x: 0,
+          y: 0,
+        };
+        baseById.set(explicitBaseId, targetBase);
+        bases.push(targetBase);
+      }
+    }
+
+    if (!targetBase && repo) {
+      const repoKey = normalizePathKey(repo);
+      const candidates = bases.filter((b) => normalizePathKey(String(b.repo ?? "")) === repoKey);
+      if (candidates.length === 1) targetBase = candidates[0];
+      else if (candidates.length > 1) {
+        const center = centerFor(building);
+        targetBase = candidates.reduce((best, candidate) => {
+          const c = centerFor(candidate);
+          const dist = Math.hypot(c.x - center.x, c.y - center.y);
+          if (!best || dist < best.dist) return { base: candidate, dist };
+          return best;
+        }, null as null | { base: Record<string, unknown>; dist: number })?.base ?? candidates[0];
+      }
+      if (!targetBase) targetBase = ensureRepoBase(repo);
+    }
+
+    if (!targetBase) targetBase = ensureRepoBase(repo);
+
+    const buildingNode = {
+      id: buildingId,
+      kind,
+      label: deriveBuildingLabel(building, kind),
+      baseId: String(targetBase.id),
+      repo,
+    };
+    const buildings = Array.isArray(targetBase.buildings) ? targetBase.buildings as Array<Record<string, unknown>> : [];
+    buildings.push(buildingNode);
+    targetBase.buildings = buildings;
+  };
+
+  rawFeature.forEach((b) => attachBuilding("feature", b));
+  rawResearch.forEach((b) => attachBuilding("research", b));
+  rawWarehouse.forEach((b) => attachBuilding("warehouse", b));
+
+  return {
+    bases: bases.map((base) => ({
+      id: String(base.id ?? ""),
+      kind: "base",
+      label: asDisplayLabel(base.label, "Base"),
+      buildings: Array.isArray(base.buildings) ? base.buildings : [],
+    })),
+  };
+}
+
 function getRtsState(): Record<string, unknown> {
   // RTS consistency invariant:
   // UI state must reflect authoritative Antfarm runtime state on this machine.
@@ -1429,6 +1583,15 @@ export function startDashboard(port = 3333): http.Server {
 
     if (p === "/api/rts/state" && method === "GET") {
       return json(res, { ok: true, state: getRtsState() });
+    }
+
+    if (p === "/api/rts/mobile/tree" && method === "GET") {
+      try {
+        return json(res, { ok: true, ...buildMobileRtsTree() });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message, bases: [] }, 500);
+      }
     }
 
     if (p === "/api/rts/state" && method === "POST") {
