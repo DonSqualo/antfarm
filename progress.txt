@@ -11,6 +11,7 @@ Started: 2026-02-11 05:47 ET
 - ESM with NodeNext module resolution, `.js` extensions in imports
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
+- For RTS layering, keep a dedicated world z-index ceiling (e.g., `WORLD_ENTITY_Z_MAX`) below all HUD/command z-index tokens and clamp `worldDepth(...)` to that ceiling.
 
 ---
 
@@ -61,4 +62,13 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-assignment-ui-removal.test.ts` covering UI removal, automatic launch assignment derivation, and post-launch read-only assignment visibility in both `src/server/rts.html` and built `dist/server/rts.html`
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
+---
+## 2026-02-12 13:33 CET - US-001: Create explicit layering contract so HUD/UI always renders above world entities
+- Added an explicit RTS layering contract in `src/server/rts.html` via CSS z-index tokens separating world vs UI layers.
+- Made stacking contexts explicit with `isolation:isolate` on `.world-wrap` and concrete z-index assignments for world background/content/path/placement/notes and UI camera-hint/HUD/command-bar.
+- Updated in-world depth logic by adding `WORLD_ENTITY_Z_MAX` and clamping `worldDepth(...)` below UI ceilings while keeping entity/unit Y-based depth sorting.
+- Rebased legacy high world depth biases (`2000/1900/1000`) to bounded world-layer biases so entities can no longer exceed UI z-index space.
+- Added regression coverage in `tests/rts-ui-layering.test.ts` validating layering tokens, stacking context, worldDepth clamp, and removal of legacy high z-bias values in both `src` and `dist` HTML.
+- Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-ui-layering.test.ts`, `progress.txt`
+- **Learnings:** RTS world depth ordering should always be bounded by a hard ceiling (`WORLD_ENTITY_Z_MAX`) that is lower than HUD/command UI z-index tokens to prevent accidental overlap regressions.
 ---

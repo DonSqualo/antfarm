@@ -62,3 +62,7 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - `antfarm uninstall` removes everything: all workflows, agents, cron jobs, and DB state.
 
 If something fails, report the exact error and ask the user to resolve it before continuing.
+
+## RTS Layering Notes
+
+- Keep all world/entity z-index values below UI surfaces by enforcing a world z ceiling in `worldDepth(...)` and reserving higher z-index tokens for HUD/command overlays.

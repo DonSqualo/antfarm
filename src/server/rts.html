@@ -22,6 +22,19 @@
   --ok:#4df5bf;
   --warn:#ffd06b;
   --bad:#ff7198;
+
+  /* Layering contract: world must always stay below HUD/command/UI surfaces. */
+  --z-world-wrap:10;
+  --z-world-bg:0;
+  --z-world-content:1;
+  --z-world-path:20;
+  --z-world-placement:30;
+  --z-world-notes:320;
+  --z-world-entity-max:399;
+
+  --z-ui-camera-hint:500;
+  --z-ui-hud:600;
+  --z-ui-command-bar:700;
 }
 * { box-sizing:border-box; margin:0; padding:0; }
 body {
@@ -52,9 +65,12 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   height:100%;
   overflow:hidden;
   background:#050913;
+  z-index:var(--z-world-wrap);
+  isolation:isolate;
 }
 .world-bg {
   position:absolute; inset:0;
+  z-index:var(--z-world-bg);
   background-image:url('/rts-sprites/bg-dark-tile-test.png?v=20260212b');
   background-repeat:repeat;
   background-size:128px 128px;
@@ -65,9 +81,11 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .world {
   position:absolute;
   inset:0;
+  z-index:var(--z-world-content);
 }
 .path-layer {
   pointer-events:none;
+  z-index:var(--z-world-path);
 }
 .rts-path {
   position:absolute;
@@ -83,6 +101,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .build-note {
   position:absolute;
+  z-index:var(--z-world-notes);
   min-width:130px;
   max-width:220px;
   border:1px solid #79dcffb2;
@@ -123,7 +142,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   align-items:flex-start;
   gap:10px;
   pointer-events:none;
-  z-index:50;
+  z-index:var(--z-ui-hud);
 }
 .hud-left,
 .hud-right { display:flex; gap:8px; pointer-events:auto; }
@@ -143,7 +162,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   display:flex;
   align-items:center;
   width:min(760px, calc(100vw - 24px));
-  z-index:60;
+  z-index:var(--z-ui-command-bar);
 }
 .command-left {
   display:none;
@@ -219,7 +238,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   letter-spacing:.5px;
 }
 .world-wrap.drop-armed { outline:2px dashed #8de7ff; outline-offset:-6px; }
-.placement-layer { pointer-events:none; }
+.placement-layer { pointer-events:none; z-index:var(--z-world-placement); }
 .placement-ghost { opacity:.45; border-style:dashed; }
 .placement-ghost.invalid .building-sprite { filter:hue-rotate(-42deg) saturate(1.25) brightness(1.05); }
 .building-sprite {
@@ -353,7 +372,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   left:12px;
   bottom:152px;
   pointer-events:none;
-  z-index:45;
+  z-index:var(--z-ui-camera-hint);
   background:#0b1a2fbd;
   border:1px solid #436f91;
   border-radius:8px;
@@ -887,8 +906,12 @@ function centerPointFor(kind, x, y){
   return { x: Number(x || 0) + (fp.w / 2), y: Number(y || 0) + (fp.h / 2) };
 }
 
-function worldDepth(y, bias = 100000){
-  return Math.max(1, bias + Math.floor(Number(y) || 0));
+const WORLD_ENTITY_Z_MAX = 399;
+
+function worldDepth(y, bias = 120){
+  // Keep in-world depth sorting while hard-capping below UI layers.
+  const depth = bias + Math.floor(Number(y) || 0);
+  return Math.max(1, Math.min(WORLD_ENTITY_Z_MAX, depth));
 }
 
 function getLiveAgentEntry(runId, agentId){
@@ -1275,7 +1298,7 @@ function renderUnitsMotionFrame(){
     const p = worldToScreen(ux, uy);
     node.style.left = `${p.x}px`;
     node.style.top = `${p.y}px`;
-    node.style.zIndex = String(worldDepth(uy, 2000));
+    node.style.zIndex = String(worldDepth(uy, 220));
     node.classList.toggle('moving', isActive);
   });
 }
@@ -1412,7 +1435,7 @@ function showPlacementGhost(kind, worldX, worldY){
   const className = kind === 'base' ? 'base' : 'building';
   const fp = buildingFootprint(kind);
   placementLayerEl.innerHTML = `
-    <div class="entity ${className} placement-ghost ${invalid ? 'invalid' : ''}" style="left:${screen.x}px;top:${screen.y}px;z-index:${worldDepth(point.y, 1000)};--footprint-w:${fp.w}px;--footprint-h:${fp.h}px;--sprite-w:${fp.spriteW}px;--sprite-h:${fp.spriteH}px">
+    <div class="entity ${className} placement-ghost ${invalid ? 'invalid' : ''}" style="left:${screen.x}px;top:${screen.y}px;z-index:${worldDepth(point.y, 120)};--footprint-w:${fp.w}px;--footprint-h:${fp.h}px;--sprite-w:${fp.spriteW}px;--sprite-h:${fp.spriteH}px">
       <div class="iso-core">${structureMarkup(kind)}</div>
     </div>
   `;
@@ -1557,7 +1580,7 @@ function renderIsoEntity({ className, kind, x, y, z, innerHtml, onClick }) {
   shell.className = `entity ${className}`;
   shell.style.left = `${screen.x}px`;
   shell.style.top = `${screen.y}px`;
-  shell.style.zIndex = String(worldDepth(z || y, 1000));
+  shell.style.zIndex = String(worldDepth(z || y, 120));
   shell.style.setProperty('--footprint-w', `${fp.w}px`);
   shell.style.setProperty('--footprint-h', `${fp.h}px`);
   shell.style.setProperty('--sprite-w', `${fp.spriteW}px`);
@@ -1765,7 +1788,7 @@ function renderWorld(){
     const p = worldToScreen(u.x, u.y);
     el.style.left = `${p.x}px`;
     el.style.top = `${p.y}px`;
-    el.style.zIndex = String(worldDepth(u.y, 2000));
+    el.style.zIndex = String(worldDepth(u.y, 220));
     el.title = `${u.label} • model: ${u.model || 'unknown'}${liveEntry ? ` • ${liveEntry.stale ? 'stale' : 'running'}` : ''}`;
     el.dataset.runId = u.runId;
     el.dataset.agentId = u.full;
@@ -1782,7 +1805,7 @@ function renderWorld(){
       sub.className = 'subunit';
       sub.style.left = `${sp.x}px`;
       sub.style.top = `${sp.y}px`;
-      sub.style.zIndex = String(worldDepth(sy, 1900));
+      sub.style.zIndex = String(worldDepth(sy, 210));
       sub.title = `subagent • ${u.faction}`;
       sub.onclick = () => { state.selected = { type:'subunit', data:u }; renderSelection(); };
       world.appendChild(sub);
