@@ -77,3 +77,12 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/rts.html`, `progress.txt`
 - **Learnings:** `tests/rts-building-palette.e2e.test.ts` treats `.command-title` as a required UI contract, so command-bar refactors must preserve that selector/text or update tests in lockstep.
 ---
+
+## 2026-02-12 21:40 - US-002: Add agenda textarea to Research Console and bind it to selected lab
+- Added a labeled `Current Agenda` textarea in `renderResearchLabPanel` above the Research action controls.
+- Bound textarea `input` and `change` events to update the selected lab `agenda` immediately and persist via `queuePersist()`.
+- Ensured panel re-renders show the existing `lab.agenda` text, preserving the entered agenda when reopening the same lab.
+- Added regression test `tests/rts-research-agenda-textarea-binding.test.ts` to assert agenda textarea rendering, agenda value binding, and persistence wiring in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-research-agenda-textarea-binding.test.ts`, `progress.txt`
+- **Learnings:** Research Console panel changes should include explicit src/dist parity checks because tests validate both authored and built RTS HTML.
+---

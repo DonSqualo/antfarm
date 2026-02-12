@@ -4033,7 +4033,9 @@ function renderResearchLabPanel(targetLabId){
     ${panelToolbar('Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
     <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
     <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
-    <button id="runResearchBtn">Research</button>
+    <label for="researchAgendaInput" class="kv" style="display:block;margin-top:8px"><strong>Current Agenda</strong></label>
+    <textarea id="researchAgendaInput" rows="4" style="width:100%;resize:vertical" placeholder="Describe the current research focus for this lab...">${esc(String(lab.agenda || ''))}</textarea>
+    <button id="runResearchBtn" style="margin-top:8px">Research</button>
     <div class="notice" style="margin-top:8px" id="researchNotice">Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.</div>
     <div class="build-card" style="margin-top:8px">
       <div class="kv"><strong>Generated Plans</strong></div>
@@ -4055,6 +4057,18 @@ function renderResearchLabPanel(targetLabId){
   `;
   wirePanelDeleteButton();
   const notice = document.getElementById('researchNotice');
+  const agendaInput = document.getElementById('researchAgendaInput');
+  const syncAgendaFromInput = (event) => {
+    const nextAgenda = String(event?.target?.value || '');
+    if (String(lab.agenda || '') === nextAgenda) return;
+    lab.agenda = nextAgenda;
+    if (state.selected?.type === 'building' && String(state.selected?.data?.id || '') === String(lab.id)) {
+      state.selected.data.agenda = nextAgenda;
+    }
+    queuePersist();
+  };
+  agendaInput?.addEventListener('input', syncAgendaFromInput);
+  agendaInput?.addEventListener('change', syncAgendaFromInput);
   const refreshPlanInteractions = () => {
     const list = document.getElementById('researchPlanList');
     if (!list) return;
