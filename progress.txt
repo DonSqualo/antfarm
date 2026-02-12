@@ -86,6 +86,15 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-research-agenda-textarea-binding.test.ts`, `progress.txt`
 - **Learnings:** Research Console panel changes should include explicit src/dist parity checks because tests validate both authored and built RTS HTML.
 ---
+## 2026-02-12 22:08 - US-001: Normalize feature-run progress and success bar coloring in RTS view
+- Updated `runProgress(run)` to clamp active, non-pending/non-queued work to a minimum 5% when no steps are complete yet
+- Added `featureRunProgressBarColor(building)` and switched `renderWorld()` feature bar coloring to centralized success/failed/in-flight status mapping
+- Expanded build-note rendering to show PR READY for normalized success statuses (`done`/`completed`/`success`) and an ERROR notification for failed/error terminal statuses
+- Added regression coverage in `tests/rts-progress-color-status.test.ts` validating progress clamp, color helper wiring, and success/error note mapping in both `src/server/rts.html` and `dist/server/rts.html`
+- Files changed: `src/server/rts.html`, `tests/rts-progress-color-status.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** For feature-run bars/notes, derive state from `getDisplayRunStatus(...)` + shared status sets instead of direct `run.status` string checks so optimistic overrides and aliases stay consistent.
+
+---
 ## 2026-02-12 22:06 - US-001: Implement local git repository discovery API for RTS base setup
 - Replaced stubbed `/api/local-repos` response with server-side discovery from configured/default local roots
 - Added local repo discovery helpers in `src/server/dashboard.ts` to scan directories for `.git` (directory or file), normalize absolute paths, de-duplicate results, derive display name, and attach `suggestedPort` when inferable
