@@ -1,11 +1,13 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { getDb } from "../db.js";
 import { resolveBundledWorkflowsDir } from "../installer/paths.js";
 import { runWorkflow } from "../installer/run.js";
+import { teardownWorkflowCronsIfIdle } from "../installer/agent-cron.js";
 import YAML from "yaml";
 
 import type { RunInfo, StepInfo } from "../installer/status.js";
@@ -91,7 +93,33 @@ function ensureRtsTables(db = getDb()): void {
   );
 }
 
+function normalizePathKey(raw: string): string {
+  return String(raw || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function absolutizePath(pathValue: string, repoPath: string): string {
+  const key = normalizePathKey(pathValue);
+  if (!key) return "";
+  if (key.startsWith("/")) return key;
+  if (/^[A-Za-z]:\//.test(key)) return key;
+  const base = normalizePathKey(repoPath);
+  if (!base) return key;
+  const stack = base.split("/");
+  for (const part of key.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  return stack.join("/");
+}
+
 function getRtsState(): Record<string, unknown> {
+  // RTS consistency invariant:
+  // UI state must reflect authoritative Antfarm runtime state on this machine.
+  // Any layout/state rows that reference missing runs are reconciled away here.
   const db = getDb();
   ensureRtsTables(db);
   const row = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
@@ -117,6 +145,25 @@ function getRtsState(): Record<string, unknown> {
   const customBases: Array<Record<string, unknown>> = [];
   const featureBuildings: Array<Record<string, unknown>> = [];
   const runLayoutOverrides: Record<string, { x: number; y: number }> = {};
+  const runs = db.prepare("SELECT id, status, context FROM runs").all() as Array<{ id: string; status: string; context: string }>;
+  const runIdSet = new Set(runs.map((r) => r.id));
+  const runByWorktree = new Map<string, { id: string; status: string; worktree: string }>();
+  const runByWorktreeBase = new Map<string, { id: string; status: string; worktree: string }>();
+  for (const run of runs) {
+    let ctx: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(run.context || "{}");
+      if (parsed && typeof parsed === "object") ctx = parsed as Record<string, unknown>;
+    } catch {}
+    const baseRepo = String(ctx.baseRepoPath || ctx.repoPath || ctx.repo || "");
+    const wt = absolutizePath(String(ctx.worktreePath || ""), baseRepo);
+    if (wt) {
+      runByWorktree.set(wt, { id: run.id, status: run.status, worktree: wt });
+      const bn = path.basename(wt);
+      if (bn && !runByWorktreeBase.has(bn)) runByWorktreeBase.set(bn, { id: run.id, status: run.status, worktree: wt });
+    }
+  }
+  const seenFeatureKeys = new Set<string>();
   for (const r of rows) {
     let payload: Record<string, unknown> = {};
     try {
@@ -135,21 +182,55 @@ function getRtsState(): Record<string, unknown> {
       continue;
     }
     if (r.entity_type === "feature") {
+      const repoPath = String(r.repo_path ?? payload.repo ?? "");
+      const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath);
+      let resolvedRunId = (r.run_id ?? payload.runId ?? null) as string | null;
+      let resolvedStatus: string | null = null;
+      if (resolvedRunId && !runIdSet.has(resolvedRunId)) {
+        // Layout pointed at a deleted run: heal to draft mode immediately.
+        resolvedRunId = null;
+        try {
+          db.prepare("UPDATE rts_layout_entities SET run_id = NULL, updated_at = ? WHERE id = ?")
+            .run(new Date().toISOString(), r.id);
+        } catch {}
+      }
+      if (!resolvedRunId && worktreePath) {
+        const inferred = runByWorktree.get(worktreePath) || runByWorktreeBase.get(path.basename(worktreePath));
+        if (inferred) {
+          resolvedRunId = inferred.id;
+          resolvedStatus = inferred.status;
+          const canonicalWorktreePath = inferred.worktree || worktreePath;
+          // Heal stale layout row directly in DB when we can infer the run id.
+          try {
+            db.prepare("UPDATE rts_layout_entities SET run_id = ?, worktree_path = ?, updated_at = ? WHERE id = ?")
+              .run(inferred.id, canonicalWorktreePath, new Date().toISOString(), r.id);
+          } catch {}
+        }
+      }
+      const dedupeKey = resolvedRunId ? `run:${resolvedRunId}` : `draft:${worktreePath || r.id}`;
+      if (seenFeatureKeys.has(dedupeKey)) continue;
+      seenFeatureKeys.add(dedupeKey);
       featureBuildings.push({
         ...payload,
         id: payload.id ?? r.id,
         kind: "feature",
         x: Number(r.x),
         y: Number(r.y),
-        repo: r.repo_path ?? payload.repo ?? "",
-        worktreePath: r.worktree_path ?? payload.worktreePath ?? "",
-        runId: r.run_id ?? payload.runId ?? null,
+        repo: repoPath,
+        worktreePath: worktreePath || String(r.worktree_path ?? payload.worktreePath ?? ""),
+        runId: resolvedRunId,
+        committed: resolvedRunId ? true : payload.committed,
+        phase: resolvedStatus || payload.phase || (resolvedRunId ? "running" : "draft"),
       });
       continue;
     }
     if (r.entity_type === "run") {
       const runId = r.run_id || (String(r.id || "").startsWith("run:") ? String(r.id).slice(4) : String(r.id || ""));
       if (!runId) continue;
+      if (!runIdSet.has(runId)) {
+        try { db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(r.id); } catch {}
+        continue;
+      }
       runLayoutOverrides[runId] = { x: Number(r.x), y: Number(r.y) };
     }
   }
@@ -176,6 +257,23 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
   const seenBaseIds = new Set<string>();
   const seenFeatureIds = new Set<string>();
   const seenRunIds = new Set<string>();
+  const runs = db.prepare("SELECT id, context FROM runs").all() as Array<{ id: string; context: string }>;
+  const runByWorktree = new Map<string, string>();
+  const runByWorktreeBase = new Map<string, string>();
+  for (const run of runs) {
+    let ctx: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(run.context || "{}");
+      if (parsed && typeof parsed === "object") ctx = parsed as Record<string, unknown>;
+    } catch {}
+    const repo = String(ctx.baseRepoPath || ctx.repoPath || ctx.repo || "");
+    const wt = absolutizePath(String(ctx.worktreePath || ""), repo);
+    if (wt) {
+      runByWorktree.set(wt, run.id);
+      const bn = path.basename(wt);
+      if (bn && !runByWorktreeBase.has(bn)) runByWorktreeBase.set(bn, run.id);
+    }
+  }
   db.exec("BEGIN");
   try {
     for (const base of customBases) {
@@ -192,12 +290,23 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       if (!id) continue;
       seenFeatureIds.add(id);
       const repoPath = String(feature?.repo ?? "");
-      const worktreePath = String(feature?.worktreePath ?? "");
+      const worktreePath = absolutizePath(String(feature?.worktreePath ?? ""), repoPath) || String(feature?.worktreePath ?? "");
       const runIdRaw = feature?.runId;
-      const runId = (runIdRaw === null || runIdRaw === undefined || String(runIdRaw).trim() === "") ? null : String(runIdRaw);
+      let runId = (runIdRaw === null || runIdRaw === undefined || String(runIdRaw).trim() === "") ? null : String(runIdRaw);
+      if (!runId) {
+        const absWt = absolutizePath(worktreePath, repoPath);
+        const inferred = runByWorktree.get(absWt) || runByWorktreeBase.get(path.basename(absWt || worktreePath));
+        if (inferred) runId = inferred;
+      }
       const x = Number(feature?.x ?? 0);
       const y = Number(feature?.y ?? 0);
-      upsert.run(id, "feature", runId, repoPath || null, worktreePath || null, Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0, JSON.stringify(feature), now);
+      const payload = {
+        ...feature,
+        runId: runId ?? feature.runId ?? null,
+        committed: runId ? true : feature.committed,
+        worktreePath,
+      };
+      upsert.run(id, "feature", runId, repoPath || null, worktreePath || null, Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0, JSON.stringify(payload), now);
     }
     for (const [runId, pos] of Object.entries(runLayoutOverrides)) {
       if (!runId) continue;
@@ -297,25 +406,203 @@ function resolveWorktreePath(baseRepoPath: string, worktreePath: string): string
   return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(baseRepoPath, trimmed);
 }
 
-function deleteRunWithArtifacts(runId: string): { deleted: boolean; status?: string } {
+function resolveRunRecord(runIdOrPrefix: string): { id: string; status: string; workflow_id: string; context: string } | null {
+  const db = getDb();
+  const exact = db.prepare("SELECT id, status, workflow_id, context FROM runs WHERE id = ?").get(runIdOrPrefix) as { id: string; status: string; workflow_id: string; context: string } | undefined;
+  if (exact) return exact;
+  const rows = db.prepare("SELECT id, status, workflow_id, context FROM runs WHERE id LIKE ? ORDER BY updated_at DESC LIMIT 2").all(`${runIdOrPrefix}%`) as Array<{ id: string; status: string; workflow_id: string; context: string }>;
+  if (rows.length === 1) return rows[0];
+  return null;
+}
+
+function pruneRunEvents(runId: string): void {
+  try {
+    const eventsFile = path.join(os.homedir(), ".openclaw", "antfarm", "events.jsonl");
+    if (!fs.existsSync(eventsFile)) return;
+    const content = fs.readFileSync(eventsFile, "utf-8");
+    const kept = content
+      .split("\n")
+      .filter(Boolean)
+      .filter((line) => {
+        try {
+          const evt = JSON.parse(line) as { runId?: string };
+          return evt.runId !== runId;
+        } catch {
+          return true;
+        }
+      })
+      .join("\n");
+    fs.writeFileSync(eventsFile, kept ? `${kept}\n` : "");
+  } catch {
+    // best-effort cleanup
+  }
+}
+
+function removeRunWorktree(context: Record<string, unknown>): { removed: boolean; path?: string } {
+  const wtRaw = String(context.worktreePath ?? "").trim();
+  if (!wtRaw) return { removed: false };
+  const baseRaw = String(context.baseRepoPath ?? context.repoPath ?? "").trim();
+  const worktreePath = path.isAbsolute(wtRaw) ? path.normalize(wtRaw) : path.resolve(process.cwd(), wtRaw);
+  const baseRepoPath = baseRaw ? (path.isAbsolute(baseRaw) ? path.normalize(baseRaw) : path.resolve(process.cwd(), baseRaw)) : "";
+  if (baseRepoPath && worktreePath === baseRepoPath) return { removed: false, path: worktreePath };
+  if (!fs.existsSync(worktreePath)) return { removed: false, path: worktreePath };
+  try {
+    const gitBase = baseRepoPath || path.dirname(worktreePath);
+    execFileSync("git", ["-C", gitBase, "worktree", "remove", "--force", worktreePath], { stdio: "pipe" });
+    return { removed: true, path: worktreePath };
+  } catch {
+    try {
+      fs.rmSync(worktreePath, { recursive: true, force: true });
+      return { removed: true, path: worktreePath };
+    } catch {
+      return { removed: false, path: worktreePath };
+    }
+  }
+}
+
+function purgeRtsArtifactsForRunId(runId: string): { purged: boolean } {
   const db = getDb();
   ensureRtsTables(db);
-  const run = db.prepare("SELECT id, status FROM runs WHERE id = ?").get(runId) as { id: string; status: string } | undefined;
-  if (!run) return { deleted: false };
+  let purged = false;
+  const byRun = db.prepare("DELETE FROM rts_layout_entities WHERE run_id = ?").run(runId);
+  const byId = db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(`run:${runId}`);
+  purged = Number(byRun.changes || 0) > 0 || Number(byId.changes || 0) > 0;
+
+  const stateRow = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
+  if (stateRow?.state_json) {
+    let stateJson: Record<string, unknown> = {};
+    try { stateJson = JSON.parse(stateRow.state_json) as Record<string, unknown>; } catch { stateJson = {}; }
+    const beforeCount = Array.isArray(stateJson.featureBuildings) ? stateJson.featureBuildings.length : 0;
+    const featureBuildings = Array.isArray(stateJson.featureBuildings)
+      ? (stateJson.featureBuildings as Array<Record<string, unknown>>).filter((b) => String(b?.runId ?? "") !== runId)
+      : [];
+    const runLayoutOverrides = (stateJson.runLayoutOverrides && typeof stateJson.runLayoutOverrides === "object")
+      ? { ...(stateJson.runLayoutOverrides as Record<string, unknown>) }
+      : {};
+    const hadOverride = Object.prototype.hasOwnProperty.call(runLayoutOverrides, runId);
+    delete runLayoutOverrides[runId];
+
+    const selected = (stateJson.selected && typeof stateJson.selected === "object")
+      ? stateJson.selected as Record<string, unknown>
+      : null;
+    const selectedData = selected && typeof selected.data === "object" ? selected.data as Record<string, unknown> : null;
+    const selectedRunId = selectedData ? String(selectedData.runId ?? selectedData.id ?? "") : "";
+    const nextSelected = selectedRunId === runId ? null : selected;
+    const nextState = { ...stateJson, featureBuildings, runLayoutOverrides, ...(nextSelected ? { selected: nextSelected } : { selected: null }) };
+    const afterCount = Array.isArray(nextState.featureBuildings) ? nextState.featureBuildings.length : 0;
+    if (beforeCount !== afterCount || hadOverride || (selected && !nextSelected)) purged = true;
+    db.prepare("UPDATE rts_state SET state_json = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(nextState), new Date().toISOString());
+  }
+  return { purged };
+}
+
+function deleteRunWithArtifacts(runIdOrPrefix: string): { deleted: boolean; status?: string; runId?: string; worktreeRemoved?: boolean; worktreePath?: string } {
+  const db = getDb();
+  ensureRtsTables(db);
+  const run = resolveRunRecord(runIdOrPrefix);
+  if (!run) {
+    const idGuess = runIdOrPrefix.trim();
+    if (!idGuess) return { deleted: false };
+    const purged = purgeRtsArtifactsForRunId(idGuess);
+    return purged.purged ? { deleted: true, runId: idGuess } : { deleted: false };
+  }
+  const runId = run.id;
+  let context: Record<string, unknown> = {};
+  try { context = JSON.parse(run.context || "{}") as Record<string, unknown>; } catch { context = {}; }
 
   db.exec("BEGIN");
   try {
+    const stateRow = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
+    if (stateRow?.state_json) {
+      let stateJson: Record<string, unknown> = {};
+      try { stateJson = JSON.parse(stateRow.state_json) as Record<string, unknown>; } catch { stateJson = {}; }
+      const featureBuildings = Array.isArray(stateJson.featureBuildings)
+        ? (stateJson.featureBuildings as Array<Record<string, unknown>>).filter((b) => String(b?.runId ?? "") !== runId)
+        : [];
+      const runLayoutOverrides = (stateJson.runLayoutOverrides && typeof stateJson.runLayoutOverrides === "object")
+        ? { ...(stateJson.runLayoutOverrides as Record<string, unknown>) }
+        : {};
+      delete runLayoutOverrides[runId];
+      const selected = (stateJson.selected && typeof stateJson.selected === "object")
+        ? stateJson.selected as Record<string, unknown>
+        : null;
+      const selectedData = selected && typeof selected.data === "object" ? selected.data as Record<string, unknown> : null;
+      const selectedRunId = selectedData ? String(selectedData.runId ?? selectedData.id ?? "") : "";
+      const nextSelected = selectedRunId === runId ? null : selected;
+      const nextState = { ...stateJson, featureBuildings, runLayoutOverrides, ...(nextSelected ? { selected: nextSelected } : { selected: null }) };
+      db.prepare("UPDATE rts_state SET state_json = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(nextState), new Date().toISOString());
+    }
+
     db.prepare("DELETE FROM stories WHERE run_id = ?").run(runId);
     db.prepare("DELETE FROM steps WHERE run_id = ?").run(runId);
     db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
     db.prepare("DELETE FROM rts_layout_entities WHERE run_id = ?").run(runId);
     db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(`run:${runId}`);
     db.exec("COMMIT");
-    return { deleted: true, status: run.status };
+    pruneRunEvents(runId);
+    const wt = removeRunWorktree(context);
+    teardownWorkflowCronsIfIdle(run.workflow_id).catch(() => {});
+    return { deleted: true, status: run.status, runId, worktreeRemoved: wt.removed, worktreePath: wt.path };
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
   }
+}
+
+function upsertLayoutPosition(input: {
+  entityType: "base" | "feature" | "run";
+  entityId?: string;
+  runId?: string | null;
+  repoPath?: string | null;
+  worktreePath?: string | null;
+  x: number;
+  y: number;
+}): { id: string; entityType: string; runId: string | null } {
+  const db = getDb();
+  ensureRtsTables(db);
+  const now = new Date().toISOString();
+  const entityType = input.entityType;
+  const x = Number.isFinite(input.x) ? input.x : 0;
+  const y = Number.isFinite(input.y) ? input.y : 0;
+  const repoPath = input.repoPath ? String(input.repoPath) : null;
+  const worktreePath = input.worktreePath ? absolutizePath(String(input.worktreePath), String(input.repoPath || "")) : null;
+  let runId = input.runId ? String(input.runId) : null;
+  let id = String(input.entityId || "").trim();
+
+  if (entityType === "run") {
+    if (!runId) runId = id || null;
+    if (!runId) throw new Error("runId is required for run layout");
+    id = `run:${runId}`;
+  } else if (entityType === "feature") {
+    if (runId) {
+      const byRun = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'feature' AND run_id = ? LIMIT 1").get(runId) as { id: string } | undefined;
+      if (byRun?.id) id = byRun.id;
+    }
+    if (!id || id.startsWith("feature-run-")) id = runId ? `feature-${runId}` : `feature-${Date.now()}`;
+  } else {
+    if (!id) throw new Error("entityId is required for base layout");
+  }
+
+  const current = db.prepare("SELECT payload_json FROM rts_layout_entities WHERE id = ?").get(id) as { payload_json: string } | undefined;
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(current?.payload_json || "{}");
+    if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+  } catch {}
+  const nextPayload: Record<string, unknown> = { ...payload, id, x, y };
+  if (runId) nextPayload.runId = runId;
+  if (repoPath) nextPayload.repo = repoPath;
+  if (worktreePath) nextPayload.worktreePath = worktreePath;
+
+  db.prepare(
+    "INSERT INTO rts_layout_entities (id, entity_type, run_id, repo_path, worktree_path, x, y, payload_json, updated_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+    "ON CONFLICT(id) DO UPDATE SET " +
+    "entity_type = excluded.entity_type, run_id = excluded.run_id, repo_path = excluded.repo_path, worktree_path = excluded.worktree_path, " +
+    "x = excluded.x, y = excluded.y, payload_json = excluded.payload_json, updated_at = excluded.updated_at"
+  ).run(id, entityType, runId, repoPath, worktreePath, x, y, JSON.stringify(nextPayload), now);
+
+  return { id, entityType, runId };
 }
 
 export function startDashboard(port = 3333): http.Server {
@@ -469,8 +756,46 @@ export function startDashboard(port = 3333): http.Server {
         const runId = String(body?.runId ?? "").trim();
         if (!runId) return json(res, { ok: false, error: "runId is required" }, 400);
         const result = deleteRunWithArtifacts(runId);
-        if (!result.deleted) return json(res, { ok: false, error: `run not found: ${runId}` }, 404);
-        return json(res, { ok: true, runId, deleted: true, previousStatus: result.status });
+        if (!result.deleted) return json(res, { ok: true, runId, deleted: false, alreadyAbsent: true });
+        return json(res, {
+          ok: true,
+          runId: result.runId || runId,
+          deleted: true,
+          previousStatus: result.status,
+          worktreeRemoved: !!result.worktreeRemoved,
+          worktreePath: result.worktreePath || null,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
+    if (p === "/api/rts/layout/position" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as {
+          entityType?: "base" | "feature" | "run";
+          entityId?: string;
+          runId?: string | null;
+          repoPath?: string | null;
+          worktreePath?: string | null;
+          x?: number;
+          y?: number;
+        };
+        const entityType = body.entityType;
+        if (entityType !== "base" && entityType !== "feature" && entityType !== "run") {
+          return json(res, { ok: false, error: "entityType must be base|feature|run" }, 400);
+        }
+        const result = upsertLayoutPosition({
+          entityType,
+          entityId: body.entityId,
+          runId: body.runId ?? null,
+          repoPath: body.repoPath ?? null,
+          worktreePath: body.worktreePath ?? null,
+          x: Number(body.x ?? 0),
+          y: Number(body.y ?? 0),
+        });
+        return json(res, { ok: true, ...result });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return json(res, { ok: false, error: message }, 500);

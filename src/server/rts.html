@@ -649,6 +649,51 @@ function queuePersist(){
   }, 250);
 }
 
+async function persistNow(){
+  if (state.persistTimer) {
+    clearTimeout(state.persistTimer);
+    state.persistTimer = null;
+  }
+  const payload = snapshotPersistableState();
+  try {
+    await postJson('/api/rts/state', { state: payload });
+  } catch {}
+}
+
+function resolveDraggedEntityPosition(drag){
+  if (!drag) return null;
+  if (drag.type === 'base') {
+    const b = (state.customBases || []).find((x) => x.id === drag.id);
+    return b ? { x:Number(b.x)||0, y:Number(b.y)||0 } : null;
+  }
+  if (drag.type === 'feature') {
+    const f = (state.featureBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
+    return f ? { x:Number(f.x)||0, y:Number(f.y)||0 } : null;
+  }
+  if (drag.type === 'run') {
+    const p = state.runLayoutOverrides?.[drag.runId || drag.id];
+    if (p) return { x:Number(p.x)||0, y:Number(p.y)||0 };
+    const b = (state.buildings || []).find((x) => x.id === drag.id);
+    return b ? { x:Number(b.x)||0, y:Number(b.y)||0 } : null;
+  }
+  return null;
+}
+
+async function persistDraggedEntityPosition(drag){
+  const pos = resolveDraggedEntityPosition(drag);
+  if (!pos) return;
+  const entityType = drag.type === 'base' ? 'base' : (drag.type === 'feature' ? 'feature' : 'run');
+  await postJson('/api/rts/layout/position', {
+    entityType,
+    entityId: drag.id,
+    runId: drag.runId || null,
+    repoPath: drag.repoPath || null,
+    worktreePath: drag.worktreePath || null,
+    x: pos.x,
+    y: pos.y
+  });
+}
+
 async function hydratePersistedState(){
   let persisted = null;
   try {
@@ -656,7 +701,23 @@ async function hydratePersistedState(){
     persisted = r?.state || null;
   } catch {}
   if (!persisted || typeof persisted !== 'object') return;
-  if (Array.isArray(persisted.customBases)) state.customBases = persisted.customBases;
+  if (Array.isArray(persisted.customBases)) {
+    const byRepo = new Map();
+    for (const raw of persisted.customBases) {
+      const b = raw && typeof raw === 'object' ? raw : {};
+      const repo = baseRepoKey(String(b.repo || ''));
+      const id = String(b.id || `base-${repo}`);
+      byRepo.set(repo, {
+        ...b,
+        id,
+        repo,
+        source: 'custom',
+        x: Number(b.x || 0),
+        y: Number(b.y || 0),
+      });
+    }
+    state.customBases = Array.from(byRepo.values());
+  }
   if (Array.isArray(persisted.baseDrafts)) state.baseDrafts = persisted.baseDrafts;
   if (Array.isArray(persisted.featureBuildings)) {
     const seen = new Set();
@@ -709,7 +770,8 @@ function getRepo(run){
   const ctx = parseContext(run);
   // Prefer original base repo path so run/feature buildings stay attached
   // to the user-placed movable base instead of worktree-derived auto bases.
-  return ctx.baseRepoPath || ctx.repoPath || ctx.repo || ctx.repository || 'workspace-repo';
+  const raw = ctx.baseRepoPath || ctx.repoPath || ctx.repo || ctx.repository || ctx.worktreePath || state.runtime?.cwd || 'workspace-repo';
+  return normalizePathKey(raw).replace(/-feature-[^/]+$/i, '') || 'workspace-repo';
 }
 function getWorktreeDefault(repo){
   const clean = repo.split('/').pop() || 'repo';
@@ -718,15 +780,24 @@ function getWorktreeDefault(repo){
 function normalizePathKey(raw){
   return String(raw || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
 }
+function isAbsolutePathKey(key){
+  return key.startsWith('/') || /^[A-Za-z]:\//.test(key);
+}
+function baseRepoKey(pathValue){
+  let key = normalizePathKey(pathValue || '');
+  if (key === 'workspace-repo' && state.runtime?.cwd) key = normalizePathKey(state.runtime.cwd);
+  if (!isAbsolutePathKey(key) && state.runtime?.cwd) key = absolutizePath(key, state.runtime.cwd);
+  if (!key) return 'workspace-repo';
+  return key.replace(/-feature-[^/]+$/i, '') || 'workspace-repo';
+}
 function absolutizePath(pathValue, repoPath){
   const key = normalizePathKey(pathValue);
   if (!key) return '';
-  if (key.startsWith('/')) return key;
-  if (/^[A-Za-z]:\//.test(key)) return key;
-  const base = normalizePathKey(repoPath);
+  if (isAbsolutePathKey(key)) return key;
+  let base = normalizePathKey(repoPath);
+  if (!isAbsolutePathKey(base) && state.runtime?.cwd) base = normalizePathKey(state.runtime.cwd);
   if (!base) return key;
   const stack = base.split('/');
-  if (stack.length > 1) stack.pop();
   for (const part of key.split('/')) {
     if (!part || part === '.') continue;
     if (part === '..') {
@@ -951,12 +1022,14 @@ function rebuildScene(){
   updateCameraVisuals();
   const customByRepo = new Map();
   (state.customBases || []).forEach((cb) => {
-    if (cb?.repo) customByRepo.set(cb.repo, cb);
+    if (!cb?.repo) return;
+    const repoKey = baseRepoKey(cb.repo);
+    customByRepo.set(repoKey, { ...cb, repo: repoKey });
   });
 
   const runsByRepo = new Map();
   (state.runs || []).forEach((run) => {
-    const repo = getRepo(run);
+    const repo = baseRepoKey(getRepo(run));
     if (!runsByRepo.has(repo)) runsByRepo.set(repo, []);
     runsByRepo.get(repo).push(run);
   });
@@ -990,9 +1063,10 @@ function rebuildScene(){
 
   (state.customBases || []).forEach((cb) => {
     if (usedCustomBaseIds.has(cb.id)) return;
-    const resolvedPort = Number(cb.port) || getPortForPath(cb.repo) || 3333;
-    if (cb.repo) setPortForPath(cb.repo, resolvedPort);
-    mergedBases.push({ ...cb, runs: cb.runs || [], source:'custom', port: resolvedPort, portLabel: pathLabel(cb.repo) });
+    const repoKey = baseRepoKey(cb.repo);
+    const resolvedPort = Number(cb.port) || getPortForPath(repoKey) || 3333;
+    if (repoKey) setPortForPath(repoKey, resolvedPort);
+    mergedBases.push({ ...cb, repo: repoKey, runs: cb.runs || [], source:'custom', port: resolvedPort, portLabel: pathLabel(repoKey) });
   });
 
   const buildings = [];
@@ -1016,7 +1090,7 @@ function rebuildScene(){
     (base.runs || []).forEach((run, ri) => {
       const runCtx = parseContext(run);
       const runWorktreePath = String(runCtx.worktreePath || '');
-      const runRepoPath = String(runCtx.repoPath || runCtx.baseRepoPath || getRepo(run) || '');
+      const runRepoPath = baseRepoKey(String(runCtx.baseRepoPath || runCtx.repoPath || getRepo(run) || ''));
       const basePort = Number(base.port) || getPortForPath(base.repo || '') || 3333;
       const runPort = getPortForPath(runWorktreePath) || getPortForPath(runRepoPath) || (basePort + 1);
       runBaseCenters.set(run.id, centerPointFor('base', base.x, base.y));
@@ -1063,7 +1137,7 @@ function rebuildScene(){
   });
 
   (state.featureBuildings || []).forEach((fb) => {
-    const repoPath = String(fb.repo || '');
+    const repoPath = baseRepoKey(String(fb.repo || ''));
     const worktreePathRaw = String(fb.worktreePath || '');
     const worktreePath = absolutizePath(worktreePathRaw, repoPath);
     const run = fb.runId
@@ -1095,7 +1169,7 @@ function rebuildScene(){
     if (persistedFeatureByRunId.has(run.id)) return;
     const runCtx = parseContext(run);
     const runWorktreePath = String(runCtx.worktreePath || '');
-    const runRepoPath = String(runCtx.baseRepoPath || runCtx.repoPath || getRepo(run) || '');
+    const runRepoPath = baseRepoKey(String(runCtx.baseRepoPath || runCtx.repoPath || getRepo(run) || ''));
     const inferredBase = mergedBases.find((base) => (base.runs || []).some((r) => r.id === run.id));
     const fallbackPos = runDefaultLayout.get(run.id) || {
       x: Number((inferredBase?.x || 90) + GRID_SIZE),
@@ -1363,8 +1437,13 @@ function removeBaseDraftById(id){
 
 function updateFeaturePosition(id, x, y){
   const i = state.featureBuildings.findIndex(b => b.id === id);
-  if (i < 0) return;
-  state.featureBuildings[i] = { ...state.featureBuildings[i], x, y };
+  if (i >= 0) {
+    state.featureBuildings[i] = { ...state.featureBuildings[i], x, y };
+    return;
+  }
+  const b = (state.buildings || []).find((it) => it.id === id && it.kind === 'feature');
+  const runId = b?.runId || b?.run?.id || '';
+  if (runId) updateRunBuildingPosition(runId, x, y);
 }
 
 function updateRunBuildingPosition(id, x, y){
@@ -1486,11 +1565,12 @@ function normalizeFeatureDraft(raw){
   const committed = typeof src.committed === 'boolean'
     ? src.committed
     : !!runId;
+  const repo = baseRepoKey(String(src.repo || ''));
   return {
     ...src,
     id: String(src.id || `feature-draft-${Date.now()}`),
     kind: 'feature',
-    repo: String(src.repo || ''),
+    repo,
     worktreePath: String(src.worktreePath || ''),
     prompt: String(src.prompt || ''),
     assignments: Array.isArray(src.assignments) ? src.assignments.map((v) => String(v || '')) : [],
@@ -1577,6 +1657,7 @@ function renderWorld(){
         state.draggingEntity = {
           type: 'base',
           id: base.id,
+          repoPath: base.repo || '',
           offsetX: point.x - base.x,
           offsetY: point.y - base.y
         };
@@ -1648,6 +1729,9 @@ function renderWorld(){
         state.draggingEntity = {
           type: b.kind === 'feature' ? 'feature' : 'run',
           id: b.id,
+          runId: b.runId || b.run?.id || (b.kind === 'run' ? b.id : ''),
+          repoPath: b.repo || '',
+          worktreePath: b.worktreePath || '',
           offsetX: point.x - b.x,
           offsetY: point.y - b.y
         };
@@ -2561,7 +2645,6 @@ worldWrapEl.addEventListener('mousemove', (e) => {
     else if (state.draggingEntity.type === 'baseDraft') updateBaseDraftPosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'feature') updateFeaturePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else updateRunBuildingPosition(state.draggingEntity.id, snapped.x, snapped.y);
-    queuePersist();
     rebuildScene();
     return;
   }
@@ -2585,8 +2668,12 @@ worldWrapEl.addEventListener('mousedown', (e) => {
   }
 });
 
-window.addEventListener('mouseup', () => {
-  if (state.draggingEntity && state.draggingMoved) state.suppressWorldClick = true;
+window.addEventListener('mouseup', async () => {
+  if (state.draggingEntity && state.draggingMoved) {
+    state.suppressWorldClick = true;
+    try { await persistDraggedEntityPosition(state.draggingEntity); } catch {}
+    await persistNow();
+  }
   state.cameraDrag.active = false;
   state.draggingEntity = null;
   state.draggingMoved = false;
