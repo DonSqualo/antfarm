@@ -92,3 +92,11 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/dashboard.ts`, `tests/local-repos-discovery.test.ts`, `progress.txt`
 - **Learnings:** RTS path-based port suggestions are currently derived from path naming conventions (`/antfarm` -> 3333, `antfarm-feature-<n>` -> 3400 + n%400); backend helpers should stay in sync with this convention.
 ---
+## 2026-02-12 22:53 - US-002: Wire New Base dropdown to discovered local repositories with deterministic defaults
+- Added RTS local repo sync helper and wired it into bootstrap + runtime refresh so base draft rendering uses current `/api/local-repos` data
+- Updated base clone form selection flow to map options from `state.localRepos`, preserve/re-apply existing selection, and deterministically auto-fill `targetPath` + `port` from `suggestedPort` with path-based fallback logic
+- Preserved existing create validation behavior for existing-repo mode vs clone mode
+- Added regression test `tests/rts-base-local-repo-dropdown.test.ts` to verify local repo sync wiring, dropdown option sourcing, deterministic selection defaults, and payload/validation guards in both `src/server/rts.html` and `dist/server/rts.html`
+- Files changed: `src/server/rts.html`, `tests/rts-base-local-repo-dropdown.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** Base draft form logic should centralize existing-repo selection side effects (target path + port) in one helper so initial render and change events stay consistent.
+---
