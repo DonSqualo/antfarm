@@ -13,6 +13,7 @@ Started: 2026-02-11 05:47 ET
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - Loop/story retry exhaustion in `src/installer/step-ops.ts` uses `newRetry > max_retries`, and loop step retry/reset paths should explicitly clear `current_story_id`
+- RTS layout dedupe/reconciliation should canonicalize repo/worktree paths (null-safe, slash-normalized, collapsed segments) before deriving feature keys
 
 ---
 
@@ -94,4 +95,12 @@ Started: 2026-02-11 05:47 ET
 - Added focused regression suite `tests/loop-retry-state-consistency.test.ts` covering abandoned running loop story reset, loop retry exhaustion via `failStep`, and verify-each retry re-queue + feedback persistence
 - Files changed: `src/installer/step-ops.ts`, `tests/loop-retry-state-consistency.test.ts`, `progress.txt`
 - **Learnings:** Loop retry state transitions are easiest to validate by seeding SQLite rows directly in temp-HOME tests and driving behavior through `claimStep`, `completeStep`, and `failStep` public APIs.
+---
+## 2026-02-12 18:45 - US-003: Fix RTS layout null-path and stale-run reconciliation edge cases
+- Hardened RTS path canonicalization in `src/server/dashboard.ts` by adding segment-collapsing normalization, null-safe repo/worktree handling, and canonical feature dedupe keys for mixed relative/absolute inputs
+- Updated RTS hydration to derive stable canonical worktree paths and dedupe feature entries predictably even when rows contain empty/malformed path fields
+- Ensured stale feature `run_id` references are reconciled away and inferred run links heal rows without duplicate feature entries
+- Added integration regression suite `tests/rts-layout-nullpath-reconciliation.test.ts` covering null-path hydration, relative-vs-absolute dedupe, stale run_id reconciliation, and `upsertLayoutEntitiesFromState` behavior with missing repo/worktree
+- Files changed: `src/server/dashboard.ts`, `tests/rts-layout-nullpath-reconciliation.test.ts`, `dist/server/dashboard.js`, `progress.txt`
+- **Learnings:** RTS state tests can reliably exercise internal `getRtsState`/`upsertLayoutEntitiesFromState` behavior through `/api/rts/state` when run against a temp-HOME SQLite DB seeded directly via `getDb()`.
 ---

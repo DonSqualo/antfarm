@@ -48,6 +48,7 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - RTS dashboard source is in `src/server/rts.html`.
 - RTS sprite assets are in `src/server/rts-sprites/`.
 - `npm run build` copies `src/server/index.html`, `src/server/rts.html`, and `src/server/rts-sprites/*` into `dist/server/`.
+- RTS layout hydration/persistence logic lives in `src/server/dashboard.ts` (`getRtsState`, `upsertLayoutEntitiesFromState`) and is exercised through `/api/rts/state`.
 
 ## What It Changes in OpenClaw
 

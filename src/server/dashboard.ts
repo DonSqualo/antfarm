@@ -100,12 +100,32 @@ function normalizePathKey(raw: string): string {
   return String(raw || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+function collapsePathSegments(rawPath: string): string {
+  const key = normalizePathKey(rawPath);
+  if (!key) return "";
+  const driveMatch = key.match(/^([A-Za-z]:)(\/.*)?$/);
+  const drive = driveMatch?.[1] ?? "";
+  const rest = driveMatch ? (driveMatch[2] || "/") : key;
+  const isAbsolute = rest.startsWith("/");
+  const stack: string[] = [];
+  for (const part of rest.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (stack.length > 0) stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  if (drive) return `${drive}/${stack.join("/")}`.replace(/\/+$/, "");
+  return `${isAbsolute ? "/" : ""}${stack.join("/")}`;
+}
+
 function absolutizePath(pathValue: string, repoPath: string): string {
-  const key = normalizePathKey(pathValue);
+  const key = collapsePathSegments(pathValue);
   if (!key) return "";
   if (key.startsWith("/")) return key;
   if (/^[A-Za-z]:\//.test(key)) return key;
-  const base = normalizePathKey(repoPath);
+  const base = collapsePathSegments(repoPath);
   if (!base) return key;
   const stack = base.split("/");
   for (const part of key.split("/")) {
@@ -116,7 +136,7 @@ function absolutizePath(pathValue: string, repoPath: string): string {
     }
     stack.push(part);
   }
-  return stack.join("/");
+  return collapsePathSegments(stack.join("/"));
 }
 
 function getRtsState(): Record<string, unknown> {
@@ -185,7 +205,7 @@ function getRtsState(): Record<string, unknown> {
       continue;
     }
     if (r.entity_type === "feature") {
-      const repoPath = String(r.repo_path ?? payload.repo ?? "");
+      const repoPath = collapsePathSegments(String(r.repo_path ?? payload.repo ?? ""));
       const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath);
       let resolvedRunId = (r.run_id ?? payload.runId ?? null) as string | null;
       let resolvedStatus: string | null = null;
@@ -210,7 +230,9 @@ function getRtsState(): Record<string, unknown> {
           } catch {}
         }
       }
-      const dedupeKey = resolvedRunId ? `run:${resolvedRunId}` : `draft:${worktreePath || r.id}`;
+      const canonicalWorktree = worktreePath || collapsePathSegments(String(r.worktree_path ?? payload.worktreePath ?? ""));
+      const canonicalId = normalizePathKey(String((payload.id ?? r.id) || ""));
+      const dedupeKey = resolvedRunId ? `run:${resolvedRunId}` : `draft:${canonicalWorktree || canonicalId}`;
       if (seenFeatureKeys.has(dedupeKey)) continue;
       seenFeatureKeys.add(dedupeKey);
       featureBuildings.push({
@@ -220,7 +242,7 @@ function getRtsState(): Record<string, unknown> {
         x: Number(r.x),
         y: Number(r.y),
         repo: repoPath,
-        worktreePath: worktreePath || String(r.worktree_path ?? payload.worktreePath ?? ""),
+        worktreePath: canonicalWorktree,
         runId: resolvedRunId,
         committed: resolvedRunId ? true : payload.committed,
         phase: resolvedStatus || payload.phase || (resolvedRunId ? "running" : "draft"),
@@ -295,7 +317,7 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       const id = String(base?.id ?? "");
       if (!id) continue;
       seenBaseIds.add(id);
-      const repoPath = String(base?.repo ?? "");
+      const repoPath = collapsePathSegments(String(base?.repo ?? ""));
       const incomingX = Number(base?.x ?? 0);
       const incomingY = Number(base?.y ?? 0);
       const existing = existingPosById.get(id);
@@ -310,8 +332,8 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       // Snapshot writes cannot create feature layout rows. Creation must come
       // from explicit actions (/api/rts/layout/position or /api/rts/feature/run).
       if (!existingPosById.has(id)) continue;
-      const repoPath = String(feature?.repo ?? "");
-      const worktreePath = absolutizePath(String(feature?.worktreePath ?? ""), repoPath) || String(feature?.worktreePath ?? "");
+      const repoPath = collapsePathSegments(String(feature?.repo ?? ""));
+      const worktreePath = absolutizePath(String(feature?.worktreePath ?? ""), repoPath) || collapsePathSegments(String(feature?.worktreePath ?? ""));
       const runIdRaw = feature?.runId;
       let runId = (runIdRaw === null || runIdRaw === undefined || String(runIdRaw).trim() === "") ? null : String(runIdRaw);
       if (runId && !runIdSet.has(runId)) runId = null;
