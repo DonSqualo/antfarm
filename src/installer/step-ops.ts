@@ -36,6 +36,32 @@ function toBaseAgentId(agentId: string): string {
   return String(agentId || "").replace(/@run:[^/]+$/, "");
 }
 
+function safeParseContext(raw: string | null | undefined): Record<string, string> {
+  if (!raw || !raw.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const normalized: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      normalized[key] = value == null ? "" : String(value);
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function safeParseLoopConfig(raw: string | null | undefined): LoopConfig | null {
+  if (!raw || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as LoopConfig;
+  } catch {
+    return null;
+  }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /**
@@ -43,9 +69,9 @@ function toBaseAgentId(agentId: string): string {
  */
 export function resolveTemplate(template: string, context: Record<string, string>): string {
   return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_match, key: string) => {
-    if (key in context) return context[key];
+    if (key in context) return String(context[key] ?? "");
     const lower = key.toLowerCase();
-    if (lower in context) return context[lower];
+    if (lower in context) return String(context[lower] ?? "");
     return `[missing: ${key}]`;
   });
 }
@@ -353,12 +379,12 @@ export function claimStep(agentId: string): ClaimResult {
 
   // Get run context
   const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(step.run_id) as { context: string } | undefined;
-  const context: Record<string, string> = run ? JSON.parse(run.context) : {};
+  const context: Record<string, string> = run ? safeParseContext(run.context) : {};
   applyWorktreeRepoOverride(context);
 
   // T6: Loop step claim logic
   if (step.type === "loop") {
-    const loopConfig: LoopConfig | null = step.loop_config ? JSON.parse(step.loop_config) : null;
+    const loopConfig: LoopConfig | null = safeParseLoopConfig(step.loop_config);
     if (loopConfig?.over === "stories") {
       // Find next pending story
       const nextStory = db.prepare(
@@ -471,7 +497,7 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
 
   // Merge KEY: value lines into run context
   const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(step.run_id) as { context: string };
-  const context: Record<string, string> = JSON.parse(run.context);
+  const context: Record<string, string> = safeParseContext(run.context);
 
   for (const line of output.split("\n")) {
     const match = line.match(/^([A-Z_]+):\s*(.+)$/);
@@ -504,7 +530,7 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
       "UPDATE steps SET current_story_id = NULL, output = ?, updated_at = datetime('now') WHERE id = ?"
     ).run(output, step.id);
 
-    const loopConfig: LoopConfig | null = step.loop_config ? JSON.parse(step.loop_config) : null;
+    const loopConfig: LoopConfig | null = safeParseLoopConfig(step.loop_config);
 
     // T8: verify_each flow — set verify step to pending
     if (loopConfig?.verifyEach && loopConfig.verifyStep) {
@@ -537,8 +563,8 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
   ).get(step.run_id) as { id: string; loop_config: string | null; run_id: string } | undefined;
 
   if (loopStepRow?.loop_config) {
-    const lc: LoopConfig = JSON.parse(loopStepRow.loop_config);
-    if (lc.verifyEach && lc.verifyStep === step.step_id) {
+    const lc: LoopConfig | null = safeParseLoopConfig(loopStepRow.loop_config);
+    if (lc?.verifyEach && lc.verifyStep === step.step_id) {
       return handleVerifyEachCompletion(step, loopStepRow.id, output, context);
     }
   }
@@ -660,8 +686,8 @@ function checkLoopContinuation(runId: string, loopStepId: string): { advanced: b
   // Also mark verify step done if it exists
   const loopStep = db.prepare("SELECT loop_config, run_id FROM steps WHERE id = ?").get(loopStepId) as { loop_config: string | null; run_id: string } | undefined;
   if (loopStep?.loop_config) {
-    const lc: LoopConfig = JSON.parse(loopStep.loop_config);
-    if (lc.verifyEach && lc.verifyStep) {
+    const lc: LoopConfig | null = safeParseLoopConfig(loopStep.loop_config);
+    if (lc?.verifyEach && lc.verifyStep) {
       db.prepare(
         "UPDATE steps SET status = 'done', updated_at = datetime('now') WHERE run_id = ? AND step_id = ?"
       ).run(runId, lc.verifyStep);

@@ -62,3 +62,12 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
 ---
+
+## 2026-02-12 18:12 - US-001: Harden step context parsing for malformed and missing values
+- Added safe JSON parsing helpers for run context and loop config in `src/installer/step-ops.ts` so malformed JSON now falls back to `{}`/`null` instead of throwing
+- Normalized template resolution to string-coerce present values and preserve `[missing: key]` behavior for absent keys
+- Updated claim/complete/verify/loop-continuation paths to use safe loop-config parsing and avoid runtime exceptions on null/malformed `loop_config`
+- Added regression coverage in `tests/step-context-parsing-regression.test.ts` for invalid `runs.context`, malformed `loop_config`, and missing template key handling
+- Files changed: `src/installer/step-ops.ts`, `src/installer/events.ts`, `src/installer/gateway-api.ts`, `tests/step-context-parsing-regression.test.ts`, `progress.txt`
+- **Learnings:** `step-ops` logic is exercised most reliably by using an isolated temp `HOME` so `getDb()` writes to a disposable SQLite path under `~/.openclaw/antfarm`.
+---

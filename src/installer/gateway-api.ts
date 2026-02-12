@@ -319,3 +319,37 @@ export async function deleteAgentCronJobs(namePrefix: string): Promise<void> {
     }
   }
 }
+
+export async function runCronJobNow(jobId: string): Promise<{ ok: boolean; error?: string }> {
+  const gateway = await getGatewayConfig();
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
+
+    const response = await fetch(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ tool: "cron", args: { action: "run", id: jobId }, sessionKey: "agent:main:main" }),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      return result.ok ? { ok: true } : { ok: false, error: result.error?.message ?? "Unknown error" };
+    }
+
+    if (response.status !== 404) {
+      const text = await response.text();
+      return { ok: false, error: `Gateway returned ${response.status}: ${text}` };
+    }
+  } catch {
+    // fall through to CLI fallback
+  }
+
+  try {
+    await runCli(["cron", "run", jobId, "--json"]);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+  }
+}
