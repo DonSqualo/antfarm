@@ -524,7 +524,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     </div>
     <div class="hud">
       <div class="hud-left panel">
-        <div class="command-title">BUILD</div>
+        <div class="command-title">BUILD-TRACE</div>
         <button id="cancelPlacementBtn" class="command-icon-btn" title="Cancel placement (Esc)" aria-label="Cancel placement (Escape)">
           <img src="/rts-sprites/cancel-button.svg?v=20260212" alt="" aria-hidden="true" />
         </button>
@@ -885,6 +885,10 @@ function buildingFootprint(kind){
 function centerPointFor(kind, x, y){
   const fp = buildingFootprint(kind);
   return { x: Number(x || 0) + (fp.w / 2), y: Number(y || 0) + (fp.h / 2) };
+}
+
+function worldDepth(y, bias = 100000){
+  return Math.max(1, bias + Math.floor(Number(y) || 0));
 }
 
 function getLiveAgentEntry(runId, agentId){
@@ -1271,7 +1275,7 @@ function renderUnitsMotionFrame(){
     const p = worldToScreen(ux, uy);
     node.style.left = `${p.x}px`;
     node.style.top = `${p.y}px`;
-    node.style.zIndex = String(300 + Math.floor(uy));
+    node.style.zIndex = String(worldDepth(uy, 2000));
     node.classList.toggle('moving', isActive);
   });
 }
@@ -1408,7 +1412,7 @@ function showPlacementGhost(kind, worldX, worldY){
   const className = kind === 'base' ? 'base' : 'building';
   const fp = buildingFootprint(kind);
   placementLayerEl.innerHTML = `
-    <div class="entity ${className} placement-ghost ${invalid ? 'invalid' : ''}" style="left:${screen.x}px;top:${screen.y}px;z-index:${100 + Math.floor(point.y)};--footprint-w:${fp.w}px;--footprint-h:${fp.h}px;--sprite-w:${fp.spriteW}px;--sprite-h:${fp.spriteH}px">
+    <div class="entity ${className} placement-ghost ${invalid ? 'invalid' : ''}" style="left:${screen.x}px;top:${screen.y}px;z-index:${worldDepth(point.y, 1000)};--footprint-w:${fp.w}px;--footprint-h:${fp.h}px;--sprite-w:${fp.spriteW}px;--sprite-h:${fp.spriteH}px">
       <div class="iso-core">${structureMarkup(kind)}</div>
     </div>
   `;
@@ -1416,6 +1420,18 @@ function showPlacementGhost(kind, worldX, worldY){
 
 function localPointInWorld(event){
   return screenToWorld(event.clientX, event.clientY);
+}
+
+function edgeAutoPan(clientX, clientY, margin = 36, speed = 18){
+  const rect = worldEl.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+  let moved = false;
+  if (clientX < rect.left + margin) { state.camera.x -= speed; moved = true; }
+  else if (clientX > rect.right - margin) { state.camera.x += speed; moved = true; }
+  if (clientY < rect.top + margin) { state.camera.y -= speed; moved = true; }
+  else if (clientY > rect.bottom - margin) { state.camera.y += speed; moved = true; }
+  if (moved) updateCameraVisuals();
+  return moved;
 }
 
 function isEditingActionPanel(){
@@ -1541,7 +1557,7 @@ function renderIsoEntity({ className, kind, x, y, z, innerHtml, onClick }) {
   shell.className = `entity ${className}`;
   shell.style.left = `${screen.x}px`;
   shell.style.top = `${screen.y}px`;
-  shell.style.zIndex = String(100 + Math.floor(z || y));
+  shell.style.zIndex = String(worldDepth(z || y, 1000));
   shell.style.setProperty('--footprint-w', `${fp.w}px`);
   shell.style.setProperty('--footprint-h', `${fp.h}px`);
   shell.style.setProperty('--sprite-w', `${fp.spriteW}px`);
@@ -1749,7 +1765,7 @@ function renderWorld(){
     const p = worldToScreen(u.x, u.y);
     el.style.left = `${p.x}px`;
     el.style.top = `${p.y}px`;
-    el.style.zIndex = String(300 + Math.floor(u.y));
+    el.style.zIndex = String(worldDepth(u.y, 2000));
     el.title = `${u.label} • model: ${u.model || 'unknown'}${liveEntry ? ` • ${liveEntry.stale ? 'stale' : 'running'}` : ''}`;
     el.dataset.runId = u.runId;
     el.dataset.agentId = u.full;
@@ -1766,7 +1782,7 @@ function renderWorld(){
       sub.className = 'subunit';
       sub.style.left = `${sp.x}px`;
       sub.style.top = `${sp.y}px`;
-      sub.style.zIndex = String(290 + Math.floor(sy));
+      sub.style.zIndex = String(worldDepth(sy, 1900));
       sub.title = `subagent • ${u.faction}`;
       sub.onclick = () => { state.selected = { type:'subunit', data:u }; renderSelection(); };
       world.appendChild(sub);
@@ -2623,7 +2639,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') deleteSelectedStructure();
 });
 
-worldWrapEl.addEventListener('mousemove', (e) => {
+const handlePointerMove = (e) => {
   if (state.cameraDrag.active) {
     state.camera.x = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
     state.camera.y = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
@@ -2637,6 +2653,7 @@ worldWrapEl.addEventListener('mousemove', (e) => {
     return;
   }
   if (state.draggingEntity) {
+    const autoPanned = edgeAutoPan(e.clientX, e.clientY);
     const point = localPointInWorld(e);
     const kind = (state.draggingEntity.type === 'base' || state.draggingEntity.type === 'baseDraft') ? 'base' : 'feature';
     const snapped = snapPlacement(kind, point.x - state.draggingEntity.offsetX + (buildingFootprint(kind).w / 2), point.y - state.draggingEntity.offsetY + (buildingFootprint(kind).h / 2));
@@ -2646,17 +2663,22 @@ worldWrapEl.addEventListener('mousemove', (e) => {
     else if (state.draggingEntity.type === 'feature') updateFeaturePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else updateRunBuildingPosition(state.draggingEntity.id, snapped.x, snapped.y);
     rebuildScene();
+    if (autoPanned) queuePersist();
     return;
   }
   const kind = dragBuildingType || state.placementMode;
   if (!kind) return;
   const point = localPointInWorld(e);
   showPlacementGhost(kind, point.x, point.y);
-});
+};
+window.addEventListener('mousemove', handlePointerMove);
 worldWrapEl.addEventListener('mouseleave', hidePlacementGhost);
 
 worldWrapEl.addEventListener('mousedown', (e) => {
-  if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+  const target = e.target instanceof Element ? e.target : null;
+  const hitEntity = !!target?.closest('.entity');
+  const panWithPrimary = e.button === 0 && !state.placementMode && !hitEntity;
+  if (e.button === 2 || e.button === 1 || (e.button === 0 && e.shiftKey) || panWithPrimary) {
     e.preventDefault();
     state.cameraDrag = {
       active:true,
@@ -2666,6 +2688,9 @@ worldWrapEl.addEventListener('mousedown', (e) => {
       originY:state.camera.y
     };
   }
+});
+worldWrapEl.addEventListener('contextmenu', (e) => {
+  if (state.cameraDrag.active || e.target === worldWrapEl || worldWrapEl.contains(e.target)) e.preventDefault();
 });
 
 window.addEventListener('mouseup', async () => {
