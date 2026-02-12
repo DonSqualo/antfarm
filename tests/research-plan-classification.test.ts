@@ -24,13 +24,13 @@ test("buildResearchPrompt keeps required structure and no placeholder-specific b
   assert.doesNotMatch(prompt.toLowerCase(), /placeholder logic is replaced with production-ready behavior\./);
 });
 
-test("generateResearchPlans classifies placeholder evidence into production type", () => {
+test("generateResearchPlans keeps high-signal temporary markers and uses production plan types", () => {
   const plans = generateResearchPlans({
     task: "Replace placeholder implementations with production behavior",
     repoPath: "/repo/path",
     evidence: [
       { file: "src/server/dashboard.ts", line: 917, snippet: "type ResearchPlanType = \"feature\" | \"bug\" | \"placeholder\";" },
-      { file: "src/server/dashboard.ts", line: 941, snippet: "input.type === \"placeholder\"" },
+      { file: "src/server/dashboard.ts", line: 941, snippet: "// TODO: not implemented yet" },
     ],
   });
 
@@ -43,19 +43,28 @@ test("generateResearchPlans classifies placeholder evidence into production type
   }
 });
 
-test("generateResearchPlans returns bug classification for bug-like evidence and handles empty evidence", () => {
-  const bugPlans = generateResearchPlans({
-    task: "Fix server bug",
+test("generateResearchPlans ignores generic null-return evidence and keeps bug markers", () => {
+  const plans = generateResearchPlans({
+    task: "Replace placeholder implementations with production behavior",
     repoPath: "/repo/path",
     evidence: [
-      { file: "src/server/dashboard.ts", line: 60, snippet: "if (!run) return null;" },
+      { file: "src/server/dashboard.ts", line: 60, snippet: "return null;" },
+      { file: "src/server/dashboard.ts", line: 61, snippet: "// NYI: proper validation path" },
+      { file: "src/server/dashboard.ts", line: 62, snippet: "// placeholder bug branch" },
     ],
   });
 
-  assert.equal(bugPlans.length, 1);
-  assert.equal(bugPlans[0]?.type, "bug");
-  assert.equal(bugPlans[0]?.workflow, "bug-fix");
+  assert.equal(plans.length, 2);
+  assert.deepEqual(plans.map((plan) => plan.evidence[0]), [
+    "src/server/dashboard.ts:61 // NYI: proper validation path",
+    "src/server/dashboard.ts:62 // placeholder bug branch",
+  ]);
+  assert.equal(plans[0]?.type, "feature");
+  assert.equal(plans[1]?.type, "bug");
+  assert.equal(plans[1]?.workflow, "bug-fix");
+});
 
+test("generateResearchPlans handles empty evidence", () => {
   const emptyPlans = generateResearchPlans({
     task: "No evidence",
     repoPath: "/repo/path",

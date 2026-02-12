@@ -13,6 +13,7 @@ Started: 2026-02-11 05:47 ET
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - Server-side pure logic is best kept in standalone modules (e.g., `src/server/*.ts`) so tests can import them directly without pulling in dashboard runtime dependencies
 - RTS/source parity tests should tolerate missing `dist/server` artifacts by falling back to `src/server` when the build step has not run yet
+- Research-plan placeholder remediation should only use high-signal temporary markers (TODO/NYI/not implemented/placeholder), not generic control flow like `return null;`.
 
 ---
 
@@ -77,4 +78,11 @@ Started: 2026-02-11 05:47 ET
 - Updated RTS regression tests to gracefully fall back to source HTML when dist assets are absent and aligned brittle string checks with current RTS implementation
 - Files changed: `src/installer/events.ts`, `src/installer/gateway-api.ts`, `tests/rts-assignment-ui-removal.test.ts`, `tests/rts-command-controls.test.ts`, `tests/rts-escape-draft-cancel.test.ts`, `tests/rts-feature-transparency-status.test.ts`, `progress.txt`
 - **Learnings:** CLI fallback compatibility code should probe multiple cron run subcommands (`run`/`trigger`) because gateway and CLI variants can differ across OpenClaw versions.
+---
+## 2026-02-12 16:25 - US-002: Harden placeholder signal detection to reduce false positives
+- Refined placeholder evidence gating in `src/server/research-plan.ts` so plan generation requires high-signal temporary markers and skips generic standalone `return null;` snippets
+- Tightened bug classification signals to avoid null-only misclassification while preserving bug-marker handling when explicit bug/error terms are present
+- Expanded `tests/research-plan-classification.test.ts` to cover high-signal placeholder detection, null-return false-positive rejection, and marker-driven bug/feature workflow outcomes
+- Files changed: `src/server/research-plan.ts`, `tests/research-plan-classification.test.ts`, `progress.txt`
+- **Learnings:** Placeholder scan quality improves when detection is marker-first and treats generic control flow as neutral unless accompanied by explicit temporary markers.
 ---

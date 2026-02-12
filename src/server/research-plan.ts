@@ -28,12 +28,29 @@ interface BuildResearchPromptInput {
   acceptanceCriteria: string[];
 }
 
+const BUG_SIGNAL_REGEX = /(\bbug\b|\berror\b|\bfail(?:ed|ure)?\b|\bexception\b|\bcrash\b)/;
+const PLACEHOLDER_SIGNAL_REGEX = /(\bplaceholder\b|\bnot\s+implemented\b|\bnyi\b|\bimplement\s+me\b|\btodo\b|\bfixme\b|\bstub(?:bed)?\b|\btemp(?:orary)?\b|\bwip\b)/;
+const GENERIC_NULL_RETURN_REGEX = /^return\s+null\s*;?$/;
+
 function classifyResearchPlanType(evidenceText: string): ResearchPlanType {
   const text = evidenceText.toLowerCase();
-  if (/(\bbug\b|\berror\b|\bfail(?:ed|ure)?\b|\bexception\b|\bcrash\b|\bnull\b)/.test(text)) {
+  if (BUG_SIGNAL_REGEX.test(text)) {
     return "bug";
   }
   return "feature";
+}
+
+function hasHighSignalPlaceholderEvidence(snippet: string): boolean {
+  const normalizedSnippet = snippet.trim().toLowerCase();
+  if (!normalizedSnippet) {
+    return false;
+  }
+
+  if (GENERIC_NULL_RETURN_REGEX.test(normalizedSnippet)) {
+    return false;
+  }
+
+  return PLACEHOLDER_SIGNAL_REGEX.test(normalizedSnippet);
 }
 
 function formatEvidence(input: ResearchEvidenceInput): string {
@@ -75,6 +92,10 @@ export function generateResearchPlans(input: {
 }): ResearchPlan[] {
   const plans: ResearchPlan[] = [];
   for (const item of input.evidence) {
+    if (!hasHighSignalPlaceholderEvidence(item.snippet)) {
+      continue;
+    }
+
     const evidenceLine = formatEvidence(item);
     const type = classifyResearchPlanType(`${item.file} ${item.snippet}`);
     const workflow = type === "bug" ? "bug-fix" : "feature-dev";
