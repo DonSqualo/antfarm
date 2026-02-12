@@ -22,6 +22,10 @@
   --ok:#4df5bf;
   --warn:#ffd06b;
   --bad:#ff7198;
+  --dock-w:min(290px, 24vw);
+  --command-h:138px;
+  --screen-pad:12px;
+  --panel-gutter:var(--dock-w);
 }
 * {
   box-sizing:border-box;
@@ -82,6 +86,8 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .world {
   position:absolute;
   inset:0;
+  transform:translate3d(calc(var(--cam-x, 0px) * -1), calc(var(--cam-y, 0px) * -1), 0);
+  will-change:transform;
 }
 .path-layer {
   pointer-events:none;
@@ -120,7 +126,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .panel {
   background:var(--panel);
   border:1px solid var(--panel-edge);
-  border-radius:12px;
+  border-radius:0;
   padding:12px;
 }
 .panel h3 {
@@ -132,35 +138,45 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .hud {
   position:absolute;
-  top:12px;
-  left:12px;
-  right:12px;
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-start;
-  gap:10px;
+  top:0;
+  bottom:0;
+  left:auto;
+  right:0;
+  width:var(--dock-w);
+  display:block;
+  gap:0;
   pointer-events:none;
-  z-index:50;
+  z-index:220;
 }
-.hud-left,
-.hud-right { display:flex; gap:8px; pointer-events:auto; }
-.hud-right { flex-direction:column; width:min(360px, 34vw); max-height:calc(100vh - 24px); overflow:auto; }
-.layout.feature-mode .hud-right { width:min(560px, 52vw); max-height:calc(100vh - 24px); }
-.layout.feature-mode #livePanel,
-.layout.feature-mode #selectionPanel { display:none; }
-.layout.feature-mode #actionPanel { min-height:calc(100vh - 120px); }
+.hud-right { display:flex; gap:0; pointer-events:auto; flex-direction:column; width:100%; height:100%; max-height:100%; overflow:hidden; }
+#livePanel,
+#selectionPanel { display:none !important; }
+#actionPanel {
+  background:linear-gradient(180deg,#0a1b31f2 0%, #081427f2 100%);
+  min-height:100%;
+  height:100%;
+  border-radius:0;
+  border-right:0;
+  border-top:0;
+  border-bottom:0;
+}
+.layout.feature-mode #actionPanel { min-height:100%; }
 .command-bar {
-  position:absolute;
-  left:50%;
-  bottom:12px;
-  transform:translateX(-50%);
+  position:fixed;
+  left:calc(var(--panel-gutter) - 1px) !important;
+  right:calc(var(--panel-gutter) - 1px);
+  bottom:0;
+  transform:none !important;
   border:1px solid var(--panel-edge);
-  border-radius:12px;
+  border-radius:0;
   background:linear-gradient(180deg,#09172d,#081224);
   display:flex;
-  align-items:center;
-  width:min(760px, calc(100vw - 24px));
-  z-index:60;
+  align-items:stretch;
+  width:auto;
+  height:var(--command-h);
+  overflow:visible;
+  z-index:240;
+  pointer-events:auto;
 }
 .command-left {
   display:none;
@@ -186,7 +202,9 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   image-rendering:crisp-edges;
 }
 .command-grid {
-  padding:10px;
+  padding:8px;
+  width:100%;
+  height:100%;
   display:flex;
   gap:8px;
   align-items:center;
@@ -265,7 +283,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   opacity:0;
   pointer-events:none;
   transition:opacity .14s ease, transform .14s ease;
-  z-index:85;
+  z-index:260;
 }
 .palette-tooltip::after {
   content:'';
@@ -447,6 +465,45 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   border-radius:8px;
   padding:6px 8px;
 }
+.panel-toolbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:10px;
+}
+.panel-toolbar .notice { white-space:nowrap; }
+.panel-delete {
+  border-color:#7d4760;
+  background:#2a1320;
+  color:#ffd4e2;
+}
+.panel-delete:hover { border-color:#cf7fa2; }
+.building-hover {
+  position:fixed;
+  min-width:180px;
+  max-width:260px;
+  padding:8px 10px;
+  border:1px solid #7de3ff;
+  border-radius:10px;
+  background:linear-gradient(180deg,#0b223a 0%,#071629 100%);
+  box-shadow:0 10px 22px #00000080;
+  pointer-events:none;
+  z-index:140;
+  display:none;
+}
+.building-hover strong {
+  display:block;
+  font-size:11px;
+  color:#bff3ff;
+  margin-bottom:3px;
+}
+.building-hover span {
+  display:block;
+  font-size:11px;
+  color:#ccecf8;
+  line-height:1.3;
+}
 @keyframes float-unit { from { transform:translateY(-2px); } to { transform:translateY(2px); } }
 .skill-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
 .skill { border:1px solid #416e90; border-radius:8px; padding:6px; font-size:11px; background:#0a1b2f; }
@@ -557,33 +614,31 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 .unit.live-running { filter:saturate(1.1) brightness(1.05); }
 .unit.live-stale { filter:hue-rotate(-30deg) saturate(1.2); }
 @media (max-width:1180px) {
-  .command-grid { flex-wrap:wrap; }
-  .hud { flex-direction:column; right:auto; width:min(360px, calc(100vw - 24px)); }
-  .hud-right { width:100%; max-height:42vh; }
+  :root { --dock-w:min(280px, 30vw); --command-h:128px; --panel-gutter:var(--dock-w); }
+  .hud-right { width:100%; max-height:100%; }
   .camera-hint { bottom:170px; }
 }
 @media (max-width:760px) {
+  :root { --dock-w:min(250px, 68vw); --command-h:118px; --screen-pad:8px; --panel-gutter:var(--screen-pad); }
   .hud {
-    top:8px;
-    left:8px;
-    right:8px;
-    width:calc(100vw - 16px);
-  }
-  .hud-left {
-    width:100%;
-    justify-content:space-between;
-    flex-wrap:wrap;
+    top:0;
+    bottom:0;
+    left:auto;
+    right:0;
+    width:var(--dock-w);
+    height:auto;
   }
   .hud-right {
     width:100%;
-    max-height:36vh;
+    max-height:100%;
   }
   .command-bar {
-    left:8px;
-    right:8px;
+    left:calc(var(--panel-gutter) - 1px) !important;
+    right:calc(var(--panel-gutter) - 1px);
     width:auto;
-    transform:none;
-    bottom:8px;
+    transform:none !important;
+    bottom:0;
+    position:fixed;
   }
   .palette-card {
     width:88px;
@@ -615,17 +670,6 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
       <div id="placementLayer" class="world placement-layer"></div>
     </div>
     <div class="hud">
-      <div class="hud-left panel">
-        <div class="command-title">BUILD FORGE 4</div>
-        <button id="cancelPlacementBtn" class="command-icon-btn" title="Cancel placement (Esc)" aria-label="Cancel placement (Escape)">
-          <img src="/rts-sprites/cancel-button.svg?v=20260212" alt="" aria-hidden="true" />
-        </button>
-        <button id="deleteSelectedBtn" class="command-icon-btn" title="Delete selected (Delete)" aria-label="Delete selected (Delete)">
-          <img src="/rts-sprites/delete-button.svg?v=20260212" alt="" aria-hidden="true" />
-        </button>
-        <a href="/" title="Classic board" aria-label="Classic board" style="color:var(--corpus-ice);text-decoration:none;font-size:14px;border:1px solid #4c7da2;border-radius:8px;padding:7px 10px;text-align:center;">[]</a>
-        <div class="notice" id="placementNotice">IDLE</div>
-      </div>
       <div class="hud-right">
         <div class="panel" id="livePanel">
           <h3>Live Agent TTY</h3>
@@ -675,6 +719,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
       </div>
     </section>
   </div>
+  <div id="buildingHoverCard" class="building-hover" aria-hidden="true"></div>
 
 <script>
 const state = {
@@ -718,6 +763,22 @@ const state = {
   featureMode: false,
   runStatusOverrides: {}
 };
+// Manually bump this when changing Command Console UI so refresh state is obvious.
+const COMMAND_CONSOLE_VERSION = 'v2026.02.12.1';
+const RTS_SPRITE_URLS = [
+  '/rts-sprites/bg-space-tile-20260212b.png?v=20260212b',
+  '/rts-sprites/base_core_sprite.png?v=20260212v',
+  '/rts-sprites/feature_factory_sprite.png?v=20260212v',
+  '/rts-sprites/research_lab_sprite.png?v=20260212v',
+  '/rts-sprites/warehouse_sprite.png?v=20260212v',
+  '/rts-sprites/base-core-ogame-preview-20260212k.webp?v=20260212k',
+  '/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k',
+  '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k',
+  '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k',
+  '/rts-sprites/unit-cephalon-test.png?v=20260212b',
+  '/rts-sprites/subunit-cephalon-test.png?v=20260212b'
+];
+let spritesPreloadPromise = null;
 
 const skillTrees = {
   architect: ['System Mapping','Dependency Radar','Design Sync','API Stability'],
@@ -733,6 +794,92 @@ function dbg(tag, data){
 }
 function baseAgentId(agentId){
   return String(agentId || '').replace(/@run:[^/]+$/, '');
+}
+function canDeleteSelection(){
+  const s = state.selected;
+  if (!s) return false;
+  if (s.type === 'base') return s.data?.source === 'custom';
+  if (s.type === 'baseDraft') return true;
+  if (s.type === 'building') return true;
+  return false;
+}
+function panelToolbar(title, subtitle = ''){
+  const sub = subtitle ? `<div class="notice">${esc(subtitle)}</div>` : '<div class="notice"></div>';
+  const del = canDeleteSelection() ? '<button id="panelDeleteBtn" class="panel-delete">Delete</button>' : '';
+  return `
+    <div class="panel-toolbar">
+      <h3>${esc(title)}</h3>
+      ${sub}
+      ${del}
+    </div>
+  `;
+}
+function wirePanelDeleteButton(){
+  const btn = document.getElementById('panelDeleteBtn');
+  if (!btn) return;
+  btn.addEventListener('click', () => deleteSelectedStructure());
+}
+function renderDefaultActionPanel(){
+  const panel = document.getElementById('actionPanel');
+  if (!panel) return;
+  const live = state.live || {};
+  panel.dataset.mode = 'default';
+  panel.dataset.featureId = '';
+  panel.innerHTML = `
+    ${panelToolbar(`Command Console ${COMMAND_CONSOLE_VERSION}`, state.placementMode ? `Placement: ${state.placementMode}` : 'Idle')}
+    <div class="kv"><strong>Active runs:</strong> ${Number(live.activeRunCount || 0)}</div>
+    <div class="kv"><strong>Pending runs:</strong> ${Number(live.pendingRunCount || 0)}</div>
+    <div class="kv"><strong>Running agents:</strong> ${Number(live.runningAgentCount || 0)}</div>
+    <div class="notice">Place Base, Feature, Research, or Warehouse structures from the cards below.</div>
+  `;
+  wirePanelDeleteButton();
+}
+function hoverSummaryForBuilding(b){
+  if (!b) return '';
+  if (b.kind === 'base') return 'Base command hub';
+  if (b.kind === 'feature') return `${prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'draft'))} • ${Math.round(Number(b.progress || 0))}%`;
+  if (b.kind === 'research') return 'Research lab';
+  if (b.kind === 'warehouse') return `${Array.isArray(b.items) ? b.items.length : 0} stored items`;
+  if (b.kind === 'run') return prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting'));
+  return '';
+}
+function showBuildingHoverCard(building, clientX, clientY){
+  const card = document.getElementById('buildingHoverCard');
+  if (!card || !building) return;
+  const title = building.kind === 'feature' ? 'Feature Forge'
+    : (building.kind === 'research' ? 'Research Lab'
+      : (building.kind === 'warehouse' ? 'Warehouse'
+        : (building.kind === 'run' ? 'Run Structure' : 'Structure')));
+  card.innerHTML = `<strong>${esc(title)}</strong><span>${esc(hoverSummaryForBuilding(building))}</span>`;
+  card.style.display = 'block';
+  const pad = 10;
+  const rect = card.getBoundingClientRect();
+  let x = clientX + 14;
+  let y = clientY - (rect.height + 14);
+  if (x + rect.width > window.innerWidth - pad) x = window.innerWidth - rect.width - pad;
+  if (x < pad) x = pad;
+  if (y < pad) y = clientY + 14;
+  if (y + rect.height > window.innerHeight - pad) y = window.innerHeight - rect.height - pad;
+  card.style.left = `${Math.round(x)}px`;
+  card.style.top = `${Math.round(y)}px`;
+}
+function hideBuildingHoverCard(){
+  const card = document.getElementById('buildingHoverCard');
+  if (!card) return;
+  card.style.display = 'none';
+}
+function preloadRtsSprites(){
+  if (spritesPreloadPromise) return spritesPreloadPromise;
+  const load = (url) => new Promise((resolve) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.loading = 'eager';
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+  spritesPreloadPromise = Promise.all(RTS_SPRITE_URLS.map(load)).catch(() => []);
+  return spritesPreloadPromise;
 }
 async function json(url){
   const r = await fetch(url);
@@ -884,6 +1031,7 @@ async function hydratePersistedState(){
 }
 function parseContext(run){ try { return JSON.parse(run.context || '{}'); } catch { return {}; } }
 function extractPrUrl(run){
+  if (!run || typeof run !== 'object') return null;
   const candidates = [run.task, run.context, ...(run.steps||[]).map(s=>s.output||'')].join('\n');
   const m = candidates.match(/https?:\/\/[^\s)]+\/pull\/[0-9]+/i);
   return m ? m[0] : null;
@@ -1062,7 +1210,6 @@ function activeRunAgentMap(){
 
 function renderLiveConsole(){
   const panel = document.getElementById('livePanel');
-  if (!panel) return;
   const live = state.live || {};
   const diag = state.diag || {};
   const agents = Array.isArray(live.activeAgents) ? live.activeAgents : [];
@@ -1083,19 +1230,22 @@ function renderLiveConsole(){
     }).join('\n')
     : 'IDLE  no active agents';
 
-  panel.innerHTML = `
-    <h3>Live Agent TTY</h3>
-    <div class="cli-panel">
-      <div class="cli-head">
-        <span>RUN ${live.activeRunCount || 0} | WAIT ${live.pendingRunCount || 0} | AGENT ${live.runningAgentCount || 0} | WORKERS ${workerTotal}</span>
-        <button id="deployWaitingBtn" class="agent-restart" ${deployDisabled ? 'disabled' : ''}>deploy</button>
-        <span>${esc(stamp)}</span>
+  if (panel) {
+    panel.innerHTML = `
+      <h3>Live Agent TTY</h3>
+      <div class="cli-panel">
+        <div class="cli-head">
+          <span>RUN ${live.activeRunCount || 0} | WAIT ${live.pendingRunCount || 0} | AGENT ${live.runningAgentCount || 0} | WORKERS ${workerTotal}</span>
+          <button id="deployWaitingBtn" class="agent-restart" ${deployDisabled ? 'disabled' : ''}>deploy</button>
+          <span>${esc(stamp)}</span>
+        </div>
+        <div class="cli-body">${esc(lines)}</div>
       </div>
-      <div class="cli-body">${esc(lines)}</div>
-    </div>
-    <div class="notice" style="margin-top:6px">Source: Antfarm DB step state on this machine. ${esc(blocked)}${state.liveDeployNotice ? ` ${esc(state.liveDeployNotice)}` : ''}</div>
-    ${runtimeLine ? `<div class="notice" style="margin-top:4px">Serving: ${esc(runtimeLine)}</div>` : ''}
-  `;
+      <div class="notice" style="margin-top:6px">Source: Antfarm DB step state on this machine. ${esc(blocked)}${state.liveDeployNotice ? ` ${esc(state.liveDeployNotice)}` : ''}</div>
+      ${runtimeLine ? `<div class="notice" style="margin-top:4px">Serving: ${esc(runtimeLine)}</div>` : ''}
+    `;
+  }
+  if (!state.selected) renderDefaultActionPanel();
   const deployBtn = document.getElementById('deployWaitingBtn');
   deployBtn?.addEventListener('click', async () => {
     if (state.liveDeployInFlight) return;
@@ -1121,7 +1271,8 @@ function renderLiveConsole(){
 
 function runsSignature(runs){
   return (runs || [])
-    .map((r) => `${r.id}:${r.status}:${r.updated_at || ''}`)
+    // Avoid rebuilding the entire world on every heartbeat timestamp update.
+    .map((r) => `${r.id}:${r.status || ''}:${r.workflow_id || ''}`)
     .sort()
     .join('|');
 }
@@ -1158,6 +1309,8 @@ function markRunRelaunched(runId){
 }
 
 async function boot(){
+  // Warm sprite decode/cache so first placement/select doesn't pop in images.
+  void preloadRtsSprites();
   await hydratePersistedState();
   state.workflows = await json('/api/workflows');
   try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
@@ -1523,15 +1676,18 @@ function ensureMotionLoop(){
 function setPlacement(mode){
   state.placementMode = mode;
   const notice = document.getElementById('placementNotice');
-  if (!mode) notice.textContent = 'IDLE';
-  else if (mode === 'base') notice.textContent = 'BASE';
-  else if (mode === 'research') notice.textContent = 'LAB';
-  else if (mode === 'warehouse') notice.textContent = 'WAREHOUSE';
-  else notice.textContent = 'FORGE';
+  if (notice) {
+    if (!mode) notice.textContent = 'IDLE';
+    else if (mode === 'base') notice.textContent = 'BASE';
+    else if (mode === 'research') notice.textContent = 'LAB';
+    else if (mode === 'warehouse') notice.textContent = 'WAREHOUSE';
+    else notice.textContent = 'FORGE';
+  }
   document.querySelectorAll('.palette-card[data-building]').forEach((card) => {
     card.classList.toggle('active', card.getAttribute('data-building') === mode);
   });
   if (!mode) hidePlacementGhost();
+  if (!state.selected) renderDefaultActionPanel();
 }
 
 function placeBaseAt(x,y){
@@ -1720,11 +1876,12 @@ function setFeatureMode(active){
 }
 
 function worldToScreen(x, y){
-  return { x: x - state.camera.x, y: y - state.camera.y };
+  return { x, y };
 }
 
 function screenToWorld(clientX, clientY){
-  const rect = worldEl.getBoundingClientRect();
+  // Use the non-transformed wrapper for pointer math; the world layer itself is camera-transformed.
+  const rect = worldWrapEl.getBoundingClientRect();
   const sx = clientX - rect.left;
   const sy = clientY - rect.top;
   return { sx, sy, x: sx + state.camera.x, y: sy + state.camera.y };
@@ -1755,7 +1912,8 @@ function localPointInWorld(event){
 }
 
 function edgeAutoPan(clientX, clientY, margin = 36, speed = 18){
-  const rect = worldEl.getBoundingClientRect();
+  // Use wrapper bounds; worldEl is camera-transformed and skews edge detection.
+  const rect = worldWrapEl.getBoundingClientRect();
   if (!rect || rect.width <= 0 || rect.height <= 0) return false;
   let moved = false;
   if (clientX < rect.left + margin) { state.camera.x -= speed; moved = true; }
@@ -1840,7 +1998,8 @@ function clearSelectedEntity(){
   queuePersist();
   renderSelection();
   renderRunSetupPanel(null);
-  rebuildScene();
+  refreshSelectionVisuals();
+  hideBuildingHoverCard();
 }
 
 async function deleteSelectedStructure(){
@@ -1948,11 +2107,12 @@ async function deleteSelectedStructure(){
   }
 }
 
-function renderIsoEntity({ className, kind, x, y, z, innerHtml, onClick }) {
+function renderIsoEntity({ className, kind, x, y, z, innerHtml, onClick, entityKey = '' }) {
   const shell = document.createElement('div');
   const screen = worldToScreen(x, y);
   const fp = buildingFootprint(kind || 'run');
   shell.className = `entity ${className}`;
+  if (entityKey) shell.dataset.entityKey = entityKey;
   shell.style.left = `${screen.x}px`;
   shell.style.top = `${screen.y}px`;
   shell.style.zIndex = String(worldDepth(z || y, 1000));
@@ -1963,6 +2123,49 @@ function renderIsoEntity({ className, kind, x, y, z, innerHtml, onClick }) {
   shell.innerHTML = `<div class="iso-core">${innerHtml}</div>`;
   shell.onclick = onClick;
   return shell;
+}
+
+function refreshSelectionVisuals(){
+  document.querySelectorAll('.entity.is-selected, .unit.is-selected, .subunit.is-selected')
+    .forEach((el) => el.classList.remove('is-selected'));
+  if (!state.selected) return;
+  if (state.selected.type === 'base') {
+    const key = `base:${String(state.selected?.data?.id || '')}`;
+    const node = document.querySelector(`.entity[data-entity-key="${CSS.escape(key)}"]`);
+    if (node) node.classList.add('is-selected');
+    return;
+  }
+  if (state.selected.type === 'baseDraft') {
+    const key = `baseDraft:${String(state.selected?.data?.id || '')}`;
+    const node = document.querySelector(`.entity[data-entity-key="${CSS.escape(key)}"]`);
+    if (node) node.classList.add('is-selected');
+    return;
+  }
+  if (state.selected.type === 'building') {
+    const key = `building:${String(state.selected?.data?.id || '')}`;
+    const node = document.querySelector(`.entity[data-entity-key="${CSS.escape(key)}"]`);
+    if (node) node.classList.add('is-selected');
+    return;
+  }
+  if (state.selected.type === 'unit' || state.selected.type === 'subunit') {
+    const unitKey = `${String(state.selected?.data?.runId || '')}:${String(state.selected?.data?.full || '')}`;
+    const unitNode = document.querySelector(`.unit[data-unit-key="${CSS.escape(unitKey)}"]`);
+    if (unitNode) unitNode.classList.add('is-selected');
+    document.querySelectorAll(`.subunit[data-unit-key="${CSS.escape(unitKey)}"]`)
+      .forEach((el) => el.classList.add('is-selected'));
+  }
+}
+
+function moveEntityVisual(entityType, entityId, x, y){
+  let key = '';
+  if (entityType === 'base') key = `base:${String(entityId || '')}`;
+  else if (entityType === 'baseDraft') key = `baseDraft:${String(entityId || '')}`;
+  else key = `building:${String(entityId || '')}`;
+  const node = document.querySelector(`.entity[data-entity-key="${CSS.escape(key)}"]`);
+  if (!node) return;
+  node.style.left = `${x}px`;
+  node.style.top = `${y}px`;
+  node.style.zIndex = String(worldDepth(y, 1000));
 }
 
 const NON_TERMINAL_RUN_STATUSES = new Set(['pending', 'running', 'retrying', 'queued', 'claimed', 'in_progress', 'waiting']);
@@ -2343,11 +2546,15 @@ function renderWorld(){
     const el = renderIsoEntity({
       className:`base ${movable ? 'movable' : ''} ${selectedBaseId === String(base.id) ? 'is-selected' : ''}`,
       kind:'base',
+      entityKey:`base:${String(base.id)}`,
       x:base.x,
       y:base.y,
       innerHtml: `${structureMarkup('base')}<div class="port-chip">${esc(baseLabel)} :${basePort}</div>`,
-      onClick:() => { state.selected = { type:'base', data:base }; renderSelection(); rebuildScene(); }
+      onClick:() => { state.selected = { type:'base', data:base }; renderSelection(); refreshSelectionVisuals(); }
     });
+    el.addEventListener('mouseenter', (e) => showBuildingHoverCard({ kind:'base', progress:0, run:null }, e.clientX, e.clientY));
+    el.addEventListener('mousemove', (e) => showBuildingHoverCard({ kind:'base', progress:0, run:null }, e.clientX, e.clientY));
+    el.addEventListener('mouseleave', hideBuildingHoverCard);
     if (movable) {
       el.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
@@ -2371,6 +2578,7 @@ function renderWorld(){
     const el = renderIsoEntity({
       className:`base draft-ghost movable ${selectedBaseDraftId === String(draft.id) ? 'is-selected' : ''}`,
       kind:'base',
+      entityKey:`baseDraft:${String(draft.id)}`,
       x:draft.x,
       y:draft.y,
       innerHtml: structureMarkup('base'),
@@ -2378,7 +2586,7 @@ function renderWorld(){
         state.selected = { type:'baseDraft', data:draft };
         renderSelection();
         renderBaseCloneForm(draft);
-        rebuildScene();
+        refreshSelectionVisuals();
       }
     });
     el.addEventListener('mousedown', (e) => {
@@ -2416,6 +2624,7 @@ function renderWorld(){
     const el = renderIsoEntity({
       className,
       kind: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : (b.kind === 'warehouse' ? 'warehouse' : 'run')),
+      entityKey:`building:${String(b.id)}`,
       x:b.x,
       y:b.y,
       innerHtml:`
@@ -2433,9 +2642,12 @@ function renderWorld(){
         if (b.kind === 'feature') renderRunSetupPanel(b.id);
         if (b.kind === 'research') renderResearchLabPanel(b.id);
         if (b.kind === 'warehouse') renderWarehousePanel(b.id);
-        rebuildScene();
+        refreshSelectionVisuals();
       }
     });
+    el.addEventListener('mouseenter', (e) => showBuildingHoverCard(b, e.clientX, e.clientY));
+    el.addEventListener('mousemove', (e) => showBuildingHoverCard(b, e.clientX, e.clientY));
+    el.addEventListener('mouseleave', hideBuildingHoverCard);
     if (movable) {
       el.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
@@ -2471,8 +2683,9 @@ function renderWorld(){
     el.title = `${u.label} • model: ${u.model || 'unknown'}${liveEntry ? ` • ${liveEntry.stale ? 'stale' : 'running'}` : ''}`;
     el.dataset.runId = u.runId;
     el.dataset.agentId = u.full;
+    el.dataset.unitKey = unitKey;
     el.dataset.baseTitle = `${u.label} • model: ${u.model || 'unknown'}`;
-    el.onclick = () => { state.selected = { type:'unit', data:u }; renderSelection(); rebuildScene(); };
+    el.onclick = () => { state.selected = { type:'unit', data:u }; renderSelection(); refreshSelectionVisuals(); };
     world.appendChild(el);
 
     for (let i = 0; i < u.subagents; i++) {
@@ -2486,7 +2699,8 @@ function renderWorld(){
       sub.style.top = `${sp.y}px`;
       sub.style.zIndex = String(worldDepth(sy, 1900));
       sub.title = `subagent • ${u.faction}`;
-      sub.onclick = () => { state.selected = { type:'subunit', data:u }; renderSelection(); rebuildScene(); };
+      sub.dataset.unitKey = unitKey;
+      sub.onclick = () => { state.selected = { type:'subunit', data:u }; renderSelection(); refreshSelectionVisuals(); };
       world.appendChild(sub);
     }
   });
@@ -2519,8 +2733,7 @@ function renderUnitsLiveState(){
 }
 
 function renderSkillTree(type, heading){
-  const nodes = skillTrees[type] || skillTrees.builder;
-  return `<div class="build-card" style="margin-top:8px"><div class="kv"><strong>${heading}</strong></div><div class="skill-grid">${nodes.map(n=>`<div class="skill">${esc(n)}</div>`).join('')}</div></div>`;
+  return '';
 }
 
 function renderRunAgentsConsole(run, selectedAgentId){
@@ -2529,19 +2742,21 @@ function renderRunAgentsConsole(run, selectedAgentId){
   panel.dataset.featureId = '';
   setFeatureMode(false);
   if (!run) {
-    panel.innerHTML = `<h3>Action Console</h3><div class="notice">No run selected.</div>`;
+    panel.innerHTML = `${panelToolbar('Agent Console')}<div class="notice">No run selected.</div>`;
+    wirePanelDeleteButton();
     stopAgentStream();
     return;
   }
   const agents = deriveRunAgents(run);
   panel.innerHTML = `
-    <h3>Agent Status Console</h3>
+    ${panelToolbar('Agent Console', `Run ${String(run.id || '').slice(0, 12)}`)}
     <div class="kv"><strong>Run:</strong> ${esc(run.id.slice(0, 12))}</div>
     <div class="kv"><strong>Task:</strong> ${esc(run.task || '')}</div>
     <div class="notice" id="restartNotice">Select an agent row; restart forces requeue and kick. Press R on Developer to redo from failed test feedback.</div>
     ${renderAgentStatusList(agents, run)}
     <div class="notice" style="margin-top:8px">Read-only terminal stream. No command input available.</div>
   `;
+  wirePanelDeleteButton();
   const rows = panel.querySelectorAll('#assignedAgentList .agent-row');
   rows.forEach(row => {
     row.addEventListener('click', () => {
@@ -2625,13 +2840,12 @@ function renderRunAgentsConsole(run, selectedAgentId){
 }
 
 function renderSelection(){
-
   queuePersist();
-  const panel = document.getElementById('selectionPanel');
+  const panel = document.getElementById('actionPanel');
+  if (!panel) return;
   const s = state.selected;
   if (!s) {
-    panel.innerHTML = `<h3>Selection Panel</h3><div class="notice">Select base/building/unit for RTS-style intel and actions.</div>`;
-    renderRunSetupPanel(null);
+    renderDefaultActionPanel();
     return;
   }
 
@@ -2640,17 +2854,17 @@ function renderSelection(){
     const b = s.data;
     const basePort = Number(b.port) || getPortForPath(b.repo || '') || 3333;
     const baseLabel = b.portLabel || pathLabel(b.repo || '');
-    panel.innerHTML = `<h3>Base Intel</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Role:</strong> ${esc(baseLabel)}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(basePort)}</div><div class="kv"><strong>Buildings:</strong> ${(b.runs || []).length}</div>${renderSkillTree('orchestrator','Base Systems')}`;
-    const actionPanel = document.getElementById('actionPanel');
-    actionPanel.dataset.mode = 'base';
-    actionPanel.dataset.featureId = '';
-    actionPanel.innerHTML = `
-      <h3>Base Command Console</h3>
+    panel.dataset.mode = 'base';
+    panel.dataset.featureId = '';
+    panel.innerHTML = `
+      ${panelToolbar('Base Console', 'Selected base')}
       <div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div>
       <div class="kv"><strong>Role:</strong> ${esc(baseLabel)}</div>
       <div class="kv"><strong>Runtime:</strong> ${runtimeLink(basePort)}</div>
+      <div class="kv"><strong>Buildings:</strong> ${(b.runs || []).length}</div>
       <div class="notice">Place Feature structures near this base, then launch workflow runs.</div>
     `;
+    wirePanelDeleteButton();
     stopAgentStream();
     return;
   }
@@ -2658,8 +2872,6 @@ function renderSelection(){
     const b = s.data;
     if (b.kind === 'feature') {
       setFeatureMode(true);
-      const port = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
-      panel.innerHTML = `<h3>Feature Forge</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || '-')}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(port)}</div><div class="kv"><strong>Status:</strong> ${esc(prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'draft')))}</div><div class="kv"><strong>Progress:</strong> ${b.progress || 0}%</div>${b.prUrl ? `<a class="pr-link" href="${b.prUrl}" target="_blank">OPEN PULL REQUEST</a>` : '<div class="notice">No PR link detected yet.</div>'}${renderSkillTree('builder','Run Build Matrix')}`;
       const actionPanel = document.getElementById('actionPanel');
       const shownFeatureId = String(actionPanel?.dataset?.featureId || '');
       const isSameFeaturePanel = actionPanel?.dataset?.mode === 'feature' && shownFeatureId === String(b.id || '');
@@ -2668,42 +2880,34 @@ function renderSelection(){
     }
     if (b.kind === 'research') {
       setFeatureMode(false);
-      panel.innerHTML = `<h3>Research Lab</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || b.repo || '-')}</div><div class="kv"><strong>Status:</strong> ready</div><div class="notice">Run repository analysis to generate drag-and-drop feature plans.</div>`;
       if (!isEditingActionPanel()) renderResearchLabPanel(b.id);
       return;
     }
     if (b.kind === 'warehouse') {
       setFeatureMode(false);
-      const repoKey = baseRepoKey(String(b.repo || ''));
-      const count = Array.isArray(b.items) ? b.items.length : 0;
-      panel.innerHTML = `<h3>Warehouse</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || b.repo || '-')}</div><div class="kv"><strong>Stored Items:</strong> ${count}</div><div class="notice">Input: Research Lab deploy. Output: feature refill when marked empty.</div>`;
       if (!isEditingActionPanel()) renderWarehousePanel(b.id);
       return;
     }
-    const port = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
-    panel.innerHTML = `<h3>Structure Status</h3><div class="kv"><strong>Task:</strong> ${esc(b.run.task || '')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || '-')}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(port)}</div><div class="kv"><strong>Status:</strong> ${esc(prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting')))}</div><div class="kv"><strong>Progress:</strong> ${b.progress}%</div>${b.prUrl ? `<a class="pr-link" href="${b.prUrl}" target="_blank">OPEN PULL REQUEST</a>` : '<div class="notice">No PR link detected yet.</div>'}${renderSkillTree('builder','Run Build Matrix')}`;
     renderRunAgentsConsole(b.run);
     return;
   }
   if (s.type === 'unit') {
     setFeatureMode(false);
-    const u = s.data;
-    panel.innerHTML = `<h3>Unit Profile</h3><div class="kv"><strong>Agent:</strong> ${esc(u.label)}</div><div class="kv"><strong>Model:</strong> <span class="badge">${esc(u.model || 'unknown')}</span></div><div class="kv"><strong>Subagents:</strong> ${u.subagents}</div>${renderSkillTree('architect','Operator Skill Grid')}`;
-    const run = (state.runs || []).find(r => r.id === u.runId);
-    renderRunAgentsConsole(run, u.full);
+    const run = (state.runs || []).find((r) => r.id === s.data.runId);
+    renderRunAgentsConsole(run, s.data.full);
     return;
   }
   if (s.type === 'subunit') {
     setFeatureMode(false);
     const u = s.data;
-    panel.innerHTML = `<h3>Subagent Drone</h3><div class="kv"><strong>Parent unit:</strong> ${esc(u.label)}</div><div class="kv"><strong>Faction:</strong> ${esc(u.faction)}</div>${renderSkillTree('subagent','Subagent Modules')}`;
+    panel.innerHTML = `${panelToolbar('Subagent', 'Read-only')}<div class="kv"><strong>Parent unit:</strong> ${esc(u.label)}</div><div class="kv"><strong>Faction:</strong> ${esc(u.faction)}</div>`;
+    wirePanelDeleteButton();
     stopAgentStream();
     return;
   }
   if (s.type === 'baseDraft') {
     setFeatureMode(false);
-    panel.innerHTML = `<h3>Base Placement Draft</h3><div class="notice">Configure git clone details in Action Console to finalize this base.</div>`;
-    stopAgentStream();
+    renderBaseCloneForm(s.data);
     return;
   }
 }
@@ -2717,7 +2921,7 @@ function renderBaseCloneForm(draft){
     return `<option value="${esc(r.path)}">${esc(r.name)} • ${esc(r.path)}${suffix}</option>`;
   }).join('');
   panel.innerHTML = `
-    <h3>Base Setup</h3>
+    ${panelToolbar('Base Setup', 'Configure repository')}
     <div class="kv"><strong>Placement:</strong> x ${Math.round(draft.x)}, y ${Math.round(draft.y)}</div>
     <label class="kv">Use existing local repo
       <select id="existingRepoSelect">
@@ -2737,6 +2941,7 @@ function renderBaseCloneForm(draft){
     <button id="saveBaseCloneBtn">Create Base</button>
     <div class="notice" style="margin-top:7px" id="baseMutationNotice">Select an existing repo OR provide clone URL + target path.</div>
   `;
+  wirePanelDeleteButton();
 
   const existingRepoSelect = document.getElementById('existingRepoSelect');
   existingRepoSelect.addEventListener('change', (e) => {
@@ -2803,7 +3008,8 @@ function renderBaseCloneForm(draft){
       state.customBases.push(base);
       state.selected = { type:'base', data:base };
       queuePersist();
-      panel.innerHTML = `<h3>Base Setup</h3><div class="kv"><strong>Base created.</strong></div><div class="kv"><strong>Repo:</strong> ${esc(base.repo)}</div><div class="kv"><strong>Mode:</strong> ${esc(result.mode)}</div><div class="notice">Ready for feature worktree and run setup.</div>`;
+      panel.innerHTML = `${panelToolbar('Base Setup')}<div class="kv"><strong>Base created.</strong></div><div class="kv"><strong>Repo:</strong> ${esc(base.repo)}</div><div class="kv"><strong>Mode:</strong> ${esc(result.mode)}</div><div class="notice">Ready for feature worktree and run setup.</div>`;
+      wirePanelDeleteButton();
       rebuildScene();
       renderSelection();
     } catch (err) {
@@ -3217,7 +3423,8 @@ function renderResearchLabPanel(targetLabId){
   const lab = (state.researchBuildings || []).find((it) => String(it.id) === String(targetLabId || ''))
     || (state.selected?.type === 'building' && state.selected?.data?.kind === 'research' ? state.selected.data : null);
   if (!lab) {
-    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Select a Research Lab to generate plans.</div>`;
+    panel.innerHTML = `${panelToolbar('Research Console')}<div class="notice">Select a Research Lab to generate plans.</div>`;
+    wirePanelDeleteButton();
     return;
   }
   const requestedRepo = baseRepoKey(String(lab.repo || ''));
@@ -3231,7 +3438,7 @@ function renderResearchLabPanel(targetLabId){
     queuePersist();
   }
   panel.innerHTML = `
-    <h3>Research Console</h3>
+    ${panelToolbar('Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
     <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
     <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
     <button id="runResearchBtn">Research</button>
@@ -3254,6 +3461,7 @@ function renderResearchLabPanel(targetLabId){
       <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in Warehouse.</div>
     </div>
   `;
+  wirePanelDeleteButton();
   const notice = document.getElementById('researchNotice');
   const refreshPlanInteractions = () => {
     const list = document.getElementById('researchPlanList');
@@ -3352,7 +3560,8 @@ function renderWarehousePanel(targetWarehouseId){
   const warehouse = (state.warehouseBuildings || []).find((it) => String(it.id) === String(targetWarehouseId || ''))
     || (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse' ? state.selected.data : null);
   if (!warehouse) {
-    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Select a Warehouse.</div>`;
+    panel.innerHTML = `${panelToolbar('Warehouse Console')}<div class="notice">Select a Warehouse.</div>`;
+    wirePanelDeleteButton();
     return;
   }
   const repoKey = baseRepoKey(String(warehouse.repo || ''));
@@ -3378,7 +3587,7 @@ function renderWarehousePanel(targetWarehouseId){
     }, null)?.fb || null;
 
   panel.innerHTML = `
-    <h3>Warehouse Console</h3>
+    ${panelToolbar('Warehouse Console', String(repoKey || 'unlinked'))}
     <div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
     <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
     <div class="kv"><strong>Input:</strong> ${esc(nearestLab ? `Research Lab ${nearestLab.id}` : 'none')}</div>
@@ -3396,6 +3605,7 @@ function renderWarehousePanel(targetWarehouseId){
       `).join('') : '<div class="notice">Warehouse is empty.</div>'}</div>
     </div>
   `;
+  wirePanelDeleteButton();
 }
 
 function renderRunSetupPanel(targetDraftId){
@@ -3432,7 +3642,9 @@ function renderRunSetupPanel(targetDraftId){
     panel.dataset.mode = 'default';
     panel.dataset.featureId = '';
     setFeatureMode(false);
-    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Use command cards to place Base, Feature Request, Research Lab, or Warehouse structures.</div>`;
+    panel.innerHTML = `${panelToolbar(`Command Console ${COMMAND_CONSOLE_VERSION}`, state.placementMode ? `Placement: ${state.placementMode}` : 'Idle')}<div class="notice">Use command cards to place Base, Feature Request, Research Lab, or Warehouse structures.</div>`;
+    wirePanelDeleteButton();
+    panel.scrollTop = 0;
     stopAgentStream();
     return;
   }
@@ -3444,7 +3656,6 @@ function renderRunSetupPanel(targetDraftId){
   draft.empty = !!draft.empty;
   const run = draft.runId ? (state.runs || []).find(r => r.id === draft.runId) : null;
   const hasRun = !!run;
-  const deterministicAgentCount = expectedAgentCountForWorkflow('feature-dev') || 7;
   const isDraft = !draft.committed;
   const promptReadOnlyAttr = isDraft ? '' : ' readonly';
   if (!draft.port) {
@@ -3452,12 +3663,11 @@ function renderRunSetupPanel(targetDraftId){
   }
 
   panel.innerHTML = `
-    <h3>${isDraft ? 'Feature Draft Setup' : 'Feature Run Console'}</h3>
+    ${panelToolbar(isDraft ? 'Feature Draft Setup' : 'Feature Run Console', String(draft.id || ''))}
     <div class="kv"><strong>Repo:</strong> ${esc(draft.repo)}</div>
     <label class="kv">Worktree path
       <input id="worktreePath" value="${esc(draft.worktreePath)}" />
     </label>
-    <div class="kv"><strong>Agent lanes:</strong> ${deterministicAgentCount} (deterministic workflow steps)</div>
     <div class="kv"><strong>Runtime:</strong> ${runtimeLink(draft.port || 3334)}</div>
     <div class="kv"><strong>Empty:</strong> ${draft.empty ? 'yes' : 'no'}</div>
     <label class="kv">Feature prompt
@@ -3469,6 +3679,8 @@ function renderRunSetupPanel(targetDraftId){
     <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
     <div class="notice" style="margin-top:8px" id="featureMutationNotice">Ready to execute backend actions.</div>
   `;
+  wirePanelDeleteButton();
+  panel.scrollTop = 0;
 
   document.getElementById('worktreePath').addEventListener('input', e => { draft.worktreePath = e.target.value; queuePersist(); });
   document.getElementById('featurePrompt').addEventListener('input', e => { draft.prompt = e.target.value; queuePersist(); });
@@ -3745,8 +3957,8 @@ function commitQueuedResearchPlan(snapped){
   }
   return true;
 }
-document.getElementById('cancelPlacementBtn').addEventListener('click', () => setPlacement(null));
-document.getElementById('deleteSelectedBtn').addEventListener('click', () => deleteSelectedStructure());
+document.getElementById('cancelPlacementBtn')?.addEventListener('click', () => setPlacement(null));
+document.getElementById('deleteSelectedBtn')?.addEventListener('click', () => deleteSelectedStructure());
 
 // Placement must win over any entity drag/select path.
 worldWrapEl.addEventListener('mousedown', (e) => {
@@ -3912,7 +4124,6 @@ const handlePointerMove = (e) => {
     state.camera.x = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
     state.camera.y = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
     updateCameraVisuals();
-    rebuildScene();
     const kind = dragBuildingType || state.placementMode;
     if (kind) {
       const point = localPointInWorld(e);
@@ -3934,7 +4145,7 @@ const handlePointerMove = (e) => {
     else if (state.draggingEntity.type === 'research') updateResearchPosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'warehouse') updateWarehousePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else updateRunBuildingPosition(state.draggingEntity.id, snapped.x, snapped.y);
-    rebuildScene();
+    moveEntityVisual(state.draggingEntity.type, state.draggingEntity.id, snapped.x, snapped.y);
     if (autoPanned) queuePersist();
     return;
   }
@@ -3970,6 +4181,8 @@ window.addEventListener('mouseup', async () => {
     state.suppressWorldClick = true;
     try { await persistDraggedEntityPosition(state.draggingEntity); } catch {}
     await persistNow();
+    // Refresh links/labels once after drag completes, not on every mousemove.
+    rebuildScene();
   }
   state.cameraDrag.active = false;
   state.draggingEntity = null;
