@@ -645,10 +645,7 @@ function queuePersist(){
     const payload = snapshotPersistableState();
     try {
       await postJson('/api/rts/state', { state: payload });
-      localStorage.setItem('antfarm-rts-state', JSON.stringify(payload));
-    } catch {
-      try { localStorage.setItem('antfarm-rts-state', JSON.stringify(payload)); } catch {}
-    }
+    } catch {}
   }, 250);
 }
 
@@ -658,9 +655,6 @@ async function hydratePersistedState(){
     const r = await json('/api/rts/state');
     persisted = r?.state || null;
   } catch {}
-  if (!persisted) {
-    try { persisted = JSON.parse(localStorage.getItem('antfarm-rts-state') || 'null'); } catch { persisted = null; }
-  }
   if (!persisted || typeof persisted !== 'object') return;
   if (Array.isArray(persisted.customBases)) state.customBases = persisted.customBases;
   if (Array.isArray(persisted.baseDrafts)) state.baseDrafts = persisted.baseDrafts;
@@ -723,6 +717,25 @@ function getWorktreeDefault(repo){
 }
 function normalizePathKey(raw){
   return String(raw || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+}
+function absolutizePath(pathValue, repoPath){
+  const key = normalizePathKey(pathValue);
+  if (!key) return '';
+  if (key.startsWith('/')) return key;
+  if (/^[A-Za-z]:\//.test(key)) return key;
+  const base = normalizePathKey(repoPath);
+  if (!base) return key;
+  const stack = base.split('/');
+  if (stack.length > 1) stack.pop();
+  for (const part of key.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  return stack.join('/');
 }
 function inferPortFromPath(pathValue){
   const key = normalizePathKey(pathValue);
@@ -915,8 +928,12 @@ function startLiveStream(){
       try {
         const payload = JSON.parse(evt.data || '{}');
         state.live = payload || state.live;
-        if (Number(state.live?.runningAgentCount || 0) > 0) rebuildScene();
-        else renderUnitsLiveState();
+        if (Number(state.live?.runningAgentCount || 0) > 0) {
+          ensureMotionLoop();
+          renderUnitsLiveState();
+        } else {
+          renderUnitsLiveState();
+        }
         renderLiveConsole();
       } catch {}
     });
@@ -983,7 +1000,18 @@ function rebuildScene(){
   const runBaseCenters = new Map();
   const baseFp = buildingFootprint('base');
   const runFp = buildingFootprint('run');
-  const linkedFeatureRunIds = new Set((state.featureBuildings || []).map((f) => f.runId).filter(Boolean));
+  const persistedFeatureByRunId = new Map(
+    (state.featureBuildings || [])
+      .filter((f) => f?.runId)
+      .map((f) => [f.runId, f])
+  );
+  const inferredFeatureRunIds = new Set(
+    (state.runs || [])
+      .filter((run) => String(run?.workflow_id || '') === 'feature-dev')
+      .map((run) => run.id)
+  );
+  const linkedFeatureRunIds = new Set([...persistedFeatureByRunId.keys(), ...inferredFeatureRunIds]);
+  const runDefaultLayout = new Map();
   mergedBases.forEach(base => {
     (base.runs || []).forEach((run, ri) => {
       const runCtx = parseContext(run);
@@ -992,14 +1020,17 @@ function rebuildScene(){
       const basePort = Number(base.port) || getPortForPath(base.repo || '') || 3333;
       const runPort = getPortForPath(runWorktreePath) || getPortForPath(runRepoPath) || (basePort + 1);
       runBaseCenters.set(run.id, centerPointFor('base', base.x, base.y));
+      const defaultX = Number(base.x + GRID_SIZE + (ri%2)*(runFp.w + GRID_SIZE));
+      const defaultY = Number(base.y + baseFp.h + GRID_SIZE + Math.floor(ri/2)*(runFp.h + GRID_SIZE));
+      runDefaultLayout.set(run.id, { x: defaultX, y: defaultY });
       if (!linkedFeatureRunIds.has(run.id)) {
         const override = state.runLayoutOverrides?.[run.id];
         buildings.push({
           id: run.id,
           kind: 'run',
           run,
-          x: Number(override?.x ?? (base.x + GRID_SIZE + (ri%2)*(runFp.w + GRID_SIZE))),
-          y: Number(override?.y ?? (base.y + baseFp.h + GRID_SIZE + Math.floor(ri/2)*(runFp.h + GRID_SIZE))),
+          x: Number(override?.x ?? defaultX),
+          y: Number(override?.y ?? defaultY),
           progress: runProgress(run),
           prUrl: extractPrUrl(run),
           repo: runRepoPath,
@@ -1032,19 +1063,62 @@ function rebuildScene(){
   });
 
   (state.featureBuildings || []).forEach((fb) => {
-    const run = fb.runId ? (state.runs || []).find(r => r.id === fb.runId) : null;
-    const fallbackPort = getPortForPath(fb.worktreePath || '') || getPortForPath(fb.repo || '') || 3334;
+    const repoPath = String(fb.repo || '');
+    const worktreePathRaw = String(fb.worktreePath || '');
+    const worktreePath = absolutizePath(worktreePathRaw, repoPath);
+    const run = fb.runId
+      ? (state.runs || []).find(r => r.id === fb.runId)
+      : (state.runs || []).find((r) => {
+          const ctx = parseContext(r);
+          const runWt = absolutizePath(String(ctx.worktreePath || ''), String(ctx.baseRepoPath || ctx.repoPath || repoPath));
+          return !!runWt && !!worktreePath && runWt === worktreePath;
+        });
+    const fallbackPort = getPortForPath(worktreePath || '') || getPortForPath(repoPath || '') || 3334;
     const port = Number(fb.port) || fallbackPort;
-    if (fb.worktreePath) setPortForPath(fb.worktreePath, port);
+    if (worktreePath) setPortForPath(worktreePath, port);
     buildings.push({
       ...fb,
       kind: 'feature',
       run,
+      runId: run?.id || fb.runId || null,
       progress: run ? runProgress(run) : 0,
       prUrl: run ? extractPrUrl(run) : null,
       phase: run ? (run.status || 'running') : 'draft',
       port,
-      portLabel: pathLabel(fb.worktreePath || fb.repo || '')
+      worktreePath: worktreePath || worktreePathRaw,
+      portLabel: pathLabel(worktreePath || repoPath || '')
+    });
+  });
+
+  (state.runs || []).forEach((run) => {
+    if (String(run?.workflow_id || '') !== 'feature-dev') return;
+    if (persistedFeatureByRunId.has(run.id)) return;
+    const runCtx = parseContext(run);
+    const runWorktreePath = String(runCtx.worktreePath || '');
+    const runRepoPath = String(runCtx.baseRepoPath || runCtx.repoPath || getRepo(run) || '');
+    const inferredBase = mergedBases.find((base) => (base.runs || []).some((r) => r.id === run.id));
+    const fallbackPos = runDefaultLayout.get(run.id) || {
+      x: Number((inferredBase?.x || 90) + GRID_SIZE),
+      y: Number((inferredBase?.y || 80) + baseFp.h + GRID_SIZE),
+    };
+    const override = state.runLayoutOverrides?.[run.id];
+    const basePort = Number(inferredBase?.port) || getPortForPath(runRepoPath) || 3333;
+    const runPort = getPortForPath(runWorktreePath) || getPortForPath(runRepoPath) || (basePort + 1);
+    buildings.push({
+      id: `feature-run-${run.id}`,
+      kind: 'feature',
+      committed: true,
+      runId: run.id,
+      run,
+      x: Number(override?.x ?? fallbackPos.x),
+      y: Number(override?.y ?? fallbackPos.y),
+      progress: runProgress(run),
+      prUrl: extractPrUrl(run),
+      repo: runRepoPath,
+      worktreePath: runWorktreePath,
+      phase: run.status || 'running',
+      port: runPort,
+      portLabel: pathLabel(runWorktreePath || runRepoPath)
     });
   });
 
@@ -1089,10 +1163,55 @@ function rebuildScene(){
   }
 
   renderWorld();
+  if (Number(state.live?.runningAgentCount || 0) > 0) ensureMotionLoop();
   if (state.selected) renderSelection();
   if (state.selected?.type === 'building' && state.selected.data?.kind === 'feature' && !isEditingActionPanel()) {
     renderRunSetupPanel(state.selected.data.id);
   }
+}
+
+function renderUnitsMotionFrame(){
+  const runTargets = runTargetCenterMap();
+  const activeMap = activeRunAgentMap();
+  const nowSec = Date.now() / 1000;
+
+  state.units.forEach((u, idx) => {
+    const node = document.querySelector(`.unit[data-run-id="${CSS.escape(u.runId)}"][data-agent-id="${CSS.escape(u.full)}"]`);
+    if (!node) return;
+    const target = runTargets.get(u.runId);
+    const activeAgent = activeMap.get(u.runId);
+    const isActive = !!target && activeAgent === u.full;
+    const homeX = Number(u.homeX ?? u.x);
+    const homeY = Number(u.homeY ?? u.y);
+    let ux = Number(u.x);
+    let uy = Number(u.y);
+    if (isActive && target) {
+      const tx = Number(target.x);
+      const ty = Number(target.y);
+      const cycle = 0.8 + (((u.runId.charCodeAt(0) || 7) + idx) % 5) * 0.07;
+      const phase = nowSec * cycle;
+      const pingPong = (Math.sin(phase) + 1) / 2;
+      ux = homeX + (tx - homeX) * pingPong;
+      uy = homeY + (ty - homeY) * pingPong;
+    }
+    const p = worldToScreen(ux, uy);
+    node.style.left = `${p.x}px`;
+    node.style.top = `${p.y}px`;
+    node.style.zIndex = String(300 + Math.floor(uy));
+    node.classList.toggle('moving', isActive);
+  });
+}
+
+function ensureMotionLoop(){
+  if (state.motionTimer) return;
+  state.motionTimer = setInterval(() => {
+    if (Number(state.live?.runningAgentCount || 0) <= 0) {
+      clearInterval(state.motionTimer);
+      state.motionTimer = null;
+      return;
+    }
+    renderUnitsMotionFrame();
+  }, 120);
 }
 
 function setPlacement(mode){
@@ -2128,7 +2247,28 @@ function renderAgentStatusList(agents, run){
 
 function renderRunSetupPanel(targetDraftId){
   const panel = document.getElementById('actionPanel');
-  const draft = targetDraftId ? state.featureBuildings.find(d => d.id === targetDraftId) : state.featureBuildings[state.featureBuildings.length - 1];
+  let draft = targetDraftId ? state.featureBuildings.find(d => d.id === targetDraftId) : state.featureBuildings[state.featureBuildings.length - 1];
+  if (!draft && targetDraftId) {
+    const inferred = (state.buildings || []).find((b) => b.id === targetDraftId && b.kind === 'feature');
+    if (inferred) {
+      draft = {
+        id: inferred.id,
+        kind: 'feature',
+        phase: inferred.phase || inferred.run?.status || 'running',
+        committed: !!(inferred.committed || inferred.runId),
+        runId: inferred.runId || inferred.run?.id || null,
+        x: inferred.x,
+        y: inferred.y,
+        repo: inferred.repo || '',
+        worktreePath: inferred.worktreePath || '',
+        port: Number(inferred.port) || getPortForPath(inferred.worktreePath || inferred.repo || '') || 3334,
+        prompt: inferred.run?.task || '',
+        assignments: []
+      };
+      state.featureBuildings.push(draft);
+      queuePersist();
+    }
+  }
   if (!draft) {
     setFeatureMode(false);
     panel.innerHTML = `<h3>Action Console</h3><div class="notice">Use command cards to place Base or Feature Request structures.</div>`;
@@ -2473,17 +2613,23 @@ updateCameraVisuals();
 setInterval(async () => {
   const runsChanged = await refreshRuntimeState(false);
   if (!state.liveStream) startLiveStream();
-  if (runsChanged || Number(state.live?.runningAgentCount || 0) > 0) rebuildScene();
-  else renderUnitsLiveState();
+  if (runsChanged) rebuildScene();
+  else if (Number(state.live?.runningAgentCount || 0) > 0) {
+    ensureMotionLoop();
+    renderUnitsLiveState();
+  } else renderUnitsLiveState();
   renderLiveConsole();
 }, 2000);
 
 window.addEventListener('beforeunload', () => {
+  if (state.motionTimer) {
+    clearInterval(state.motionTimer);
+    state.motionTimer = null;
+  }
   if (state.liveStream) {
     try { state.liveStream.close(); } catch {}
     state.liveStream = null;
   }
-  try { localStorage.setItem('antfarm-rts-state', JSON.stringify(snapshotPersistableState())); } catch {}
 });
 </script>
 </body>

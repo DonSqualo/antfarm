@@ -47,6 +47,21 @@ export function resolveTemplate(template: string, context: Record<string, string
 }
 
 /**
+ * If a run has an explicit worktree path, force {{repo}} template resolution to use it.
+ * This avoids agents accidentally operating on the base repo when RTS launches with worktrees.
+ */
+function applyWorktreeRepoOverride(context: Record<string, string>): void {
+  const worktree = String(
+    context["worktreePath"] ??
+    context["worktreepath"] ??
+    context["worktree_path"] ??
+    "",
+  ).trim();
+  if (!worktree) return;
+  context["repo"] = worktree;
+}
+
+/**
  * Get the workspace path for an OpenClaw agent by its id.
  */
 function getAgentWorkspacePath(agentId: string): string | null {
@@ -310,6 +325,7 @@ export function claimStep(agentId: string): ClaimResult {
   // Get run context
   const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(step.run_id) as { context: string } | undefined;
   const context: Record<string, string> = run ? JSON.parse(run.context) : {};
+  applyWorktreeRepoOverride(context);
 
   // T6: Loop step claim logic
   if (step.type === "loop") {

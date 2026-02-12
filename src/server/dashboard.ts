@@ -2,8 +2,10 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { getDb } from "../db.js";
 import { resolveBundledWorkflowsDir } from "../installer/paths.js";
+import { runWorkflow } from "../installer/run.js";
 import YAML from "yaml";
 
 import type { RunInfo, StepInfo } from "../installer/status.js";
@@ -66,26 +68,171 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
+function ensureRtsTables(db = getDb()): void {
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS rts_state (" +
+    "id INTEGER PRIMARY KEY CHECK (id = 1), " +
+    "state_json TEXT NOT NULL DEFAULT '{}', " +
+    "updated_at TEXT NOT NULL DEFAULT (datetime('now'))" +
+    ")"
+  );
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS rts_layout_entities (" +
+    "id TEXT PRIMARY KEY, " +
+    "entity_type TEXT NOT NULL, " +
+    "run_id TEXT, " +
+    "repo_path TEXT, " +
+    "worktree_path TEXT, " +
+    "x REAL NOT NULL DEFAULT 0, " +
+    "y REAL NOT NULL DEFAULT 0, " +
+    "payload_json TEXT NOT NULL DEFAULT '{}', " +
+    "updated_at TEXT NOT NULL" +
+    ")"
+  );
+}
+
 function getRtsState(): Record<string, unknown> {
   const db = getDb();
+  ensureRtsTables(db);
   const row = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
-  if (!row?.state_json) return {};
+  let state: Record<string, unknown> = {};
   try {
-    const parsed = JSON.parse(row.state_json);
-    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+    const parsed = JSON.parse(row?.state_json || "{}");
+    if (parsed && typeof parsed === "object") state = parsed as Record<string, unknown>;
   } catch {
-    return {};
+    state = {};
+  }
+  const rows = db.prepare(
+    "SELECT id, entity_type, run_id, repo_path, worktree_path, x, y, payload_json FROM rts_layout_entities ORDER BY updated_at DESC"
+  ).all() as Array<{
+    id: string;
+    entity_type: string;
+    run_id: string | null;
+    repo_path: string | null;
+    worktree_path: string | null;
+    x: number;
+    y: number;
+    payload_json: string | null;
+  }>;
+  const customBases: Array<Record<string, unknown>> = [];
+  const featureBuildings: Array<Record<string, unknown>> = [];
+  const runLayoutOverrides: Record<string, { x: number; y: number }> = {};
+  for (const r of rows) {
+    let payload: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(r.payload_json || "{}");
+      if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+    } catch {}
+    if (r.entity_type === "base") {
+      customBases.push({
+        ...payload,
+        id: payload.id ?? r.id,
+        x: Number(r.x),
+        y: Number(r.y),
+        repo: r.repo_path ?? payload.repo ?? "",
+        source: "custom",
+      });
+      continue;
+    }
+    if (r.entity_type === "feature") {
+      featureBuildings.push({
+        ...payload,
+        id: payload.id ?? r.id,
+        kind: "feature",
+        x: Number(r.x),
+        y: Number(r.y),
+        repo: r.repo_path ?? payload.repo ?? "",
+        worktreePath: r.worktree_path ?? payload.worktreePath ?? "",
+        runId: r.run_id ?? payload.runId ?? null,
+      });
+      continue;
+    }
+    if (r.entity_type === "run") {
+      const runId = r.run_id || (String(r.id || "").startsWith("run:") ? String(r.id).slice(4) : String(r.id || ""));
+      if (!runId) continue;
+      runLayoutOverrides[runId] = { x: Number(r.x), y: Number(r.y) };
+    }
+  }
+  return { ...state, customBases, featureBuildings, runLayoutOverrides };
+}
+
+function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void {
+  const db = getDb();
+  ensureRtsTables(db);
+  const now = new Date().toISOString();
+  const upsert = db.prepare(
+    "INSERT INTO rts_layout_entities (id, entity_type, run_id, repo_path, worktree_path, x, y, payload_json, updated_at) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+    "ON CONFLICT(id) DO UPDATE SET " +
+    "entity_type = excluded.entity_type, run_id = excluded.run_id, repo_path = excluded.repo_path, worktree_path = excluded.worktree_path, " +
+    "x = excluded.x, y = excluded.y, payload_json = excluded.payload_json, updated_at = excluded.updated_at"
+  );
+  const deleteById = db.prepare("DELETE FROM rts_layout_entities WHERE id = ?");
+  const customBases = Array.isArray(nextState.customBases) ? nextState.customBases as Array<Record<string, unknown>> : [];
+  const featureBuildings = Array.isArray(nextState.featureBuildings) ? nextState.featureBuildings as Array<Record<string, unknown>> : [];
+  const runLayoutOverrides = (nextState.runLayoutOverrides && typeof nextState.runLayoutOverrides === "object")
+    ? nextState.runLayoutOverrides as Record<string, { x?: number; y?: number }>
+    : {};
+  const seenBaseIds = new Set<string>();
+  const seenFeatureIds = new Set<string>();
+  const seenRunIds = new Set<string>();
+  db.exec("BEGIN");
+  try {
+    for (const base of customBases) {
+      const id = String(base?.id ?? "");
+      if (!id) continue;
+      seenBaseIds.add(id);
+      const repoPath = String(base?.repo ?? "");
+      const x = Number(base?.x ?? 0);
+      const y = Number(base?.y ?? 0);
+      upsert.run(id, "base", null, repoPath || null, null, Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0, JSON.stringify(base), now);
+    }
+    for (const feature of featureBuildings) {
+      const id = String(feature?.id ?? "");
+      if (!id) continue;
+      seenFeatureIds.add(id);
+      const repoPath = String(feature?.repo ?? "");
+      const worktreePath = String(feature?.worktreePath ?? "");
+      const runIdRaw = feature?.runId;
+      const runId = (runIdRaw === null || runIdRaw === undefined || String(runIdRaw).trim() === "") ? null : String(runIdRaw);
+      const x = Number(feature?.x ?? 0);
+      const y = Number(feature?.y ?? 0);
+      upsert.run(id, "feature", runId, repoPath || null, worktreePath || null, Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0, JSON.stringify(feature), now);
+    }
+    for (const [runId, pos] of Object.entries(runLayoutOverrides)) {
+      if (!runId) continue;
+      seenRunIds.add(runId);
+      const id = `run:${runId}`;
+      const x = Number(pos?.x ?? 0);
+      const y = Number(pos?.y ?? 0);
+      upsert.run(id, "run", runId, null, null, Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0, JSON.stringify({ runId, x, y }), now);
+    }
+    const baseRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'base'").all() as Array<{ id: string }>;
+    for (const row2 of baseRows) if (!seenBaseIds.has(row2.id)) deleteById.run(row2.id);
+    const featureRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'feature'").all() as Array<{ id: string }>;
+    for (const row2 of featureRows) if (!seenFeatureIds.has(row2.id)) deleteById.run(row2.id);
+    const runRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'run'").all() as Array<{ id: string; run_id: string | null }>;
+    for (const row2 of runRows) {
+      const id = row2.run_id || (String(row2.id || "").startsWith("run:") ? String(row2.id).slice(4) : "");
+      if (!id || !seenRunIds.has(id)) deleteById.run(row2.id);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
   }
 }
 
 function saveRtsState(nextState: unknown): Record<string, unknown> {
   const db = getDb();
+  ensureRtsTables(db);
   const safe = (nextState && typeof nextState === "object") ? nextState as Record<string, unknown> : {};
   const now = new Date().toISOString();
   db.prepare(
     "INSERT INTO rts_state (id, state_json, updated_at) VALUES (1, ?, ?) " +
     "ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at"
   ).run(JSON.stringify(safe), now);
+  upsertLayoutEntitiesFromState(safe);
   return safe;
 }
 
@@ -128,6 +275,47 @@ function guessMime(filePath: string): string {
   if (ext === ".webp") return "image/webp";
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   return "application/octet-stream";
+}
+
+function parseRunContext(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeRepoPath(rawPath: string): string {
+  const trimmed = rawPath.trim();
+  return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(process.cwd(), trimmed);
+}
+
+function resolveWorktreePath(baseRepoPath: string, worktreePath: string): string {
+  const trimmed = worktreePath.trim();
+  if (!trimmed) return path.resolve(path.dirname(baseRepoPath), `${path.basename(baseRepoPath)}-feature-${Date.now().toString().slice(-4)}`);
+  return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(baseRepoPath, trimmed);
+}
+
+function deleteRunWithArtifacts(runId: string): { deleted: boolean; status?: string } {
+  const db = getDb();
+  ensureRtsTables(db);
+  const run = db.prepare("SELECT id, status FROM runs WHERE id = ?").get(runId) as { id: string; status: string } | undefined;
+  if (!run) return { deleted: false };
+
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM stories WHERE run_id = ?").run(runId);
+    db.prepare("DELETE FROM steps WHERE run_id = ?").run(runId);
+    db.prepare("DELETE FROM runs WHERE id = ?").run(runId);
+    db.prepare("DELETE FROM rts_layout_entities WHERE run_id = ?").run(runId);
+    db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(`run:${runId}`);
+    db.exec("COMMIT");
+    return { deleted: true, status: run.status };
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
 }
 
 export function startDashboard(port = 3333): http.Server {
@@ -217,6 +405,78 @@ export function startDashboard(port = 3333): http.Server {
       });
     }
 
+    if (p === "/api/rts/feature/run" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as {
+          workflowId?: string;
+          taskTitle?: string;
+          prompt?: string;
+          baseRepoPath?: string;
+          worktreePath?: string;
+          branchName?: string;
+          assignments?: string[];
+        };
+        const workflowId = (body.workflowId || "feature-dev").trim();
+        const taskTitle = (body.taskTitle || body.prompt || "Feature request").trim();
+        const baseRepoPath = normalizeRepoPath(String(body.baseRepoPath || ""));
+        const worktreePath = resolveWorktreePath(baseRepoPath, String(body.worktreePath || ""));
+        const branchName = String(body.branchName || `feature/task-${Date.now().toString().slice(-5)}`).trim();
+
+        if (!baseRepoPath || !fs.existsSync(baseRepoPath)) {
+          return json(res, { ok: false, error: `Base repo path not found: ${baseRepoPath || "(empty)"}` }, 400);
+        }
+        if (!fs.existsSync(path.join(baseRepoPath, ".git"))) {
+          return json(res, { ok: false, error: `Not a git repo: ${baseRepoPath}` }, 400);
+        }
+
+        if (!fs.existsSync(worktreePath)) {
+          const args = ["-C", baseRepoPath, "worktree", "add"];
+          if (branchName) args.push("-b", branchName);
+          args.push(worktreePath);
+          execFileSync("git", args, { stdio: "pipe" });
+        }
+
+        const run = await runWorkflow({ workflowId, taskTitle });
+        const db = getDb();
+        const row = db.prepare("SELECT context FROM runs WHERE id = ?").get(run.id) as { context: string } | undefined;
+        const context = parseRunContext(row?.context ?? "{}");
+        const nextContext = {
+          ...context,
+          prompt: body.prompt || taskTitle,
+          task: taskTitle,
+          baseRepoPath,
+          repoPath: baseRepoPath,
+          worktreePath,
+          branchName,
+          assignments: Array.isArray(body.assignments) ? body.assignments : [],
+        };
+        db.prepare("UPDATE runs SET context = ?, updated_at = ? WHERE id = ?").run(
+          JSON.stringify(nextContext),
+          new Date().toISOString(),
+          run.id
+        );
+
+        return json(res, { ok: true, run: getRunById(run.id), worktreePath, branchName });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
+    if (p === "/api/rts/building/delete" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { runId?: string };
+        const runId = String(body?.runId ?? "").trim();
+        if (!runId) return json(res, { ok: false, error: "runId is required" }, 400);
+        const result = deleteRunWithArtifacts(runId);
+        if (!result.deleted) return json(res, { ok: false, error: `run not found: ${runId}` }, 404);
+        return json(res, { ok: true, runId, deleted: true, previousStatus: result.status });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
     const eventsMatch = p.match(/^\/api\/runs\/([^/]+)\/events$/);
     if (eventsMatch) {
       return json(res, getRunEvents(eventsMatch[1]));
@@ -240,6 +500,10 @@ export function startDashboard(port = 3333): http.Server {
     if (p === "/api/runs") {
       const wf = url.searchParams.get("workflow") ?? undefined;
       return json(res, getRuns(wf));
+    }
+
+    if (p.startsWith("/api/")) {
+      return json(res, { ok: false, error: `not_found:${p}` }, 404);
     }
 
     // Serve fonts
