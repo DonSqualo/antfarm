@@ -554,7 +554,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
         </div>
         <div class="panel" id="actionPanel">
           <h3>Action Console</h3>
-          <div class="notice">Use build icons to place Base, Feature Forge, or Research Lab.</div>
+          <div class="notice">Use build icons to place Base, Feature Forge, Research Lab, or Warehouse.</div>
         </div>
       </div>
     </div>
@@ -573,6 +573,10 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
           <img class="palette-sprite" src="/rts-sprites/research-lab-corpus-test.png?v=20260212d" alt="" />
           <span class="hotkey">L</span>
         </button>
+        <button class="palette-card" draggable="true" data-building="warehouse" title="Warehouse (W)">
+          <img class="palette-sprite" src="/rts-sprites/warehouse-corpus-test.png?v=20260212c" alt="" />
+          <span class="hotkey">W</span>
+        </button>
       </div>
     </section>
   </div>
@@ -587,7 +591,9 @@ const state = {
   baseDrafts: [],
   featureBuildings: [],
   researchBuildings: [],
+  warehouseBuildings: [],
   researchPlansByRepo: {},
+  warehouseItemsByRepo: {},
   runLayoutOverrides: {},
   portByPath: {},
   runtime: null,
@@ -653,12 +659,9 @@ async function postJson(url, body){
 
 function snapshotPersistableState(){
   return {
-    customBases: state.customBases || [],
     baseDrafts: state.baseDrafts || [],
-    featureBuildings: state.featureBuildings || [],
-    researchBuildings: state.researchBuildings || [],
     researchPlansByRepo: state.researchPlansByRepo || {},
-    runLayoutOverrides: state.runLayoutOverrides || {},
+    warehouseItemsByRepo: state.warehouseItemsByRepo || {},
     portByPath: state.portByPath || {},
     camera: state.camera || { x:0, y:0 }
   };
@@ -699,6 +702,10 @@ function resolveDraggedEntityPosition(drag){
     const r = (state.researchBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
     return r ? { x:Number(r.x)||0, y:Number(r.y)||0 } : null;
   }
+  if (drag.type === 'warehouse') {
+    const w = (state.warehouseBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
+    return w ? { x:Number(w.x)||0, y:Number(w.y)||0 } : null;
+  }
   if (drag.type === 'run') {
     const p = state.runLayoutOverrides?.[drag.runId || drag.id];
     if (p) return { x:Number(p.x)||0, y:Number(p.y)||0 };
@@ -713,7 +720,7 @@ async function persistDraggedEntityPosition(drag){
   if (!pos) return;
   const entityType = drag.type === 'base'
     ? 'base'
-    : (drag.type === 'feature' ? 'feature' : (drag.type === 'research' ? 'research' : 'run'));
+    : (drag.type === 'feature' ? 'feature' : (drag.type === 'research' ? 'research' : (drag.type === 'warehouse' ? 'warehouse' : 'run')));
   await postJson('/api/rts/layout/position', {
     entityType,
     entityId: drag.id,
@@ -767,8 +774,28 @@ async function hydratePersistedState(){
       .map(normalizeResearchBuilding)
       .filter((rb) => !!rb.repo);
   }
+  if (Array.isArray(persisted.warehouseBuildings)) {
+    state.warehouseBuildings = persisted.warehouseBuildings
+      .map(normalizeWarehouseBuilding)
+      .filter((wb) => !!wb.repo);
+  }
   if (persisted.researchPlansByRepo && typeof persisted.researchPlansByRepo === 'object') {
-    state.researchPlansByRepo = persisted.researchPlansByRepo;
+    const byRepo = {};
+    for (const [repoKey, list] of Object.entries(persisted.researchPlansByRepo)) {
+      byRepo[String(repoKey)] = (Array.isArray(list) ? list : []).map((plan, idx) =>
+        normalizeResearchPlan(plan, `persisted-${Date.now()}-${idx + 1}`)
+      );
+    }
+    state.researchPlansByRepo = byRepo;
+  }
+  if (persisted.warehouseItemsByRepo && typeof persisted.warehouseItemsByRepo === 'object') {
+    const byRepo = {};
+    for (const [repoKey, list] of Object.entries(persisted.warehouseItemsByRepo)) {
+      byRepo[String(repoKey)] = (Array.isArray(list) ? list : []).map((plan, idx) =>
+        normalizeResearchPlan(plan, `warehouse-${Date.now()}-${idx + 1}`)
+      );
+    }
+    state.warehouseItemsByRepo = byRepo;
   }
   if (persisted.runLayoutOverrides && typeof persisted.runLayoutOverrides === 'object') state.runLayoutOverrides = persisted.runLayoutOverrides;
   if (persisted.portByPath && typeof persisted.portByPath === 'object') {
@@ -806,9 +833,19 @@ function getRepo(run){
   const raw = ctx.baseRepoPath || ctx.repoPath || ctx.repo || ctx.repository || ctx.worktreePath || '';
   return normalizePathKey(raw).replace(/-feature-[^/]+$/i, '');
 }
-function getWorktreeDefault(repo){
-  const clean = repo.split('/').pop() || 'repo';
-  return `../${clean}-feature-${Date.now().toString().slice(-4)}`;
+function stableToken(input){
+  const raw = String(input || '');
+  let h = 2166136261;
+  for (let i = 0; i < raw.length; i++) {
+    h ^= raw.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36).slice(0, 6).padStart(6, '0');
+}
+function getWorktreeDefault(repo, seed = ''){
+  const clean = String(repo || '').split('/').pop() || 'repo';
+  const token = stableToken(`${normalizePathKey(repo)}:${String(seed || 'default')}`);
+  return `../${clean}-feature-${token}`;
 }
 function normalizePathKey(raw){
   return String(raw || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
@@ -900,11 +937,12 @@ const FOOTPRINTS = {
   base: { cols: 8, rows: 6, spriteW: 206, spriteH: 132 },
   feature: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
   research: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
+  warehouse: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
   run: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 }
 };
 
 function buildingFootprint(kind){
-  const key = (kind === 'base' || kind === 'feature' || kind === 'research' || kind === 'run') ? kind : 'run';
+  const key = (kind === 'base' || kind === 'feature' || kind === 'research' || kind === 'warehouse' || kind === 'run') ? kind : 'run';
   const fp = FOOTPRINTS[key];
   return {
     cols: fp.cols,
@@ -1253,7 +1291,7 @@ function rebuildScene(){
       runId: null,
       progress: 0,
       phase: 'idle',
-      worktreePath: '',
+      worktreePath: String(rb.worktreePath || repoPath || ''),
       port: Number(getPortForPath(repoPath || '')) || 3333,
       portLabel: pathLabel(repoPath || '')
     });
@@ -1274,6 +1312,22 @@ function rebuildScene(){
         subagents: 1
       });
     }
+  });
+
+  (state.warehouseBuildings || []).forEach((wb) => {
+    const repoPath = baseRepoKey(String(wb.repo || ''));
+    buildings.push({
+      ...wb,
+      kind: 'warehouse',
+      repo: repoPath,
+      run: null,
+      runId: null,
+      progress: 0,
+      phase: 'idle',
+      worktreePath: String(wb.worktreePath || repoPath || ''),
+      port: Number(getPortForPath(repoPath || '')) || 3333,
+      portLabel: pathLabel(repoPath || '')
+    });
   });
 
   (state.featureBuildings || []).forEach((fb) => {
@@ -1350,6 +1404,7 @@ function rebuildScene(){
   if (state.selected?.type === 'building' && !isEditingActionPanel()) {
     if (state.selected.data?.kind === 'feature') renderRunSetupPanel(state.selected.data.id);
     else if (state.selected.data?.kind === 'research') renderResearchLabPanel(state.selected.data.id);
+    else if (state.selected.data?.kind === 'warehouse') renderWarehousePanel(state.selected.data.id);
   }
 }
 
@@ -1403,6 +1458,7 @@ function setPlacement(mode){
   if (!mode) notice.textContent = 'IDLE';
   else if (mode === 'base') notice.textContent = 'BASE';
   else if (mode === 'research') notice.textContent = 'LAB';
+  else if (mode === 'warehouse') notice.textContent = 'WAREHOUSE';
   else notice.textContent = 'FORGE';
   document.querySelectorAll('.palette-card[data-building]').forEach((card) => {
     card.classList.toggle('active', card.getAttribute('data-building') === mode);
@@ -1446,17 +1502,19 @@ function placeFeatureAt(x,y,prefillPrompt = '', forcedRepoPath = ''){
     return null;
   }
   const repoPath = forcedRepoPath || base.repo || 'unlinked-repo';
+  const featureId = `feature-${Date.now()}`;
   const featureBuilding = {
-    id: `feature-${Date.now()}`,
+    id: featureId,
     kind:'feature',
     phase:'draft',
     committed:false,
     runId: null,
     x, y,
     repo: repoPath,
-    worktreePath: getWorktreeDefault(repoPath || 'repo'),
+    worktreePath: getWorktreeDefault(repoPath || 'repo', featureId),
     port: (Number(base.port) || getPortForPath(repoPath || '') || 3333) + 1,
-    prompt: String(prefillPrompt || '')
+    prompt: String(prefillPrompt || ''),
+    empty: false
   };
   state.featureBuildings.push(featureBuilding);
   void postJson('/api/rts/layout/position', {
@@ -1490,6 +1548,7 @@ function placeResearchAt(x,y){
     kind:'research',
     x, y,
     repo: base.repo || 'unlinked-repo',
+    worktreePath: base.repo || 'unlinked-repo',
     baseId: base.id
   };
   state.researchBuildings.push(researchBuilding);
@@ -1498,7 +1557,7 @@ function placeResearchAt(x,y){
     entityId: researchBuilding.id,
     runId: null,
     repoPath: researchBuilding.repo || null,
-    worktreePath: null,
+    worktreePath: researchBuilding.worktreePath || null,
     x: researchBuilding.x,
     y: researchBuilding.y,
     allowCreate: true
@@ -1510,6 +1569,39 @@ function placeResearchAt(x,y){
   renderResearchLabPanel(researchBuilding.id);
 }
 
+function placeWarehouseAt(x,y){
+  const center = centerPointFor('warehouse', x, y);
+  const base = nearBase(center.x, center.y);
+  if (!base) {
+    alert('Warehouses must be placed near a Base.');
+    return;
+  }
+  const warehouseBuilding = {
+    id: `warehouse-${Date.now()}`,
+    kind:'warehouse',
+    x, y,
+    repo: base.repo || 'unlinked-repo',
+    worktreePath: base.repo || 'unlinked-repo',
+    baseId: base.id
+  };
+  state.warehouseBuildings.push(warehouseBuilding);
+  void postJson('/api/rts/layout/position', {
+    entityType: 'warehouse',
+    entityId: warehouseBuilding.id,
+    runId: null,
+    repoPath: warehouseBuilding.repo || null,
+    worktreePath: warehouseBuilding.worktreePath || null,
+    x: warehouseBuilding.x,
+    y: warehouseBuilding.y,
+    allowCreate: true
+  }).catch(() => {});
+  state.selected = { type:'building', data:warehouseBuilding };
+  queuePersist();
+  rebuildScene();
+  renderSelection();
+  renderWarehousePanel(warehouseBuilding.id);
+}
+
 function structureMarkup(kind){
   if (kind === 'base') {
     return `<img class="building-sprite" src="/rts-sprites/base-core-corpus-test.png?v=20260212b" alt="" />`;
@@ -1519,6 +1611,9 @@ function structureMarkup(kind){
   }
   if (kind === 'research') {
     return `<img class="building-sprite" src="/rts-sprites/research-lab-corpus-test.png?v=20260212d" alt="" />`;
+  }
+  if (kind === 'warehouse') {
+    return `<img class="building-sprite" src="/rts-sprites/warehouse-corpus-test.png?v=20260212c" alt="" />`;
   }
   return `<img class="building-sprite" src="/rts-sprites/feature-forge-corpus-test.png?v=20260212b" alt="" />`;
 }
@@ -1563,7 +1658,7 @@ function showPlacementGhost(kind, worldX, worldY){
   const point = snapPlacement(kind, worldX, worldY);
   const screen = worldToScreen(point.x, point.y);
   const center = centerPointFor(kind, point.x, point.y);
-  const invalid = (kind === 'feature' || kind === 'research') && !nearBase(center.x, center.y);
+  const invalid = (kind === 'feature' || kind === 'research' || kind === 'warehouse') && !nearBase(center.x, center.y);
   const className = kind === 'base' ? 'base' : 'building';
   const fp = buildingFootprint(kind);
   placementLayerEl.innerHTML = `
@@ -1623,6 +1718,12 @@ function updateResearchPosition(id, x, y){
   state.researchBuildings[i] = { ...state.researchBuildings[i], x, y };
 }
 
+function updateWarehousePosition(id, x, y){
+  const i = state.warehouseBuildings.findIndex((b) => b.id === id);
+  if (i < 0) return;
+  state.warehouseBuildings[i] = { ...state.warehouseBuildings[i], x, y };
+}
+
 function updateRunBuildingPosition(id, x, y){
   state.runLayoutOverrides = {
     ...(state.runLayoutOverrides || {}),
@@ -1640,6 +1741,7 @@ function cancelActiveFeatureDraft(){
   const selected = state.selected;
   if (selected?.type !== 'building' || selected?.data?.kind !== 'feature') return false;
   if (selected.data.committed || selected.data.runId) return false;
+  void postJson('/api/rts/layout/delete', { entityType: 'feature', entityId: selected.data.id }).catch(() => {});
   state.featureBuildings = (state.featureBuildings || []).filter((b) => b.id !== selected.data.id);
   state.selected = null;
   queuePersist();
@@ -1663,6 +1765,12 @@ async function deleteSelectedStructure(){
   const s = state.selected;
   if (!s) return;
   if (s.type === 'base' && s.data?.source === 'custom') {
+    try {
+      await postJson('/api/rts/layout/delete', { entityType: 'base', entityId: s.data.id });
+    } catch (err) {
+      alert(`Delete failed: ${err.message || err}`);
+      return;
+    }
     state.customBases = state.customBases.filter(b => b.id !== s.data.id);
     state.selected = null;
     queuePersist();
@@ -1692,6 +1800,13 @@ async function deleteSelectedStructure(){
       if (state.runLayoutOverrides && typeof state.runLayoutOverrides === 'object') {
         delete state.runLayoutOverrides[s.data.runId];
       }
+    } else {
+      try {
+        await postJson('/api/rts/layout/delete', { entityType: 'feature', entityId: s.data.id });
+      } catch (err) {
+        alert(`Delete failed: ${err.message || err}`);
+        return;
+      }
     }
     state.featureBuildings = state.featureBuildings.filter(b => b.id !== s.data.id);
     state.selected = null;
@@ -1702,7 +1817,28 @@ async function deleteSelectedStructure(){
     return;
   }
   if (s.type === 'building' && s.data?.kind === 'research') {
+    try {
+      await postJson('/api/rts/layout/delete', { entityType: 'research', entityId: s.data.id });
+    } catch (err) {
+      alert(`Delete failed: ${err.message || err}`);
+      return;
+    }
     state.researchBuildings = (state.researchBuildings || []).filter((b) => b.id !== s.data.id);
+    state.selected = null;
+    queuePersist();
+    rebuildScene();
+    renderSelection();
+    renderRunSetupPanel(null);
+    return;
+  }
+  if (s.type === 'building' && s.data?.kind === 'warehouse') {
+    try {
+      await postJson('/api/rts/layout/delete', { entityType: 'warehouse', entityId: s.data.id });
+    } catch (err) {
+      alert(`Delete failed: ${err.message || err}`);
+      return;
+    }
+    state.warehouseBuildings = (state.warehouseBuildings || []).filter((b) => b.id !== s.data.id);
     state.selected = null;
     queuePersist();
     rebuildScene();
@@ -1757,21 +1893,24 @@ function normalizeRunStatus(status){
 
 function normalizeFeatureDraft(raw){
   const src = raw && typeof raw === 'object' ? raw : {};
+  const id = String(src.id || `feature-draft-${Date.now()}`);
   const runId = src.runId ? String(src.runId) : '';
   const committed = typeof src.committed === 'boolean'
     ? src.committed
     : !!runId;
   const repo = baseRepoKey(String(src.repo || ''));
+  const worktreePath = String(src.worktreePath || getWorktreeDefault(repo || 'repo', id));
   return {
     ...src,
-    id: String(src.id || `feature-draft-${Date.now()}`),
+    id,
     kind: 'feature',
     repo,
-    worktreePath: String(src.worktreePath || ''),
+    worktreePath,
     prompt: String(src.prompt || ''),
     runId,
     committed,
     phase: String(src.phase || (committed ? 'running' : 'draft')),
+    empty: !!src.empty,
     x: Number(src.x || 0),
     y: Number(src.y || 0),
     port: Number(src.port || 0) || undefined
@@ -1786,14 +1925,142 @@ function normalizeResearchBuilding(raw){
     id: String(src.id || `research-${Date.now()}`),
     kind: 'research',
     repo,
+    worktreePath: String(src.worktreePath || repo),
     baseId: String(src.baseId || ''),
     x: Number(src.x || 0),
     y: Number(src.y || 0)
   };
 }
 
+function normalizeWarehouseBuilding(raw){
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const repo = baseRepoKey(String(src.repo || ''));
+  return {
+    ...src,
+    id: String(src.id || `warehouse-${Date.now()}`),
+    kind: 'warehouse',
+    repo,
+    worktreePath: String(src.worktreePath || repo),
+    baseId: String(src.baseId || ''),
+    x: Number(src.x || 0),
+    y: Number(src.y || 0)
+  };
+}
+
+function normalizeResearchPlan(raw, fallbackId = ''){
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const typeRaw = String(src.type || 'feature').toLowerCase();
+  const type = ['feature', 'bug', 'placeholder'].includes(typeRaw) ? typeRaw : 'feature';
+  const dispositionRaw = String(src.disposition || 'OPEN').toUpperCase();
+  const disposition = dispositionRaw === 'WONT_FIX' ? 'WONT_FIX' : 'OPEN';
+  const id = String(src.id || fallbackId || `plan-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`);
+  const evidence = Array.isArray(src.evidence) ? src.evidence.map((x) => String(x || '')).filter(Boolean) : [];
+  return {
+    ...src,
+    id,
+    type,
+    title: String(src.title || id),
+    summary: String(src.summary || ''),
+    prompt: String(src.prompt || ''),
+    evidence,
+    disposition
+  };
+}
+
+function mergeResearchPlans(existingList, incomingList){
+  const byId = new Map();
+  const put = (raw) => {
+    const plan = normalizeResearchPlan(raw);
+    const prev = byId.get(plan.id);
+    if (!prev) {
+      byId.set(plan.id, plan);
+      return;
+    }
+    const prevDisposition = String(prev.disposition || 'OPEN').toUpperCase();
+    const merged = {
+      ...prev,
+      ...plan,
+      disposition: prevDisposition === 'WONT_FIX'
+        ? 'WONT_FIX'
+        : (String(plan.disposition || prev.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? 'WONT_FIX' : 'OPEN')
+    };
+    byId.set(plan.id, merged);
+  };
+  (Array.isArray(existingList) ? existingList : []).forEach(put);
+  (Array.isArray(incomingList) ? incomingList : []).forEach(put);
+  return Array.from(byId.values());
+}
+
+function appendResearchPlans(repoKey, incomingList){
+  const key = String(repoKey || '');
+  if (!key) return [];
+  const existing = Array.isArray(state.researchPlansByRepo?.[key]) ? state.researchPlansByRepo[key] : [];
+  const merged = mergeResearchPlans(existing, incomingList);
+  state.researchPlansByRepo = { ...(state.researchPlansByRepo || {}), [key]: merged };
+  queuePersist();
+  return merged;
+}
+
+function planImportanceScore(plan){
+  const p = normalizeResearchPlan(plan);
+  const typeWeight = p.type === 'bug' ? 3 : (p.type === 'feature' ? 2 : 1);
+  const evidenceWeight = Array.isArray(p.evidence) ? Math.min(3, p.evidence.length) : 0;
+  return typeWeight * 10 + evidenceWeight;
+}
+
+function appendWarehouseItems(repoKey, incomingList){
+  const key = String(repoKey || '');
+  if (!key) return [];
+  const existing = Array.isArray(state.warehouseItemsByRepo?.[key]) ? state.warehouseItemsByRepo[key] : [];
+  const merged = mergeResearchPlans(existing, incomingList);
+  state.warehouseItemsByRepo = { ...(state.warehouseItemsByRepo || {}), [key]: merged };
+  queuePersist();
+  return merged;
+}
+
+function consumeMostImportantWarehouseItem(repoKey){
+  const key = String(repoKey || '');
+  if (!key) return null;
+  const list = Array.isArray(state.warehouseItemsByRepo?.[key]) ? state.warehouseItemsByRepo[key] : [];
+  if (!list.length) return null;
+  let bestIdx = -1;
+  let bestScore = -1;
+  list.forEach((raw, idx) => {
+    const score = planImportanceScore(raw);
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = idx;
+    }
+  });
+  if (bestIdx < 0) return null;
+  const plan = normalizeResearchPlan(list[bestIdx]);
+  const next = [...list.slice(0, bestIdx), ...list.slice(bestIdx + 1)];
+  state.warehouseItemsByRepo = { ...(state.warehouseItemsByRepo || {}), [key]: next };
+  queuePersist();
+  return plan;
+}
+
+function markResearchPlanWontFix(repoKey, planId){
+  const key = String(repoKey || '');
+  const id = String(planId || '');
+  if (!key || !id) return false;
+  const existing = Array.isArray(state.researchPlansByRepo?.[key]) ? state.researchPlansByRepo[key] : [];
+  let changed = false;
+  const next = existing.map((raw) => {
+    const plan = normalizeResearchPlan(raw);
+    if (String(plan.id) !== id) return plan;
+    if (String(plan.disposition || 'OPEN').toUpperCase() !== 'WONT_FIX') changed = true;
+    return { ...plan, disposition: 'WONT_FIX' };
+  });
+  if (!changed) return false;
+  state.researchPlansByRepo = { ...(state.researchPlansByRepo || {}), [key]: next };
+  queuePersist();
+  return true;
+}
+
 function featureStructureVisualState(building){
   if (!building) return 'draft';
+  if (building.empty) return 'draft';
   if (!building.committed || !building.runId) return 'draft';
   const status = normalizeRunStatus(getDisplayRunStatus(building.run, building.phase, building.runId));
   if (SUCCESS_RUN_STATUSES.has(status)) return 'done';
@@ -1807,6 +2074,49 @@ function featureStructureClassName(building){
   if (visualState === 'draft') return 'is-half-transparent';
   if (visualState === 'failed') return 'is-failed';
   return '';
+}
+
+function canMarkFeatureEmpty(building){
+  if (!building) return false;
+  const status = normalizeRunStatus(getDisplayRunStatus(building.run, building.phase, building.runId));
+  return !!building.prUrl && SUCCESS_RUN_STATUSES.has(status);
+}
+
+function nearestWarehouseForFeature(feature){
+  if (!feature) return null;
+  const repoKey = baseRepoKey(String(feature.repo || ''));
+  const featureCenter = centerPointFor('feature', Number(feature.x || 0), Number(feature.y || 0));
+  const candidates = (state.warehouseBuildings || []).filter((wb) => baseRepoKey(String(wb.repo || '')) === repoKey);
+  if (!candidates.length) return null;
+  return candidates.reduce((best, wb) => {
+    const c = centerPointFor('warehouse', Number(wb.x || 0), Number(wb.y || 0));
+    const d = Math.hypot(c.x - featureCenter.x, c.y - featureCenter.y);
+    if (!best || d < best.dist) return { wb, dist: d };
+    return best;
+  }, null)?.wb || null;
+}
+
+function refillFeatureFromWarehouse(feature){
+  if (!feature) return { ok: false, reason: 'missing feature' };
+  const warehouse = nearestWarehouseForFeature(feature);
+  if (!warehouse) return { ok: false, reason: 'no connected warehouse' };
+  const repoKey = baseRepoKey(String(warehouse.repo || feature.repo || ''));
+  const plan = consumeMostImportantWarehouseItem(repoKey);
+  if (!plan) return { ok: false, reason: 'warehouse empty' };
+  const idx = state.featureBuildings.findIndex((fb) => String(fb.id) === String(feature.id));
+  if (idx < 0) return { ok: false, reason: 'feature not found' };
+  const prior = state.featureBuildings[idx];
+  state.featureBuildings[idx] = {
+    ...prior,
+    prompt: String(plan.prompt || ''),
+    committed: false,
+    runId: null,
+    phase: 'draft',
+    empty: false,
+    worktreePath: String(prior.worktreePath || getWorktreeDefault(prior.repo || 'repo', prior.id || 'feature'))
+  };
+  queuePersist();
+  return { ok: true, plan };
 }
 
 function renderWorld(){
@@ -1871,6 +2181,58 @@ function renderWorld(){
       line.style.width = `${dist}px`;
       line.style.transform = `rotate(${angle}deg)`;
       pathLayer.appendChild(line);
+    });
+    (state.buildings || []).filter((b) => b.kind === 'warehouse').forEach((warehouse) => {
+      const warehouseCenter = centerPointFor('warehouse', Number(warehouse.x || 0), Number(warehouse.y || 0));
+      const repoKey = baseRepoKey(String(warehouse.repo || ''));
+      const nearestResearch = (state.buildings || [])
+        .filter((b) => b.kind === 'research' && baseRepoKey(String(b.repo || '')) === repoKey)
+        .reduce((best, research) => {
+          const from = centerPointFor('research', Number(research.x || 0), Number(research.y || 0));
+          const d = Math.hypot(from.x - warehouseCenter.x, from.y - warehouseCenter.y);
+          if (!best || d < best.dist) return { from, dist: d };
+          return best;
+        }, null);
+      if (nearestResearch && nearestResearch.dist >= 1) {
+        const start = worldToScreen(nearestResearch.from.x, nearestResearch.from.y);
+        const dx = warehouseCenter.x - nearestResearch.from.x;
+        const dy = warehouseCenter.y - nearestResearch.from.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist >= 1) {
+          const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+          const line = document.createElement('div');
+          line.className = 'rts-path active';
+          line.style.left = `${start.x}px`;
+          line.style.top = `${start.y}px`;
+          line.style.width = `${dist}px`;
+          line.style.transform = `rotate(${angle}deg)`;
+          pathLayer.appendChild(line);
+        }
+      }
+      const nearestFeature = (state.buildings || [])
+        .filter((b) => b.kind === 'feature' && baseRepoKey(String(b.repo || '')) === repoKey)
+        .reduce((best, feature) => {
+          const to = centerPointFor('feature', Number(feature.x || 0), Number(feature.y || 0));
+          const d = Math.hypot(to.x - warehouseCenter.x, to.y - warehouseCenter.y);
+          if (!best || d < best.dist) return { to, dist: d };
+          return best;
+        }, null);
+      if (nearestFeature && nearestFeature.dist >= 1) {
+        const start = worldToScreen(warehouseCenter.x, warehouseCenter.y);
+        const dx = nearestFeature.to.x - warehouseCenter.x;
+        const dy = nearestFeature.to.y - warehouseCenter.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist >= 1) {
+          const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+          const line = document.createElement('div');
+          line.className = 'rts-path';
+          line.style.left = `${start.x}px`;
+          line.style.top = `${start.y}px`;
+          line.style.width = `${dist}px`;
+          line.style.transform = `rotate(${angle}deg)`;
+          pathLayer.appendChild(line);
+        }
+      }
     });
   }
 
@@ -1938,7 +2300,13 @@ function renderWorld(){
   state.buildings.forEach(b => {
     const status = b.kind === 'research'
       ? 'idle'
-      : prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting'));
+      : (b.kind === 'warehouse'
+        ? 'stored'
+        : prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting')));
+    const warehouseRepo = baseRepoKey(String(b.repo || ''));
+    const warehouseCount = b.kind === 'warehouse'
+      ? (Array.isArray(state.warehouseItemsByRepo?.[warehouseRepo]) ? state.warehouseItemsByRepo[warehouseRepo].length : 0)
+      : 0;
     const color = status === 'done' ? 'var(--ok)' : status === 'failed' ? 'var(--bad)' : 'var(--warn)';
     const movable = true;
     const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';
@@ -1947,14 +2315,16 @@ function renderWorld(){
     const buildLabel = b.portLabel || pathLabel(b.worktreePath || b.repo || '');
     const el = renderIsoEntity({
       className,
-      kind: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : 'run'),
+      kind: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : (b.kind === 'warehouse' ? 'warehouse' : 'run')),
       x:b.x,
       y:b.y,
       innerHtml:`
-        ${structureMarkup(b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : 'run'))}
+        ${structureMarkup(b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : (b.kind === 'warehouse' ? 'warehouse' : 'run')))}
         <div class="port-chip">${esc(buildLabel)} :${buildPort}</div>
         ${b.kind === 'research'
           ? '<div class="notice" style="position:absolute;left:12px;right:12px;bottom:8px">Research queue ready</div>'
+          : b.kind === 'warehouse'
+            ? `<div class="notice" style="position:absolute;left:12px;right:12px;bottom:8px">Stored items: ${warehouseCount}</div>`
           : `<div class="progress" style="position:absolute;left:12px;right:12px;bottom:8px"><div class="bar" style="width:${b.progress || 0}%;background:${color}"></div></div>`}
       `,
       onClick:() => {
@@ -1962,6 +2332,7 @@ function renderWorld(){
         renderSelection();
         if (b.kind === 'feature') renderRunSetupPanel(b.id);
         if (b.kind === 'research') renderResearchLabPanel(b.id);
+        if (b.kind === 'warehouse') renderWarehousePanel(b.id);
         rebuildScene();
       }
     });
@@ -1972,7 +2343,7 @@ function renderWorld(){
         e.stopPropagation();
         const point = screenToWorld(e.clientX, e.clientY);
         state.draggingEntity = {
-          type: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : 'run'),
+          type: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : (b.kind === 'warehouse' ? 'warehouse' : 'run')),
           id: b.id,
           runId: b.runId || b.run?.id || (b.kind === 'run' ? b.id : ''),
           repoPath: b.repo || '',
@@ -2190,8 +2561,16 @@ function renderSelection(){
     }
     if (b.kind === 'research') {
       setFeatureMode(false);
-      panel.innerHTML = `<h3>Research Lab</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Status:</strong> ready</div><div class="notice">Run repository analysis to generate drag-and-drop feature plans.</div>`;
+      panel.innerHTML = `<h3>Research Lab</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || b.repo || '-')}</div><div class="kv"><strong>Status:</strong> ready</div><div class="notice">Run repository analysis to generate drag-and-drop feature plans.</div>`;
       if (!isEditingActionPanel()) renderResearchLabPanel(b.id);
+      return;
+    }
+    if (b.kind === 'warehouse') {
+      setFeatureMode(false);
+      const repoKey = baseRepoKey(String(b.repo || ''));
+      const count = Array.isArray(state.warehouseItemsByRepo?.[repoKey]) ? state.warehouseItemsByRepo[repoKey].length : 0;
+      panel.innerHTML = `<h3>Warehouse</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || b.repo || '-')}</div><div class="kv"><strong>Stored Items:</strong> ${count}</div><div class="notice">Input: Research Lab deploy. Output: feature refill when marked empty.</div>`;
+      if (!isEditingActionPanel()) renderWarehousePanel(b.id);
       return;
     }
     const port = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
@@ -2290,6 +2669,7 @@ function renderBaseCloneForm(draft){
         x:draft.x,
         y:draft.y,
         repo:result.repoPath,
+        worktreePath: result.repoPath,
         port: Number(draft.port) || getPortForPath(result.repoPath) || 3333,
         portLabel: pathLabel(result.repoPath),
         source:'custom',
@@ -2301,6 +2681,16 @@ function renderBaseCloneForm(draft){
         },
         runs:[]
       };
+      await postJson('/api/rts/layout/position', {
+        entityType: 'base',
+        entityId: base.id,
+        runId: null,
+        repoPath: base.repo || null,
+        worktreePath: base.worktreePath || null,
+        x: base.x,
+        y: base.y,
+        allowCreate: true
+      });
       setPortForPath(base.repo, base.port);
       removeBaseDraftById(draft.id);
       state.customBases.push(base);
@@ -2350,9 +2740,38 @@ function findRelevantRun(draft){
   return null;
 }
 
+function expectedAgentCountForWorkflow(workflowId){
+  const wf = (state.workflows || []).find((w) => String(w?.id || '') === String(workflowId || ''));
+  return Array.isArray(wf?.steps) ? wf.steps.length : 0;
+}
+
 function deriveRunAgents(run){
+  const workflow = (state.workflows || []).find((wf) => String(wf?.id || '') === String(run?.workflow_id || ''));
+  if (workflow?.steps?.length) {
+    return workflow.steps.map((wfStep, idx) => {
+      const stepRows = (run?.steps || []).filter((step) => String(step.step_id || '') === String(wfStep.id || ''));
+      const agentId = String(stepRows[0]?.agent_id || `${workflow.id}/${wfStep.agent}@run:${run?.id || ''}`);
+      const statuses = stepRows.map((s) => String(s.status || 'pending'));
+      const live = getLiveAgentEntry(run?.id, agentId);
+      let status = 'waiting';
+      if (live && !live.stale) status = 'running';
+      else if (live && live.stale) status = 'stale';
+      else if (statuses.includes('running')) status = 'running';
+      else if (statuses.includes('failed')) status = 'failed';
+      else if (statuses.length && statuses.every((s) => s === 'done' || s === 'skipped')) status = 'done';
+      else if (statuses.includes('pending')) status = 'waiting';
+      const base = baseAgentId(agentId);
+      return {
+        slotId: `${wfStep.id}:${idx + 1}`,
+        stepId: String(wfStep.id || ''),
+        agentId,
+        status,
+        displayName: `${prettyStepName(String(wfStep.id || 'step'))} • ${base.split('/').pop() || base}`
+      };
+    });
+  }
   const map = new Map();
-  (run?.steps || []).forEach(step => {
+  (run?.steps || []).forEach((step) => {
     if (!step.agent_id) return;
     if (!map.has(step.agent_id)) map.set(step.agent_id, []);
     map.get(step.agent_id).push(step.status || 'pending');
@@ -2364,9 +2783,9 @@ function deriveRunAgents(run){
     else if (live && live.stale) status = 'stale';
     else if (statuses.includes('running')) status = 'running';
     else if (statuses.includes('failed')) status = 'failed';
-    else if (statuses.every(s => s === 'done' || s === 'skipped')) status = 'done';
+    else if (statuses.every((s) => s === 'done' || s === 'skipped')) status = 'done';
     else if (statuses.includes('pending')) status = 'waiting';
-    return { agentId, status };
+    return { slotId: agentId, stepId: '', agentId, status, displayName: baseAgentId(agentId) };
   });
 }
 
@@ -2620,8 +3039,8 @@ function renderTerminalViewer(){
 function renderAgentStatusList(agents, run){
   const rows = agents.length
     ? agents.map(a => `
-      <div class="agent-row ${state.stream.agentId === a.agentId && state.stream.runId === run?.id ? 'active' : ''}" data-agent="${esc(a.agentId)}" data-run="${esc(run?.id || '')}">
-        <div class="agent-meta"><span class="status-dot" style="background:${statusTone(a.status)}"></span><span class="agent-name" title="${esc(a.agentId)}">${esc(baseAgentId(a.agentId))}</span></div>
+      <div class="agent-row ${state.stream.agentId === a.agentId && state.stream.runId === run?.id ? 'active' : ''}" data-agent="${esc(a.agentId)}" data-step="${esc(a.stepId || '')}" data-run="${esc(run?.id || '')}">
+        <div class="agent-meta"><span class="status-dot" style="background:${statusTone(a.status)}"></span><span class="agent-name" title="${esc(a.agentId)}">${esc(a.displayName || baseAgentId(a.agentId))}</span></div>
         <div class="agent-actions">
           <span class="badge">${esc(prettyStatus(a.status))}</span>
           ${canRestartAgentStatus(a.status)
@@ -2695,7 +3114,8 @@ function renderResearchLabPanel(targetLabId){
   const runtimeRepo = normalizePathKey(String(state.runtime?.cwd || ''));
   const effectiveRepo = (requestedRepo && requestedRepo !== 'workspace-repo') ? requestedRepo : runtimeRepo;
   const repoKey = effectiveRepo || requestedRepo || 'workspace-repo';
-  const plans = Array.isArray(state.researchPlansByRepo?.[repoKey]) ? state.researchPlansByRepo[repoKey] : [];
+  const plans = (Array.isArray(state.researchPlansByRepo?.[repoKey]) ? state.researchPlansByRepo[repoKey] : [])
+    .map((plan, idx) => normalizeResearchPlan(plan, `plan-${Date.now()}-${idx + 1}`));
   if (effectiveRepo && lab.repo !== effectiveRepo) {
     lab.repo = effectiveRepo;
     queuePersist();
@@ -2703,22 +3123,25 @@ function renderResearchLabPanel(targetLabId){
   panel.innerHTML = `
     <h3>Research Console</h3>
     <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
+    <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
     <button id="runResearchBtn">Research</button>
-    <div class="notice" style="margin-top:8px" id="researchNotice">Analyze repo via Antfarm and generate plan drafts.</div>
+    <div class="notice" style="margin-top:8px" id="researchNotice">Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.</div>
     <div class="build-card" style="margin-top:8px">
       <div class="kv"><strong>Generated Plans</strong></div>
       <div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
-        <div class="agent-row research-plan" draggable="true" data-plan-id="${esc(plan.id)}">
+        <div class="agent-row research-plan" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '' : 'draggable="true"'} data-plan-id="${esc(plan.id)}">
           <div class="agent-meta">
             <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
+            ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '<span class="badge">WONT FIX</span>' : ''}
             <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Plan ${idx + 1}`)}</span>
           </div>
           <div class="agent-actions">
-            <button class="agent-restart" data-plan-deploy="${esc(plan.id)}">deploy</button>
+            <button class="agent-restart" data-plan-deploy="${esc(plan.id)}" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? 'disabled' : ''}>deploy</button>
+            <button class="agent-restart" data-plan-wont-fix="${esc(plan.id)}" title="Mark WONT FIX">delete</button>
           </div>
         </div>
       `).join('') : '<div class="notice">No plans yet. Press Research.</div>'}</div>
-      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft with prewritten prompt.</div>
+      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in Warehouse.</div>
     </div>
   `;
   const notice = document.getElementById('researchNotice');
@@ -2731,23 +3154,43 @@ function renderResearchLabPanel(targetLabId){
         dbg('planDeploy:click', { id, repoKey });
         const plan = consumeResearchPlan(repoKey, String(id || ''));
         if (!plan) return;
-        const fp = buildingFootprint('feature');
-        const placed = placeFeatureDraftFromPlan(plan, Number(lab.x || 0) + fp.w + GRID_SIZE, Number(lab.y || 0), effectiveRepo || requestedRepo);
-        if (!placed) {
+        const queue = appendWarehouseItems(repoKey, [plan]);
+        if (!queue.length) {
           state.researchPlansByRepo = {
             ...(state.researchPlansByRepo || {}),
             [repoKey]: [plan, ...(state.researchPlansByRepo?.[repoKey] || [])]
           };
           queuePersist();
-          dbg('planDeploy:restore_after_failed_place', { id, repoKey });
+          dbg('planDeploy:restore_after_failed_store', { id, repoKey });
         }
-        dbg('planDeploy:done', { id, placed });
+        if (notice) notice.textContent = `Stored in warehouse: ${String(plan.title || plan.id)}. Items in queue: ${queue.length}.`;
+        dbg('planDeploy:done', { id, stored: queue.length > 0, size: queue.length });
+        rebuildScene();
+        if (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse') {
+          renderWarehousePanel(state.selected.data.id);
+        }
+        renderResearchLabPanel(lab.id);
+      });
+    });
+    list.querySelectorAll('[data-plan-wont-fix]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-plan-wont-fix');
+        if (!id) return;
+        const changed = markResearchPlanWontFix(repoKey, id);
+        dbg('planMutation:wont_fix', { id, repoKey, changed });
         renderResearchLabPanel(lab.id);
       });
     });
     list.querySelectorAll('.research-plan').forEach((row) => {
       row.addEventListener('dragstart', (e) => {
         const id = row.getAttribute('data-plan-id') || '';
+        const plan = (Array.isArray(state.researchPlansByRepo?.[repoKey]) ? state.researchPlansByRepo[repoKey] : [])
+          .map((x) => normalizeResearchPlan(x))
+          .find((x) => String(x.id) === String(id));
+        if (String(plan?.disposition || 'OPEN').toUpperCase() === 'WONT_FIX') {
+          e.preventDefault();
+          return;
+        }
         queuedResearchPlan = { id, repoKey, repoPath: (effectiveRepo || requestedRepo) };
         dragBuildingType = 'feature';
         setPlacement('feature');
@@ -2780,19 +3223,69 @@ function renderResearchLabPanel(targetLabId){
   runBtn?.addEventListener('click', async () => {
     try {
       if (!effectiveRepo) throw new Error('No repo resolved for research. Place lab near a base with a repo, or run RTS from an Antfarm repo.');
-      if (notice) notice.textContent = 'Scanning repository and generating plans...';
+      if (notice) notice.textContent = 'Running planner agent and generating plans...';
       const res = await postJson('/api/rts/research/generate', { repoPath: effectiveRepo, maxPlans: 10 });
-      state.researchPlansByRepo = { ...(state.researchPlansByRepo || {}), [repoKey]: Array.isArray(res.plans) ? res.plans : [] };
-      queuePersist();
+      const nextPlans = appendResearchPlans(repoKey, Array.isArray(res.plans) ? res.plans : []);
       if (notice) {
         const count = Array.isArray(res.plans) ? res.plans.length : 0;
-        notice.textContent = `Generated ${count} plan(s) from ${res.repoPath || effectiveRepo}. Drag one onto the map or deploy directly.`;
+        notice.textContent = `Added ${count} plan(s), total ${nextPlans.length}, from ${res.repoPath || effectiveRepo}. Drag one onto the map or deploy directly.`;
       }
       renderResearchLabPanel(lab.id);
     } catch (err) {
       if (notice) notice.textContent = `Research failed: ${err.message || err}`;
     }
   });
+}
+
+function renderWarehousePanel(targetWarehouseId){
+  const panel = document.getElementById('actionPanel');
+  const warehouse = (state.warehouseBuildings || []).find((it) => String(it.id) === String(targetWarehouseId || ''))
+    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse' ? state.selected.data : null);
+  if (!warehouse) {
+    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Select a Warehouse.</div>`;
+    return;
+  }
+  const repoKey = baseRepoKey(String(warehouse.repo || ''));
+  const items = (Array.isArray(state.warehouseItemsByRepo?.[repoKey]) ? state.warehouseItemsByRepo[repoKey] : [])
+    .map((plan, idx) => normalizeResearchPlan(plan, `warehouse-plan-${idx + 1}`));
+  const nearestLab = (state.researchBuildings || [])
+    .filter((rb) => baseRepoKey(String(rb.repo || '')) === repoKey)
+    .reduce((best, rb) => {
+      const a = centerPointFor('warehouse', Number(warehouse.x || 0), Number(warehouse.y || 0));
+      const b = centerPointFor('research', Number(rb.x || 0), Number(rb.y || 0));
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (!best || d < best.dist) return { rb, dist: d };
+      return best;
+    }, null)?.rb || null;
+  const nearestFeature = (state.buildings || [])
+    .filter((fb) => fb.kind === 'feature' && baseRepoKey(String(fb.repo || '')) === repoKey)
+    .reduce((best, fb) => {
+      const a = centerPointFor('warehouse', Number(warehouse.x || 0), Number(warehouse.y || 0));
+      const b = centerPointFor('feature', Number(fb.x || 0), Number(fb.y || 0));
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (!best || d < best.dist) return { fb, dist: d };
+      return best;
+    }, null)?.fb || null;
+
+  panel.innerHTML = `
+    <h3>Warehouse Console</h3>
+    <div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
+    <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
+    <div class="kv"><strong>Input:</strong> ${esc(nearestLab ? `Research Lab ${nearestLab.id}` : 'none')}</div>
+    <div class="kv"><strong>Output:</strong> ${esc(nearestFeature ? `Feature ${nearestFeature.id}` : 'none')}</div>
+    <div class="notice" id="warehouseNotice">When a feature is marked EMPTY (after PR merge), it pulls the most important stored item.</div>
+    <div class="build-card" style="margin-top:8px">
+      <div class="kv"><strong>Stored Items</strong></div>
+      <div>${items.length ? items.map((plan, idx) => `
+        <div class="agent-row">
+          <div class="agent-meta">
+            <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
+            <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Item ${idx + 1}`)}</span>
+          </div>
+        </div>
+      `).join('') : '<div class="notice">Warehouse is empty.</div>'}</div>
+    </div>
+  `;
 }
 
 function renderRunSetupPanel(targetDraftId){
@@ -2819,6 +3312,7 @@ function renderRunSetupPanel(targetDraftId){
         worktreePath: inferred.worktreePath || '',
         port: Number(inferred.port) || getPortForPath(inferred.worktreePath || inferred.repo || '') || 3334,
         prompt: inferred.run?.task || '',
+        empty: !!inferred.empty,
       };
       state.featureBuildings.push(draft);
       queuePersist();
@@ -2826,15 +3320,17 @@ function renderRunSetupPanel(targetDraftId){
   }
   if (!draft) {
     setFeatureMode(false);
-    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Use command cards to place Base, Feature Request, or Research Lab structures.</div>`;
+    panel.innerHTML = `<h3>Action Console</h3><div class="notice">Use command cards to place Base, Feature Request, Research Lab, or Warehouse structures.</div>`;
     stopAgentStream();
     return;
   }
   setFeatureMode(true);
-  if (!draft.worktreePath) draft.worktreePath = getWorktreeDefault(draft.repo || 'antfarm');
+  if (!draft.worktreePath) draft.worktreePath = getWorktreeDefault(draft.repo || 'antfarm', draft.id || 'feature');
   if (typeof draft.prompt !== 'string') draft.prompt = String(draft.prompt || '');
+  draft.empty = !!draft.empty;
   const run = draft.runId ? (state.runs || []).find(r => r.id === draft.runId) : null;
   const hasRun = !!run;
+  const deterministicAgentCount = expectedAgentCountForWorkflow('feature-dev') || 7;
   const isDraft = !draft.committed;
   const promptReadOnlyAttr = isDraft ? '' : ' readonly';
   if (!draft.port) {
@@ -2847,18 +3343,47 @@ function renderRunSetupPanel(targetDraftId){
     <label class="kv">Worktree path
       <input id="worktreePath" value="${esc(draft.worktreePath)}" />
     </label>
+    <div class="kv"><strong>Agent lanes:</strong> ${deterministicAgentCount} (deterministic workflow steps)</div>
     <div class="kv"><strong>Runtime:</strong> ${runtimeLink(draft.port || 3334)}</div>
+    <div class="kv"><strong>Empty:</strong> ${draft.empty ? 'yes' : 'no'}</div>
     <label class="kv">Feature prompt
       <textarea id="featurePrompt" rows="8" placeholder="Describe detailed scope, constraints, and acceptance criteria..."${promptReadOnlyAttr}>${esc(draft.prompt)}</textarea>
     </label>
     ${hasRun ? renderAgentStatusList(deriveRunAgents(run), run) : ''}
     <button id="launchFeatureRunBtn" style="margin-top:8px">${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
+    <button id="markFeatureEmptyBtn" style="margin-top:6px" ${canMarkFeatureEmpty({ ...draft, run, prUrl: extractPrUrl(run) || draft.prUrl }) ? '' : 'disabled'}>${draft.empty ? 'Mark Filled' : 'Mark Empty (PR merged)'}</button>
     <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
     <div class="notice" style="margin-top:8px" id="featureMutationNotice">Ready to execute backend actions.</div>
   `;
 
   document.getElementById('worktreePath').addEventListener('input', e => { draft.worktreePath = e.target.value; queuePersist(); });
   document.getElementById('featurePrompt').addEventListener('input', e => { draft.prompt = e.target.value; queuePersist(); });
+  document.getElementById('markFeatureEmptyBtn').addEventListener('click', () => {
+    const runForDraft = draft.runId ? (state.runs || []).find(r => r.id === draft.runId) : null;
+    const current = { ...draft, run: runForDraft, prUrl: extractPrUrl(runForDraft) || draft.prUrl };
+    if (!draft.empty && !canMarkFeatureEmpty(current)) {
+      mutationNotice.textContent = 'Empty can only be marked after run success and PR availability.';
+      return;
+    }
+    if (draft.empty) {
+      draft.empty = false;
+      mutationNotice.textContent = 'Feature marked filled.';
+      queuePersist();
+      rebuildScene();
+      renderRunSetupPanel(draft.id);
+      return;
+    }
+    draft.empty = true;
+    const refill = refillFeatureFromWarehouse(draft);
+    if (refill.ok) {
+      mutationNotice.textContent = `Pulled from warehouse: ${String(refill.plan?.title || refill.plan?.id || 'item')}`;
+    } else {
+      mutationNotice.textContent = `Marked empty. Pull pending: ${refill.reason}.`;
+    }
+    queuePersist();
+    rebuildScene();
+    renderRunSetupPanel(draft.id);
+  });
 
   const mutationNotice = document.getElementById('featureMutationNotice');
   let launchInFlight = false;
@@ -2906,6 +3431,7 @@ function renderRunSetupPanel(targetDraftId){
       draft.runId = launchedRunId || draft.runId;
       draft.phase = 'running';
       draft.committed = true;
+      draft.empty = false;
       draft.x = draftX;
       draft.y = draftY;
       state.featureBuildings = (state.featureBuildings || []).filter((fb) => {
@@ -3121,6 +3647,7 @@ worldWrapEl.addEventListener('mousedown', (e) => {
   if (state.placementMode === 'base') placeBaseAt(snapped.x, snapped.y);
   if (state.placementMode === 'feature') placeFeatureAt(snapped.x, snapped.y);
   if (state.placementMode === 'research') placeResearchAt(snapped.x, snapped.y);
+  if (state.placementMode === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
   state.suppressWorldClick = false;
   setPlacement(null);
 }, true);
@@ -3206,6 +3733,7 @@ worldWrapEl.addEventListener('drop', (e) => {
     if (dragBuildingType === 'base') placeBaseAt(snapped.x, snapped.y);
     if (dragBuildingType === 'feature') placeFeatureAt(snapped.x, snapped.y);
     if (dragBuildingType === 'research') placeResearchAt(snapped.x, snapped.y);
+    if (dragBuildingType === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
   }
   dbg('planDrop:drop:end', { dragBuildingType, dragResearchPlan });
   dragBuildingType = null;
@@ -3258,6 +3786,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'b' || e.key === 'B') setPlacement('base');
   if (e.key === 'f' || e.key === 'F') setPlacement('feature');
   if (e.key === 'l' || e.key === 'L') setPlacement('research');
+  if (e.key === 'w' || e.key === 'W') setPlacement('warehouse');
   if (e.key === 'Delete' || e.key === 'Backspace') deleteSelectedStructure();
 });
 
@@ -3279,13 +3808,14 @@ const handlePointerMove = (e) => {
     const point = localPointInWorld(e);
     const kind = (state.draggingEntity.type === 'base' || state.draggingEntity.type === 'baseDraft')
       ? 'base'
-      : (state.draggingEntity.type === 'research' ? 'research' : 'feature');
+      : (state.draggingEntity.type === 'research' ? 'research' : (state.draggingEntity.type === 'warehouse' ? 'warehouse' : 'feature'));
     const snapped = snapPlacement(kind, point.x - state.draggingEntity.offsetX + (buildingFootprint(kind).w / 2), point.y - state.draggingEntity.offsetY + (buildingFootprint(kind).h / 2));
     state.draggingMoved = true;
     if (state.draggingEntity.type === 'base') updateCustomBasePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'baseDraft') updateBaseDraftPosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'feature') updateFeaturePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'research') updateResearchPosition(state.draggingEntity.id, snapped.x, snapped.y);
+    else if (state.draggingEntity.type === 'warehouse') updateWarehousePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else updateRunBuildingPosition(state.draggingEntity.id, snapped.x, snapped.y);
     rebuildScene();
     if (autoPanned) queuePersist();
@@ -3336,6 +3866,7 @@ worldEl.addEventListener('click', (e) => {
     if (state.placementMode === 'base') placeBaseAt(snapped.x, snapped.y);
     if (state.placementMode === 'feature') placeFeatureAt(snapped.x, snapped.y);
     if (state.placementMode === 'research') placeResearchAt(snapped.x, snapped.y);
+    if (state.placementMode === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
     state.suppressWorldClick = false;
     setPlacement(null);
     return;

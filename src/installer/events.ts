@@ -25,6 +25,14 @@ export interface AntfarmEvent {
   detail?: string;
 }
 
+type EventListener = (evt: AntfarmEvent) => void | Promise<void>;
+const eventListeners = new Set<EventListener>();
+
+export function onEvent(listener: EventListener): () => void {
+  eventListeners.add(listener);
+  return () => eventListeners.delete(listener);
+}
+
 export function emitEvent(evt: AntfarmEvent): void {
   try {
     fs.mkdirSync(EVENTS_DIR, { recursive: true });
@@ -42,6 +50,9 @@ export function emitEvent(evt: AntfarmEvent): void {
     // best-effort, never throw
   }
   fireWebhook(evt);
+  for (const listener of eventListeners) {
+    Promise.resolve(listener(evt)).catch(() => {});
+  }
 }
 
 // In-memory cache: runId -> notify_url | null

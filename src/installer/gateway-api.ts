@@ -8,6 +8,18 @@ interface GatewayConfig {
   token?: string;
 }
 
+const GATEWAY_HTTP_TIMEOUT_MS = 5000;
+
+async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GATEWAY_HTTP_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function readOpenClawConfig(): Promise<{ port?: number; token?: string }> {
   const configPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
   try {
@@ -36,6 +48,7 @@ async function getGatewayConfig(): Promise<GatewayConfig> {
 // ---------------------------------------------------------------------------
 
 let cachedBinary: string | null = null;
+const OPENCLAW_CLI_TIMEOUT_MS = 3000;
 
 /** Locate the openclaw binary. Checks PATH, then ~/.npm-global/bin, then npx. */
 async function findOpenclawBinary(): Promise<string> {
@@ -74,7 +87,7 @@ function runCli(args: string[]): Promise<string> {
   return new Promise(async (resolve, reject) => {
     const bin = await findOpenclawBinary();
     const finalArgs = bin === "npx" ? ["openclaw", ...args] : args;
-    execFile(bin, finalArgs, { timeout: 30_000 }, (err, stdout, stderr) => {
+    execFile(bin, finalArgs, { timeout: OPENCLAW_CLI_TIMEOUT_MS }, (err, stdout, stderr) => {
       if (err) reject(new Error(stderr || err.message));
       else resolve(stdout);
     });
@@ -150,7 +163,7 @@ async function createAgentCronJobHTTP(job: {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
       body: JSON.stringify({ tool: "cron", args: { action: "add", job }, sessionKey: "agent:main:main" }),
@@ -183,13 +196,17 @@ export async function checkCronToolAvailable(): Promise<{ ok: boolean; error?: s
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ tool: "cron", args: { action: "list" } }),
+      body: JSON.stringify({ tool: "cron", args: { action: "list" }, sessionKey: "agent:main:main" }),
     });
 
-    if (response.ok) return { ok: true };
+    if (response.ok) {
+      const payload = await response.json().catch(() => null) as { ok?: boolean; error?: { message?: string } } | null;
+      if (!payload || payload.ok === true) return { ok: true };
+      return { ok: false, error: payload.error?.message ?? "cron preflight failed" };
+    }
 
     // Non-404 errors are real failures
     if (response.status !== 404) {
@@ -235,7 +252,7 @@ async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: str
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
       body: JSON.stringify({ tool: "cron", args: { action: "list" }, sessionKey: "agent:main:main" }),
@@ -290,7 +307,7 @@ async function deleteCronJobHTTP(jobId: string): Promise<{ ok: boolean; error?: 
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
 
-    const response = await fetch(`${gateway.url}/tools/invoke`, {
+    const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
       method: "POST",
       headers,
       body: JSON.stringify({ tool: "cron", args: { action: "remove", id: jobId }, sessionKey: "agent:main:main" }),
@@ -301,6 +318,40 @@ async function deleteCronJobHTTP(jobId: string): Promise<{ ok: boolean; error?: 
     if (!response.ok) {
       return { ok: false, error: `Gateway returned ${response.status}` };
     }
+
+    const result = await response.json();
+    return result.ok ? { ok: true } : { ok: false, error: result.error?.message ?? "Unknown error" };
+  } catch {
+    return null;
+  }
+}
+
+export async function runCronJobNow(jobId: string): Promise<{ ok: boolean; error?: string }> {
+  const httpResult = await runCronJobNowHTTP(jobId);
+  if (httpResult !== null) return httpResult;
+
+  try {
+    await runCli(["cron", "run", jobId]);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+  }
+}
+
+async function runCronJobNowHTTP(jobId: string): Promise<{ ok: boolean; error?: string } | null> {
+  const gateway = await getGatewayConfig();
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
+
+    const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ tool: "cron", args: { action: "run", id: jobId }, sessionKey: "agent:main:main" }),
+    });
+
+    if (response.status === 404) return null;
+    if (!response.ok) return { ok: false, error: `Gateway returned ${response.status}` };
 
     const result = await response.json();
     return result.ok ? { ok: true } : { ok: false, error: result.error?.message ?? "Unknown error" };

@@ -163,6 +163,7 @@ function getRtsState(): Record<string, unknown> {
   const customBases: Array<Record<string, unknown>> = [];
   const featureBuildings: Array<Record<string, unknown>> = [];
   const researchBuildings: Array<Record<string, unknown>> = [];
+  const warehouseBuildings: Array<Record<string, unknown>> = [];
   const runLayoutOverrides: Record<string, { x: number; y: number }> = {};
   const runs = db.prepare("SELECT id, status, context FROM runs").all() as Array<{ id: string; status: string; context: string }>;
   const runIdSet = new Set(runs.map((r) => r.id));
@@ -245,6 +246,7 @@ function getRtsState(): Record<string, unknown> {
     }
     if (r.entity_type === "research") {
       const repoPath = String(r.repo_path ?? payload.repo ?? "");
+      const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath) || repoPath;
       researchBuildings.push({
         ...payload,
         id: payload.id ?? r.id,
@@ -252,6 +254,21 @@ function getRtsState(): Record<string, unknown> {
         x: Number(r.x),
         y: Number(r.y),
         repo: repoPath,
+        worktreePath,
+      });
+      continue;
+    }
+    if (r.entity_type === "warehouse") {
+      const repoPath = String(r.repo_path ?? payload.repo ?? "");
+      const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath) || repoPath;
+      warehouseBuildings.push({
+        ...payload,
+        id: payload.id ?? r.id,
+        kind: "warehouse",
+        x: Number(r.x),
+        y: Number(r.y),
+        repo: repoPath,
+        worktreePath,
       });
       continue;
     }
@@ -265,7 +282,7 @@ function getRtsState(): Record<string, unknown> {
       runLayoutOverrides[runId] = { x: Number(r.x), y: Number(r.y) };
     }
   }
-  return { ...state, customBases, featureBuildings, researchBuildings, runLayoutOverrides };
+  return { ...state, customBases, featureBuildings, researchBuildings, warehouseBuildings, runLayoutOverrides };
 }
 
 function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void {
@@ -283,12 +300,14 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
   const customBases = Array.isArray(nextState.customBases) ? nextState.customBases as Array<Record<string, unknown>> : [];
   const featureBuildings = Array.isArray(nextState.featureBuildings) ? nextState.featureBuildings as Array<Record<string, unknown>> : [];
   const researchBuildings = Array.isArray(nextState.researchBuildings) ? nextState.researchBuildings as Array<Record<string, unknown>> : [];
+  const warehouseBuildings = Array.isArray(nextState.warehouseBuildings) ? nextState.warehouseBuildings as Array<Record<string, unknown>> : [];
   const runLayoutOverrides = (nextState.runLayoutOverrides && typeof nextState.runLayoutOverrides === "object")
     ? nextState.runLayoutOverrides as Record<string, { x?: number; y?: number }>
     : {};
   const seenBaseIds = new Set<string>();
   const seenFeatureIds = new Set<string>();
   const seenResearchIds = new Set<string>();
+  const seenWarehouseIds = new Set<string>();
   const seenRunIds = new Set<string>();
   const runs = db.prepare("SELECT id, context FROM runs").all() as Array<{ id: string; context: string }>;
   const runIdSet = new Set(runs.map((r) => r.id));
@@ -383,8 +402,23 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       const existing = existingPosById.get(id);
       const x = Number.isFinite(existing?.x) ? Number(existing!.x) : (Number.isFinite(incomingX) ? incomingX : 0);
       const y = Number.isFinite(existing?.y) ? Number(existing!.y) : (Number.isFinite(incomingY) ? incomingY : 0);
-      const payload = { ...research, kind: "research", repo: repoPath, x, y };
-      upsert.run(id, "research", null, repoPath || null, null, x, y, JSON.stringify(payload), now);
+      const worktreePath = absolutizePath(String(research?.worktreePath ?? ""), repoPath) || repoPath || null;
+      const payload = { ...research, kind: "research", repo: repoPath, worktreePath, x, y };
+      upsert.run(id, "research", null, repoPath || null, worktreePath, x, y, JSON.stringify(payload), now);
+    }
+    for (const warehouse of warehouseBuildings) {
+      const id = String(warehouse?.id ?? "");
+      if (!id) continue;
+      seenWarehouseIds.add(id);
+      const repoPath = String(warehouse?.repo ?? "");
+      const incomingX = Number(warehouse?.x ?? 0);
+      const incomingY = Number(warehouse?.y ?? 0);
+      const existing = existingPosById.get(id);
+      const x = Number.isFinite(existing?.x) ? Number(existing!.x) : (Number.isFinite(incomingX) ? incomingX : 0);
+      const y = Number.isFinite(existing?.y) ? Number(existing!.y) : (Number.isFinite(incomingY) ? incomingY : 0);
+      const worktreePath = absolutizePath(String(warehouse?.worktreePath ?? ""), repoPath) || repoPath || null;
+      const payload = { ...warehouse, kind: "warehouse", repo: repoPath, worktreePath, x, y };
+      upsert.run(id, "warehouse", null, repoPath || null, worktreePath, x, y, JSON.stringify(payload), now);
     }
     for (const [runId, pos] of Object.entries(runLayoutOverrides)) {
       if (!runId) continue;
@@ -408,9 +442,11 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       if (row2.run_id && runIdSet.has(row2.run_id)) continue;
       deleteById.run(row2.id);
     }
-    const researchRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'research'").all() as Array<{ id: string }>;
-    for (const row2 of researchRows) {
-      if (!seenResearchIds.has(row2.id)) deleteById.run(row2.id);
+    // Research labs are long-lived user structures. Do not prune by omission from
+    // snapshot state; stale/incomplete clients can otherwise wipe them.
+    const warehouseRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'warehouse'").all() as Array<{ id: string }>;
+    for (const row2 of warehouseRows) {
+      if (!seenWarehouseIds.has(row2.id)) deleteById.run(row2.id);
     }
     const runRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'run'").all() as Array<{ id: string; run_id: string | null }>;
     for (const row2 of runRows) {
@@ -424,6 +460,15 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
   }
 }
 
+function deleteLayoutEntity(entityType: "base" | "feature" | "research" | "warehouse" | "run", entityId: string): { deleted: boolean } {
+  const db = getDb();
+  ensureRtsTables(db);
+  const id = String(entityId || "").trim();
+  if (!id) return { deleted: false };
+  const result = db.prepare("DELETE FROM rts_layout_entities WHERE id = ? AND entity_type = ?").run(id, entityType);
+  return { deleted: Number(result.changes || 0) > 0 };
+}
+
 function saveRtsState(nextState: unknown): Record<string, unknown> {
   const db = getDb();
   ensureRtsTables(db);
@@ -432,24 +477,42 @@ function saveRtsState(nextState: unknown): Record<string, unknown> {
   delete nonLayoutState.customBases;
   delete nonLayoutState.featureBuildings;
   delete nonLayoutState.researchBuildings;
+  delete nonLayoutState.warehouseBuildings;
   delete nonLayoutState.runLayoutOverrides;
-  upsertLayoutEntitiesFromState(safe);
+  const hasLayoutPayload =
+    Object.prototype.hasOwnProperty.call(safe, "customBases") ||
+    Object.prototype.hasOwnProperty.call(safe, "featureBuildings") ||
+    Object.prototype.hasOwnProperty.call(safe, "researchBuildings") ||
+    Object.prototype.hasOwnProperty.call(safe, "warehouseBuildings") ||
+    Object.prototype.hasOwnProperty.call(safe, "runLayoutOverrides");
+  if (hasLayoutPayload) upsertLayoutEntitiesFromState(safe);
   const derived = getRtsState();
-  const canonical = {
+  // Persist only non-layout UI state in rts_state; layout is authoritative in rts_layout_entities.
+  const storageState = {
     ...nonLayoutState,
+  };
+  const responseState = {
+    ...storageState,
+    // Preserve response shape for existing clients.
     customBases: Array.isArray(derived.customBases) ? derived.customBases : [],
     featureBuildings: Array.isArray(derived.featureBuildings) ? derived.featureBuildings : [],
     researchBuildings: Array.isArray(derived.researchBuildings) ? derived.researchBuildings : [],
+    warehouseBuildings: Array.isArray(derived.warehouseBuildings) ? derived.warehouseBuildings : [],
     runLayoutOverrides: (derived.runLayoutOverrides && typeof derived.runLayoutOverrides === "object")
       ? derived.runLayoutOverrides
       : {},
   };
+  const stored = JSON.stringify(storageState);
+  const current = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
+  if (current?.state_json === stored) {
+    return responseState;
+  }
   const now = new Date().toISOString();
   db.prepare(
     "INSERT INTO rts_state (id, state_json, updated_at) VALUES (1, ?, ?) " +
     "ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at"
-  ).run(JSON.stringify(canonical), now);
-  return canonical;
+  ).run(stored, now);
+  return responseState;
 }
 
 function getRtsLiveStatus(): Record<string, unknown> {
@@ -848,7 +911,7 @@ function deleteRunWithArtifacts(runIdOrPrefix: string): { deleted: boolean; stat
 }
 
 function upsertLayoutPosition(input: {
-  entityType: "base" | "feature" | "research" | "run";
+  entityType: "base" | "feature" | "research" | "warehouse" | "run";
   entityId?: string;
   runId?: string | null;
   repoPath?: string | null;
@@ -888,6 +951,10 @@ function upsertLayoutPosition(input: {
     if (!id) id = `research-${Date.now()}`;
     const exists = db.prepare("SELECT 1 as ok FROM rts_layout_entities WHERE id = ? LIMIT 1").get(id) as { ok: number } | undefined;
     if (!exists && !input.allowCreate) throw new Error("research_layout_create_not_allowed");
+  } else if (entityType === "warehouse") {
+    if (!id) id = `warehouse-${Date.now()}`;
+    const exists = db.prepare("SELECT 1 as ok FROM rts_layout_entities WHERE id = ? LIMIT 1").get(id) as { ok: number } | undefined;
+    if (!exists && !input.allowCreate) throw new Error("warehouse_layout_create_not_allowed");
   } else {
     if (!id) throw new Error("entityId is required for base layout");
   }
@@ -915,6 +982,7 @@ function upsertLayoutPosition(input: {
 }
 
 type ResearchPlanType = "feature" | "bug" | "placeholder";
+type ResearchPlanDisposition = "OPEN" | "WONT_FIX";
 type ResearchPlan = {
   id: string;
   type: ResearchPlanType;
@@ -922,6 +990,9 @@ type ResearchPlan = {
   summary: string;
   prompt: string;
   evidence: string[];
+  disposition?: ResearchPlanDisposition;
+  source?: "agent" | "static";
+  sourceRunId?: string;
 };
 
 function buildResearchPrompt(input: {
@@ -973,7 +1044,7 @@ function buildResearchPrompt(input: {
   ].join("\n");
 }
 
-function generateResearchPlans(repoPath: string, maxPlansRaw: number): { plans: ResearchPlan[]; stats: Record<string, unknown> } {
+function generateStaticResearchPlans(repoPath: string, maxPlansRaw: number): { plans: ResearchPlan[]; stats: Record<string, unknown> } {
   const maxPlans = Number.isFinite(maxPlansRaw) ? Math.max(1, Math.min(20, Math.floor(maxPlansRaw))) : 8;
   const skipDirs = new Set([".git", "node_modules", "dist", "build", ".next", "target", ".turbo", ".cache", "coverage"]);
   const textExt = new Set([
@@ -1068,6 +1139,8 @@ function generateResearchPlans(repoPath: string, maxPlansRaw: number): { plans: 
       title,
       summary,
       evidence,
+      disposition: "OPEN",
+      source: "static",
       prompt: buildResearchPrompt({ type, title, repoPath, summary, evidence }),
     });
   };
@@ -1120,8 +1193,155 @@ function generateResearchPlans(repoPath: string, maxPlansRaw: number): { plans: 
       topExt,
       todoHits: todoEvidence.length,
       placeholderHits: placeholderEvidence.length,
+      mode: "static",
     },
   };
+}
+
+type PlannerStoryRow = {
+  story_id: string;
+  title: string;
+  description: string;
+  acceptance_criteria: string;
+};
+
+function classifyStoryPlanType(title: string, description: string): ResearchPlanType {
+  const blob = `${title}\n${description}`.toLowerCase();
+  if (/\b(todo|placeholder|stub|not implemented|nyi|implement me)\b/.test(blob)) return "placeholder";
+  if (/\b(bug|fix|regression|error|crash|fault|null|exception)\b/.test(blob)) return "bug";
+  return "feature";
+}
+
+function buildAgentResearchTask(repoPath: string, maxPlans: number): string {
+  return [
+    `Research repository at: ${repoPath}`,
+    "",
+    "You are planning only. Do not implement code.",
+    "Explore this repo and produce actionable, dependency-ordered stories.",
+    `Create at most ${maxPlans} stories.`,
+    "Mix bug-fixes and feature improvements where justified by the codebase.",
+    "Each story must be scoped for one developer session.",
+    "Use concrete acceptance criteria.",
+    "",
+    "Extra constraints:",
+    "- Start from this repo path; do not plan for unrelated repositories.",
+    "- Prioritize high-signal defects and missing production behavior.",
+    "- Avoid placeholder or speculative stories with no code evidence.",
+  ].join("\n");
+}
+
+function toResearchPlanFromStory(repoPath: string, runId: string, row: PlannerStoryRow): ResearchPlan {
+  let acceptanceCriteria: string[] = [];
+  try {
+    const parsed = JSON.parse(row.acceptance_criteria || "[]");
+    if (Array.isArray(parsed)) acceptanceCriteria = parsed.map((x) => String(x || "").trim()).filter(Boolean);
+  } catch {
+    acceptanceCriteria = [];
+  }
+  const type = classifyStoryPlanType(row.title, row.description);
+  const evidence: string[] = [`planner:${row.story_id}`];
+  for (const criterion of acceptanceCriteria.slice(0, 4)) evidence.push(`AC: ${criterion}`);
+  const summary = row.description.split("\n").map((line) => line.trim()).find(Boolean) || row.title;
+  return {
+    id: `${runId}:${row.story_id}`,
+    type,
+    title: row.title,
+    summary: summary.slice(0, 220),
+    evidence,
+    disposition: "OPEN",
+    source: "agent",
+    sourceRunId: runId,
+    prompt: buildResearchPrompt({
+      type,
+      title: row.title,
+      repoPath,
+      summary: row.description || summary,
+      evidence,
+    }),
+  };
+}
+
+async function waitForPlannerStories(runId: string, timeoutMs: number): Promise<{ stories: PlannerStoryRow[]; timedOut: boolean; runStatus: string }> {
+  const db = getDb();
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const stories = db.prepare(
+      "SELECT story_id, title, description, acceptance_criteria FROM stories WHERE run_id = ? ORDER BY story_index ASC"
+    ).all(runId) as PlannerStoryRow[];
+    if (stories.length > 0) {
+      const runRow = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string } | undefined;
+      return { stories, timedOut: false, runStatus: String(runRow?.status || "unknown") };
+    }
+    const runRow = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string } | undefined;
+    const runStatus = String(runRow?.status || "");
+    if (runStatus && runStatus !== "running") return { stories: [], timedOut: false, runStatus };
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  const runRow = db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: string } | undefined;
+  return { stories: [], timedOut: true, runStatus: String(runRow?.status || "unknown") };
+}
+
+async function generateResearchPlans(repoPath: string, maxPlansRaw: number): Promise<{ plans: ResearchPlan[]; stats: Record<string, unknown> }> {
+  const maxPlans = Number.isFinite(maxPlansRaw) ? Math.max(1, Math.min(20, Math.floor(maxPlansRaw))) : 8;
+  let runId = "";
+  try {
+    const run = await runWorkflow({
+      workflowId: "feature-dev",
+      taskTitle: buildAgentResearchTask(repoPath, maxPlans),
+      deferInitialKick: true,
+    });
+    runId = run.id;
+    const db = getDb();
+    const contextRow = db.prepare("SELECT context FROM runs WHERE id = ?").get(runId) as { context: string } | undefined;
+    const context = parseRunContext(contextRow?.context ?? "{}");
+    const nextContext = {
+      ...context,
+      repo: repoPath,
+      repoPath,
+      baseRepoPath: repoPath,
+      branch: `research/${Date.now().toString().slice(-6)}`,
+    };
+    db.prepare("UPDATE runs SET context = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(nextContext), new Date().toISOString(), runId);
+
+    const firstStep = db.prepare(
+      "SELECT id FROM steps WHERE run_id = ? AND step_index = 0 AND status = 'pending' LIMIT 1"
+    ).get(runId) as { id: string } | undefined;
+    if (!firstStep?.id) throw new Error("planner_step_not_pending");
+    const evt = { ts: new Date().toISOString(), event: "step.pending" as const, runId, workflowId: "feature-dev", stepId: firstStep.id };
+    emitEvent(evt);
+    try { await immediateHandoff(evt); } catch {}
+
+    const waited = await waitForPlannerStories(runId, 45_000);
+    if (!waited.stories.length) {
+      throw new Error(waited.timedOut ? "planner_timeout_no_stories" : `planner_no_stories_status_${waited.runStatus || "unknown"}`);
+    }
+    const plans = waited.stories
+      .slice(0, maxPlans)
+      .map((row) => toResearchPlanFromStory(repoPath, runId, row));
+    return {
+      plans,
+      stats: {
+        mode: "agent",
+        runId,
+        runStatus: waited.runStatus,
+        storiesGenerated: waited.stories.length,
+      },
+    };
+  } catch (err) {
+    const fallback = generateStaticResearchPlans(repoPath, maxPlans);
+    return {
+      plans: fallback.plans,
+      stats: {
+        ...fallback.stats,
+        mode: "static_fallback",
+        agentError: err instanceof Error ? err.message : String(err),
+      },
+    };
+  } finally {
+    if (runId) {
+      try { deleteRunWithArtifacts(runId); } catch {}
+    }
+  }
 }
 
 export function startDashboard(port = 3333): http.Server {
@@ -1247,7 +1467,7 @@ export function startDashboard(port = 3333): http.Server {
             error: `No usable git repo found for research. Requested=${requestedRepoPath || "(empty)"} cwd=${normalizePathKey(process.cwd())}`
           }, 400);
         }
-        const { plans, stats } = generateResearchPlans(repoPath, Number(body.maxPlans ?? 8));
+        const { plans, stats } = await generateResearchPlans(repoPath, Number(body.maxPlans ?? 8));
         return json(res, {
           ok: true,
           repoPath,
@@ -1407,7 +1627,7 @@ export function startDashboard(port = 3333): http.Server {
     if (p === "/api/rts/layout/position" && method === "POST") {
       try {
         const body = JSON.parse(await readBody(req)) as {
-          entityType?: "base" | "feature" | "research" | "run";
+          entityType?: "base" | "feature" | "research" | "warehouse" | "run";
           entityId?: string;
           runId?: string | null;
           repoPath?: string | null;
@@ -1417,8 +1637,8 @@ export function startDashboard(port = 3333): http.Server {
           allowCreate?: boolean;
         };
         const entityType = body.entityType;
-        if (entityType !== "base" && entityType !== "feature" && entityType !== "research" && entityType !== "run") {
-          return json(res, { ok: false, error: "entityType must be base|feature|research|run" }, 400);
+        if (entityType !== "base" && entityType !== "feature" && entityType !== "research" && entityType !== "warehouse" && entityType !== "run") {
+          return json(res, { ok: false, error: "entityType must be base|feature|research|warehouse|run" }, 400);
         }
         const result = upsertLayoutPosition({
           entityType,
@@ -1430,6 +1650,26 @@ export function startDashboard(port = 3333): http.Server {
           y: Number(body.y ?? 0),
           allowCreate: body.allowCreate === true,
         });
+        return json(res, { ok: true, ...result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
+    if (p === "/api/rts/layout/delete" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as {
+          entityType?: "base" | "feature" | "research" | "warehouse" | "run";
+          entityId?: string;
+        };
+        const entityType = body.entityType;
+        if (entityType !== "base" && entityType !== "feature" && entityType !== "research" && entityType !== "warehouse" && entityType !== "run") {
+          return json(res, { ok: false, error: "entityType must be base|feature|research|warehouse|run" }, 400);
+        }
+        const entityId = String(body.entityId || "").trim();
+        if (!entityId) return json(res, { ok: false, error: "entityId is required" }, 400);
+        const result = deleteLayoutEntity(entityType, entityId);
         return json(res, { ok: true, ...result });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

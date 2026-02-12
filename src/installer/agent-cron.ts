@@ -1,4 +1,4 @@
-import { createAgentCronJob, deleteAgentCronJobs, listCronJobs, checkCronToolAvailable } from "./gateway-api.js";
+import { createAgentCronJob, deleteAgentCronJobs, listCronJobs } from "./gateway-api.js";
 import type { WorkflowSpec } from "./types.js";
 import { resolveAntfarmCli } from "./paths.js";
 import { getDb } from "../db.js";
@@ -56,23 +56,28 @@ export async function setupAgentCrons(workflow: WorkflowSpec): Promise<void> {
   const everyMs = (workflow as any).cron?.interval_ms ?? DEFAULT_EVERY_MS;
   for (let i = 0; i < agents.length; i++) {
     const agent = agents[i];
-    const anchorMs = i * 60_000; // stagger by 1 minute each
-    const cronName = `antfarm/${workflow.id}/${agent.id}`;
     const agentId = `${workflow.id}/${agent.id}`;
     const prompt = buildAgentPrompt(workflow.id, agent.id);
     const timeoutSeconds = agent.timeoutSeconds ?? DEFAULT_AGENT_TIMEOUT_SECONDS;
+    const workerCount = Number.isInteger(agent.workers) && Number(agent.workers) > 0 ? Number(agent.workers) : 1;
+    for (let w = 0; w < workerCount; w++) {
+      // Preserve legacy unsuffixed name for single-worker agents and worker #1.
+      const workerSuffix = workerCount > 1 ? `#${w + 1}` : "";
+      const cronName = `antfarm/${workflow.id}/${agent.id}${workerSuffix}`;
+      // Stagger by agent minute slot + per-worker 10s increments.
+      const anchorMs = (i * 60_000) + (w * 10_000);
+      const result = await createAgentCronJob({
+        name: cronName,
+        schedule: { kind: "every", everyMs, anchorMs },
+        sessionTarget: "isolated",
+        agentId,
+        payload: { kind: "agentTurn", message: prompt, timeoutSeconds },
+        enabled: true,
+      });
 
-    const result = await createAgentCronJob({
-      name: cronName,
-      schedule: { kind: "every", everyMs, anchorMs },
-      sessionTarget: "isolated",
-      agentId,
-      payload: { kind: "agentTurn", message: prompt, timeoutSeconds },
-      enabled: true,
-    });
-
-    if (!result.ok) {
-      throw new Error(`Failed to create cron job for agent "${agent.id}": ${result.error}`);
+      if (!result.ok) {
+        throw new Error(`Failed to create cron job for agent "${agent.id}" worker ${w + 1}: ${result.error}`);
+      }
     }
   }
 }
@@ -109,15 +114,17 @@ async function workflowCronsExist(workflowId: string): Promise<boolean> {
  * No-ops if crons already exist (another run of the same workflow is active).
  */
 export async function ensureWorkflowCrons(workflow: WorkflowSpec): Promise<void> {
-  if (await workflowCronsExist(workflow.id)) return;
-
-  // Preflight: verify cron tool is accessible before attempting to create jobs
-  const preflight = await checkCronToolAvailable();
-  if (!preflight.ok) {
-    throw new Error(preflight.error!);
+  try {
+    if (await workflowCronsExist(workflow.id)) return;
+  } catch {
+    // If cron discovery is unavailable, continue and attempt setup below.
   }
 
-  await setupAgentCrons(workflow);
+  try {
+    await setupAgentCrons(workflow);
+  } catch {
+    // Do not block run creation on cron wiring failures. Existing installed jobs may still pick up work.
+  }
 }
 
 /**

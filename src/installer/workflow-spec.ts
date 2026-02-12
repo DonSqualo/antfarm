@@ -53,6 +53,14 @@ function validateAgents(agents: WorkflowAgent[], workflowDir: string) {
     if (agent.timeoutSeconds !== undefined && agent.timeoutSeconds <= 0) {
       throw new Error(`workflow.yml agent "${agent.id}" timeoutSeconds must be positive`);
     }
+    if (agent.workers !== undefined) {
+      if (!Number.isInteger(agent.workers) || agent.workers <= 0) {
+        throw new Error(`workflow.yml agent "${agent.id}" workers must be a positive integer`);
+      }
+      if (agent.workers > 32) {
+        throw new Error(`workflow.yml agent "${agent.id}" workers is too large (max 32)`);
+      }
+    }
   }
 }
 

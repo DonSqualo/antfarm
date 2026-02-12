@@ -120,6 +120,15 @@ If you discover something structural (not story-specific), add it to your `AGENT
 
 If the verifier rejects your work, you'll receive feedback in your task input. Address every issue the verifier raised before re-submitting.
 
+### Test Feedback
+
+If `TEST_FEEDBACK` is present in your input, it is first-class retry input from a failed integration test pass.
+
+- Treat every `TEST_FEEDBACK` issue as required work for this session
+- Update code and tests to resolve it
+- Re-run the failing test path and confirm it passes
+- Summarize in `TESTS` what failed before and what now passes
+
 ## Learning
 
 Before completing, ask yourself:
