@@ -4,6 +4,7 @@ Task: Add easter egg ant command to antfarm CLI
 Started: 2026-02-11 05:47 ET
 
 ## Codebase Patterns
+- Dashboard API contract tests can import `dist/server/dashboard.js` after `npm run build` to exercise real HTTP routes without TS module-resolution issues
 - CLI entry: `src/cli/cli.ts`, commands matched via `group` variable from `process.argv[2]`
 - Dynamic imports used for command modules (e.g., `await import("./ant.js")`)
 - Build: `npm run build` runs `tsc -p tsconfig.json` + copies HTML + chmod
@@ -85,4 +86,11 @@ Started: 2026-02-11 05:47 ET
 - Expanded `tests/research-plan-classification.test.ts` to cover high-signal placeholder detection, null-return false-positive rejection, and marker-driven bug/feature workflow outcomes
 - Files changed: `src/server/research-plan.ts`, `tests/research-plan-classification.test.ts`, `progress.txt`
 - **Learnings:** Placeholder scan quality improves when detection is marker-first and treats generic control flow as neutral unless accompanied by explicit temporary markers.
+---
+## 2026-02-12 17:55 - US-003: Validate research API contract and UI rendering after placeholder removal
+- Added RTS research generation endpoint `POST /api/rts/research/generate` with deterministic validation/error payloads (`{ ok, error, plans: [] }`) and production plan responses with prompt text
+- Enforced repo validation for research generation (required task/repoPath, missing-path and non-git checks) while preserving production-only plan types from `generateResearchPlans`
+- Added regression coverage in `tests/research-api-ui-contract.test.ts` for success contract (no `placeholder` type), failure payload determinism, and RTS UI generic error notice text without placeholder-specific markers
+- Files changed: `src/server/dashboard.ts`, `tests/research-api-ui-contract.test.ts`, `progress.txt`
+- **Learnings:** Dashboard HTTP contract tests are reliable when run against built server module and assert stable error shape for UI consumers.
 ---

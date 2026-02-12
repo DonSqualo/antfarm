@@ -14,6 +14,11 @@ import YAML from "yaml";
 
 import type { RunInfo, StepInfo } from "../installer/status.js";
 import { getRunEvents } from "../installer/events.js";
+import {
+  buildResearchPrompt,
+  generateResearchPlans,
+  type ResearchEvidenceInput,
+} from "./research-plan.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const immediateHandoff = createImmediateHandoffHandler();
@@ -24,13 +29,8 @@ interface WorkflowDef {
   steps: Array<{ id: string; agent: string }>;
 }
 
-export {
-  buildResearchPrompt,
-  generateResearchPlans,
-  type ResearchPlan,
-  type ResearchPlanType,
-  type ResearchEvidenceInput,
-} from "./research-plan.js";
+export { buildResearchPrompt, generateResearchPlans };
+export type { ResearchPlan, ResearchPlanType, ResearchEvidenceInput } from "./research-plan.js";
 
 function loadWorkflows(): WorkflowDef[] {
   const dir = resolveBundledWorkflowsDir();
@@ -723,6 +723,37 @@ export function startDashboard(port = 3333): http.Server {
 
     if (p === "/api/local-repos") {
       return json(res, []);
+    }
+
+    if (p === "/api/rts/research/generate" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as {
+          task?: string;
+          repoPath?: string;
+          evidence?: ResearchEvidenceInput[];
+        };
+        const task = String(body.task ?? "").trim();
+        const repoPath = normalizeRepoPath(String(body.repoPath ?? ""));
+        const evidence = Array.isArray(body.evidence) ? body.evidence : [];
+
+        if (!task) return json(res, { ok: false, error: "task is required", plans: [] }, 400);
+        if (!repoPath) return json(res, { ok: false, error: "repoPath is required", plans: [] }, 400);
+        if (!fs.existsSync(repoPath)) {
+          return json(res, { ok: false, error: `Base repo path not found: ${repoPath}`, plans: [] }, 400);
+        }
+        if (!fs.existsSync(path.join(repoPath, ".git"))) {
+          return json(res, { ok: false, error: `Not a git repo: ${repoPath}`, plans: [] }, 400);
+        }
+
+        const plans = generateResearchPlans({ task, repoPath, evidence }).map((plan) => ({
+          ...plan,
+          prompt: buildResearchPrompt(plan),
+        }));
+        return json(res, { ok: true, plans });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message, plans: [] }, 400);
+      }
     }
 
     if (p === "/api/rts/state" && method === "GET") {
