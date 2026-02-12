@@ -11,6 +11,7 @@ Started: 2026-02-11 05:47 ET
 - ESM with NodeNext module resolution, `.js` extensions in imports
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
+- Dashboard imports can require optional installer hooks to exist in `src/installer/*`; keep no-op implementations in place if feature wiring is deferred
 
 ---
 
@@ -61,4 +62,13 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-assignment-ui-removal.test.ts` covering UI removal, automatic launch assignment derivation, and post-launch read-only assignment visibility in both `src/server/rts.html` and built `dist/server/rts.html`
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
+---
+
+## 2026-02-12 14:40 - US-001: Create a minimal, explicit implementation for the "testy test" requirement
+- Added `runTestyTest()` minimal implementation in `src/lib/testy-test.ts` with explicit assumptions/scope comments and deterministic normalized output
+- Wired new CLI command `antfarm testy-test [name]` in `src/cli/cli.ts` to expose the behavior as a concrete, verifiable deliverable
+- Added no-op `src/installer/immediate-handoff.ts` and optional `deferInitialKick` typing in `src/installer/run.ts` to restore build/typecheck compatibility already expected by dashboard code
+- Added tests in `tests/testy-test.test.ts` for default and normalized-name behavior
+- Files changed: `src/lib/testy-test.ts`, `src/cli/cli.ts`, `src/installer/immediate-handoff.ts`, `src/installer/run.ts`, `tests/testy-test.test.ts`, `progress.txt`
+- **Learnings:** Keep small ambiguous-feature deliveries deterministic via dedicated pure helpers and expose through existing CLI routing for easy verification
 ---

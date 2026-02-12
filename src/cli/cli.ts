@@ -21,6 +21,7 @@ import { getWorkflowStatus, listRuns } from "../installer/status.js";
 import { runWorkflow } from "../installer/run.js";
 import { listBundledWorkflows } from "../installer/workflow-fetch.js";
 import { readRecentLogs } from "../lib/logger.js";
+import { runTestyTest } from "../lib/testy-test.js";
 import { getRecentEvents, getRunEvents, type AntfarmEvent } from "../installer/events.js";
 import { startDaemon, stopDaemon, getDaemonStatus, isRunning } from "../server/daemonctl.js";
 import { claimStep, completeStep, failStep, getStories } from "../installer/step-ops.js";
@@ -109,6 +110,7 @@ function printUsage() {
       "antfarm logs <run-id>                Show activity for a specific run",
       "",
       "antfarm version                      Show installed version",
+      "antfarm testy-test [name]            Run minimal testy test self-check",
       "antfarm update                       Pull latest, rebuild, and reinstall workflows",
     ].join("\n") + "\n",
   );
@@ -126,6 +128,12 @@ async function main() {
   if (group === "ant") {
     const { printAnt } = await import("./ant.js");
     printAnt();
+    return;
+  }
+
+  if (group === "testy-test") {
+    const result = runTestyTest(args[1]);
+    console.log(JSON.stringify(result));
     return;
   }
 
