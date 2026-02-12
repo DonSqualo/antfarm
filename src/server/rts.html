@@ -72,7 +72,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .world-bg {
   position:absolute; inset:0;
-  background-image:url('/rts-sprites/bg-dark-tile-test.png?v=20260212b');
+  background-image:url('/rts-sprites/bg-space-tile-20260212b.png?v=20260212b');
   background-repeat:repeat;
   background-size:128px 128px;
   background-position:calc(var(--cam-x, 0px) * -0.75) calc(var(--cam-y, 0px) * -0.75);
@@ -703,6 +703,7 @@ const state = {
   draggingEntity: null,
   draggingMoved: false,
   suppressWorldClick: false,
+  recentFeaturePlacementUntil: 0,
   stream: {
     runId: null,
     agentId: null,
@@ -1595,11 +1596,23 @@ function placeFeatureAt(x,y,prefillPrompt = '', forcedRepoPath = ''){
     allowCreate: true
   }).catch(() => {});
   state.selected = { type:'building', data:featureBuilding };
+  state.recentFeaturePlacementUntil = Date.now() + 600;
   dbg('placeFeatureAt:created', { id: featureBuilding.id, repo: featureBuilding.repo, x: featureBuilding.x, y: featureBuilding.y });
   queuePersist();
   rebuildScene();
   renderSelection();
   renderRunSetupPanel(featureBuilding.id);
+  // Ensure freshly placed factories stay selected and show prompt/run UI
+  // after any trailing pointer/click events.
+  queueMicrotask(() => {
+    const current = (state.buildings || []).find((b) => b.id === featureBuilding.id && b.kind === 'feature')
+      || (state.featureBuildings || []).find((b) => b.id === featureBuilding.id);
+    if (!current) return;
+    state.selected = { type:'building', data:current };
+    renderSelection();
+    renderRunSetupPanel(featureBuilding.id);
+    setFeatureMode(true);
+  });
   return featureBuilding;
 }
 
@@ -3747,7 +3760,8 @@ worldWrapEl.addEventListener('mousedown', (e) => {
   if (state.placementMode === 'feature') placeFeatureAt(snapped.x, snapped.y);
   if (state.placementMode === 'research') placeResearchAt(snapped.x, snapped.y);
   if (state.placementMode === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
-  state.suppressWorldClick = false;
+  // Prevent the trailing click from immediately clearing fresh selection/panels.
+  state.suppressWorldClick = true;
   setPlacement(null);
 }, true);
 
@@ -3794,6 +3808,7 @@ worldWrapEl.addEventListener('drop', (e) => {
       if (sid) alert(`Plan ${sid} not found in research queue. Re-run Research to refresh list.`);
     }
     dbg('planDrop:drop:end:queued', { ok, queuedResearchPlan });
+    if (ok) state.suppressWorldClick = true;
     dragBuildingType = null;
     dragResearchPlan = null;
     queuedResearchPlan = null;
@@ -3828,11 +3843,14 @@ worldWrapEl.addEventListener('drop', (e) => {
       const sid = String(researchDrop.id || '');
       if (sid) alert(`Plan ${sid} not found in research queue. Re-run Research to refresh list.`);
     }
+    if (ok) state.suppressWorldClick = true;
   } else {
-    if (dragBuildingType === 'base') placeBaseAt(snapped.x, snapped.y);
-    if (dragBuildingType === 'feature') placeFeatureAt(snapped.x, snapped.y);
-    if (dragBuildingType === 'research') placeResearchAt(snapped.x, snapped.y);
-    if (dragBuildingType === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
+    let placed = false;
+    if (dragBuildingType === 'base') { placeBaseAt(snapped.x, snapped.y); placed = true; }
+    if (dragBuildingType === 'feature') { placed = !!placeFeatureAt(snapped.x, snapped.y) || placed; }
+    if (dragBuildingType === 'research') { placeResearchAt(snapped.x, snapped.y); placed = true; }
+    if (dragBuildingType === 'warehouse') { placeWarehouseAt(snapped.x, snapped.y); placed = true; }
+    if (placed) state.suppressWorldClick = true;
   }
   dbg('planDrop:drop:end', { dragBuildingType, dragResearchPlan });
   dragBuildingType = null;
@@ -3974,6 +3992,7 @@ worldEl.addEventListener('click', (e) => {
     state.suppressWorldClick = false;
     return;
   }
+  if (Date.now() < Number(state.recentFeaturePlacementUntil || 0)) return;
   const target = e.target instanceof Element ? e.target : null;
   if (target?.closest('.entity, .unit, .subunit, .build-note')) return;
   if (state.selected) clearSelectedEntity();
