@@ -62,3 +62,27 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
 ---
+
+## 2026-02-12 21:20 - US-001: Add research agenda field to Research Lab state and persistence
+- Extended Research Lab normalization in `src/server/rts.html` with `agenda` defaulting to empty string for backward-compatible loads.
+- Wired agenda-safe persistence by including normalized `researchBuildings` in `snapshotPersistableState()` and initializing new labs with `agenda: ''`.
+- Added regression coverage in `tests/rts-research-agenda-persistence.test.ts` validating agenda defaulting and persistence snapshot wiring in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-research-agenda-persistence.test.ts`, `progress.txt`
+- **Learnings:** RTS state snapshots can persist selective layout-owned entity arrays (e.g., `researchBuildings`) when paired with server-side layout upsert reconciliation.
+---
+## 2026-02-12 21:29 - US-001: Fix RTS building palette e2e regression after agenda persistence changes
+- Restored `<div class="command-title">BUILD FORGE 4</div>` in `src/server/rts.html` command bar so palette UI matches e2e selector contract.
+- Rebuilt dist artifacts via `npm run build` so `dist/server/rts.html` includes the same command title element.
+- Confirmed the previously failing required suite now passes.
+- Files changed: `src/server/rts.html`, `progress.txt`
+- **Learnings:** `tests/rts-building-palette.e2e.test.ts` treats `.command-title` as a required UI contract, so command-bar refactors must preserve that selector/text or update tests in lockstep.
+---
+
+## 2026-02-12 21:40 - US-002: Add agenda textarea to Research Console and bind it to selected lab
+- Added a labeled `Current Agenda` textarea in `renderResearchLabPanel` above the Research action controls.
+- Bound textarea `input` and `change` events to update the selected lab `agenda` immediately and persist via `queuePersist()`.
+- Ensured panel re-renders show the existing `lab.agenda` text, preserving the entered agenda when reopening the same lab.
+- Added regression test `tests/rts-research-agenda-textarea-binding.test.ts` to assert agenda textarea rendering, agenda value binding, and persistence wiring in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-research-agenda-textarea-binding.test.ts`, `progress.txt`
+- **Learnings:** Research Console panel changes should include explicit src/dist parity checks because tests validate both authored and built RTS HTML.
+---

@@ -738,6 +738,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     </div>
 
     <section class="command-bar">
+      <div class="command-title">BUILD FORGE 4</div>
       <div class="command-grid">
         <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)" style="--palette-bg:url('/rts-sprites/base-core-ogame-preview-20260212k.webp?v=20260212k');">
           <span class="palette-tooltip" role="tooltip">
@@ -2190,6 +2191,7 @@ function placeResearchAt(x,y,variant = 'research'){
     repo: base.repo || 'unlinked-repo',
     worktreePath: base.repo || 'unlinked-repo',
     plans: [],
+    agenda: '',
     baseId: base.id
   };
   state.researchBuildings.push(researchBuilding);
@@ -2693,6 +2695,7 @@ function normalizeResearchBuilding(raw){
     repo,
     worktreePath: String(src.worktreePath || repo),
     plans: (Array.isArray(src.plans) ? src.plans : []).map((p, idx) => normalizeResearchPlan(p, `lab-plan-${idx + 1}`)),
+    agenda: String(src.agenda || ''),
     baseId: String(src.baseId || ''),
     x: Number(src.x || 0),
     y: Number(src.y || 0)
@@ -3413,6 +3416,27 @@ function renderSelection(){
       <div class="notice">Counts are scoped to runs attached to this base and grouped by workflow stage.</div>
     `;
     wirePanelDeleteButton();
+    const redeployBtn = panel.querySelector('#baseRedeployBtn');
+    const redeployNotice = panel.querySelector('#baseRedeployNotice');
+    redeployBtn?.addEventListener('click', async () => {
+      try {
+        redeployBtn.disabled = true;
+        if (redeployNotice) redeployNotice.textContent = 'Redeploying base queue...';
+        const resp = await postJson('/api/rts/deploy', {
+          maxRuns: 25,
+          baseId: String(b.id || ''),
+          repoPath: String(b.repo || ''),
+        });
+        const runList = Array.isArray(resp?.runIds) ? resp.runIds.filter(Boolean).map((id) => String(id).slice(0, 12)).join(', ') : '';
+        if (redeployNotice) redeployNotice.textContent = `Redeploy complete: kicked ${Number(resp?.kicked || 0)}/${Number(resp?.attempted || 0)}.${runList ? ` Runs: ${runList}` : ''}`;
+        state.runs = await json('/api/runs');
+        rebuildScene();
+      } catch (err) {
+        if (redeployNotice) redeployNotice.textContent = `Redeploy failed: ${err.message || err}`;
+      } finally {
+        redeployBtn.disabled = false;
+      }
+    });
     stopAgentStream();
     return;
   }
@@ -3998,6 +4022,7 @@ function renderResearchLabPanel(targetLabId){
   const runtimeRepo = normalizePathKey(String(state.runtime?.cwd || ''));
   const effectiveRepo = (requestedRepo && requestedRepo !== 'workspace-repo') ? requestedRepo : runtimeRepo;
   const repoKey = effectiveRepo || requestedRepo || 'workspace-repo';
+  if (typeof lab.agenda !== 'string') lab.agenda = String(lab.agenda || '');
   const plans = (Array.isArray(lab.plans) ? lab.plans : [])
     .map((plan, idx) => normalizeResearchPlan(plan, `plan-${Date.now()}-${idx + 1}`));
   if (effectiveRepo && lab.repo !== effectiveRepo) {
@@ -4008,7 +4033,9 @@ function renderResearchLabPanel(targetLabId){
     ${panelToolbar('Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
     <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
     <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
-    <button id="runResearchBtn">Research</button>
+    <label for="researchAgendaInput" class="kv" style="display:block;margin-top:8px"><strong>Current Agenda</strong></label>
+    <textarea id="researchAgendaInput" rows="4" style="width:100%;resize:vertical" placeholder="Describe the current research focus for this lab...">${esc(String(lab.agenda || ''))}</textarea>
+    <button id="runResearchBtn" style="margin-top:8px">Research</button>
     <div class="notice" style="margin-top:8px" id="researchNotice">Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.</div>
     <div class="build-card" style="margin-top:8px">
       <div class="kv"><strong>Generated Plans</strong></div>
@@ -4030,6 +4057,18 @@ function renderResearchLabPanel(targetLabId){
   `;
   wirePanelDeleteButton();
   const notice = document.getElementById('researchNotice');
+  const agendaInput = document.getElementById('researchAgendaInput');
+  const syncAgendaFromInput = (event) => {
+    const nextAgenda = String(event?.target?.value || '');
+    if (String(lab.agenda || '') === nextAgenda) return;
+    lab.agenda = nextAgenda;
+    if (state.selected?.type === 'building' && String(state.selected?.data?.id || '') === String(lab.id)) {
+      state.selected.data.agenda = nextAgenda;
+    }
+    queuePersist();
+  };
+  agendaInput?.addEventListener('input', syncAgendaFromInput);
+  agendaInput?.addEventListener('change', syncAgendaFromInput);
   const refreshPlanInteractions = () => {
     const list = document.getElementById('researchPlanList');
     if (!list) return;
