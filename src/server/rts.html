@@ -1641,7 +1641,7 @@ function featureStructureVisualState(building){
 
 function featureStructureClassName(building){
   const visualState = featureStructureVisualState(building);
-  if (visualState === 'draft') return 'is-half-transparent';
+  if (visualState === 'draft' || visualState === 'in-progress') return 'is-half-transparent';
   if (visualState === 'failed') return 'is-failed';
   return '';
 }
@@ -2175,6 +2175,23 @@ function deriveRunAgents(run){
   });
 }
 
+function deriveLaunchAssignments(slots, draft, agentPool){
+  const safePool = Array.isArray(agentPool) && agentPool.length ? agentPool : [];
+  return (slots || []).map((slot, i) => ({
+    slotId: slot.id,
+    agentId: String(draft.assignments?.[i] || slot.defaultAgent || agentPool[i % agentPool.length] || `feature-dev/${slot.id}`)
+  }));
+}
+
+function deriveAssignedAgents(slots, draft, run){
+  const runAgents = deriveRunAgents(run);
+  if (runAgents.length) return runAgents;
+  return deriveLaunchAssignments(slots, draft, runAgents.map((a) => a.agentId)).map((row) => ({
+    agentId: row.agentId,
+    status: 'waiting'
+  }));
+}
+
 function prettyStepName(stepId){
   const raw = String(stepId || '').trim().toLowerCase();
   if (!raw) return 'Step';
@@ -2478,6 +2495,14 @@ function renderRunSetupPanel(targetDraftId){
   if (!draft.worktreePath) draft.worktreePath = getWorktreeDefault(draft.repo || 'antfarm');
   if (typeof draft.prompt !== 'string') draft.prompt = String(draft.prompt || '');
   const run = draft.runId ? (state.runs || []).find(r => r.id === draft.runId) : null;
+  const slots = [
+    { id: 'developer', defaultAgent: 'feature-dev/developer' },
+    { id: 'verifier', defaultAgent: 'feature-dev/verifier' },
+    { id: 'tester', defaultAgent: 'feature-dev/tester' }
+  ];
+  const agentOptions = deriveRunAgents(run).map((a) => a.agentId).filter(Boolean);
+  const assignments = deriveLaunchAssignments(slots, draft, agentOptions);
+  draft.assignments = assignments.map((a) => a.agentId);
   const hasRun = !!run;
   const isDraft = !draft.committed;
   const promptReadOnlyAttr = isDraft ? '' : ' readonly';
@@ -2495,7 +2520,7 @@ function renderRunSetupPanel(targetDraftId){
     <label class="kv">Feature prompt
       <textarea id="featurePrompt" rows="8" placeholder="Describe detailed scope, constraints, and acceptance criteria..."${promptReadOnlyAttr}>${esc(draft.prompt)}</textarea>
     </label>
-    ${hasRun ? renderAgentStatusList(deriveRunAgents(run), run) : ''}
+    ${hasRun ? renderAgentStatusList(deriveAssignedAgents(slots, draft, run), run) : ''}
     <button id="launchFeatureRunBtn" style="margin-top:8px">${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
     <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
     <div class="notice" style="margin-top:8px" id="featureMutationNotice">Ready to execute backend actions.</div>
@@ -2758,6 +2783,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   if (e.key === 'Escape') {
+    cancelActiveFeatureDraft();
     clearSelectedEntity();
     setPlacement(null);
     return;

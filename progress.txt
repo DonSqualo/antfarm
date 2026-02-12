@@ -8,6 +8,7 @@ Started: 2026-02-11 05:47 ET
 - Dynamic imports used for command modules (e.g., `await import("./ant.js")`)
 - Build: `npm run build` runs `tsc -p tsconfig.json` + copies HTML + chmod
 - Tests: `node --test dist/<file>.test.js` (node:test + node:assert/strict)
+- `npm test` runs every `tests/*.test.ts` file directly with `node`, so legacy RTS string-regression tests must keep expected helper signatures/call-sites intact in both `src/server/rts.html` and `dist/server/rts.html`
 - ESM with NodeNext module resolution, `.js` extensions in imports
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
@@ -70,4 +71,11 @@ Started: 2026-02-11 05:47 ET
 - Added regression coverage in `tests/step-context-parsing-regression.test.ts` for invalid `runs.context`, malformed `loop_config`, and missing template key handling
 - Files changed: `src/installer/step-ops.ts`, `src/installer/events.ts`, `src/installer/gateway-api.ts`, `tests/step-context-parsing-regression.test.ts`, `progress.txt`
 - **Learnings:** `step-ops` logic is exercised most reliably by using an isolated temp `HOME` so `getDb()` writes to a disposable SQLite path under `~/.openclaw/antfarm`.
+---
+## 2026-02-12 18:30 - US-001: Verifier retry fixes for suite-level test gate
+- Added `npm test` script in `package.json` to execute all `tests/*.test.ts`, satisfying verifier's suite-level command requirement
+- Restored RTS helper/call-site strings expected by existing regression tests while preserving behavior (`deriveLaunchAssignments`, `deriveAssignedAgents`, Escape draft cancel invocation, in-progress transparency class mapping)
+- Rebuilt `dist/server/rts.html` from updated `src/server/rts.html` to keep source/dist parity required by RTS tests
+- Files changed: `package.json`, `src/server/rts.html`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** Existing RTS tests are strict string checks; even behavior-equivalent refactors can fail CI unless expected helper signatures and literal call-sites remain present.
 ---
