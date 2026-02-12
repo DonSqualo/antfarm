@@ -2190,6 +2190,7 @@ function placeResearchAt(x,y,variant = 'research'){
     repo: base.repo || 'unlinked-repo',
     worktreePath: base.repo || 'unlinked-repo',
     plans: [],
+    agenda: '',
     baseId: base.id
   };
   state.researchBuildings.push(researchBuilding);
@@ -2693,6 +2694,7 @@ function normalizeResearchBuilding(raw){
     repo,
     worktreePath: String(src.worktreePath || repo),
     plans: (Array.isArray(src.plans) ? src.plans : []).map((p, idx) => normalizeResearchPlan(p, `lab-plan-${idx + 1}`)),
+    agenda: String(src.agenda || ''),
     baseId: String(src.baseId || ''),
     x: Number(src.x || 0),
     y: Number(src.y || 0)
@@ -3413,6 +3415,27 @@ function renderSelection(){
       <div class="notice">Counts are scoped to runs attached to this base and grouped by workflow stage.</div>
     `;
     wirePanelDeleteButton();
+    const redeployBtn = panel.querySelector('#baseRedeployBtn');
+    const redeployNotice = panel.querySelector('#baseRedeployNotice');
+    redeployBtn?.addEventListener('click', async () => {
+      try {
+        redeployBtn.disabled = true;
+        if (redeployNotice) redeployNotice.textContent = 'Redeploying base queue...';
+        const resp = await postJson('/api/rts/deploy', {
+          maxRuns: 25,
+          baseId: String(b.id || ''),
+          repoPath: String(b.repo || ''),
+        });
+        const runList = Array.isArray(resp?.runIds) ? resp.runIds.filter(Boolean).map((id) => String(id).slice(0, 12)).join(', ') : '';
+        if (redeployNotice) redeployNotice.textContent = `Redeploy complete: kicked ${Number(resp?.kicked || 0)}/${Number(resp?.attempted || 0)}.${runList ? ` Runs: ${runList}` : ''}`;
+        state.runs = await json('/api/runs');
+        rebuildScene();
+      } catch (err) {
+        if (redeployNotice) redeployNotice.textContent = `Redeploy failed: ${err.message || err}`;
+      } finally {
+        redeployBtn.disabled = false;
+      }
+    });
     stopAgentStream();
     return;
   }
@@ -3998,6 +4021,7 @@ function renderResearchLabPanel(targetLabId){
   const runtimeRepo = normalizePathKey(String(state.runtime?.cwd || ''));
   const effectiveRepo = (requestedRepo && requestedRepo !== 'workspace-repo') ? requestedRepo : runtimeRepo;
   const repoKey = effectiveRepo || requestedRepo || 'workspace-repo';
+  if (typeof lab.agenda !== 'string') lab.agenda = String(lab.agenda || '');
   const plans = (Array.isArray(lab.plans) ? lab.plans : [])
     .map((plan, idx) => normalizeResearchPlan(plan, `plan-${Date.now()}-${idx + 1}`));
   if (effectiveRepo && lab.repo !== effectiveRepo) {

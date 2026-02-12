@@ -62,3 +62,11 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
 ---
+
+## 2026-02-12 21:20 - US-001: Add research agenda field to Research Lab state and persistence
+- Extended Research Lab normalization in `src/server/rts.html` with `agenda` defaulting to empty string for backward-compatible loads.
+- Wired agenda-safe persistence by including normalized `researchBuildings` in `snapshotPersistableState()` and initializing new labs with `agenda: ''`.
+- Added regression coverage in `tests/rts-research-agenda-persistence.test.ts` validating agenda defaulting and persistence snapshot wiring in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-research-agenda-persistence.test.ts`, `progress.txt`
+- **Learnings:** RTS state snapshots can persist selective layout-owned entity arrays (e.g., `researchBuildings`) when paired with server-side layout upsert reconciliation.
+---
