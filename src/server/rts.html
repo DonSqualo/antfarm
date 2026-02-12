@@ -827,7 +827,8 @@ const state = {
   },
   streamSelectionByRun: {},
   featureMode: false,
-  runStatusOverrides: {}
+  runStatusOverrides: {},
+  libraryBrowser: { role: 'all', tag: 'all', q: '' }
 };
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.2';
@@ -1128,6 +1129,24 @@ function hideBuildingHoverCard(){
   const card = document.getElementById('buildingHoverCard');
   if (!card) return;
   card.style.display = 'none';
+}
+function isLibraryBuilding(building){
+  return !!building && building.kind === 'warehouse' && String(building.variant || '').toLowerCase() === 'library';
+}
+function formatBytes(bytes){
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n < 1024) return `${Math.max(0, Math.floor(n))} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+function renderStoragePanelForBuilding(warehouseId){
+  const wh = (state.warehouseBuildings || []).find((it) => String(it.id) === String(warehouseId || ''))
+    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse' ? state.selected.data : null);
+  if (wh && isLibraryBuilding(wh)) {
+    void renderLibraryPanel(String(wh.id || warehouseId || ''));
+    return;
+  }
+  renderWarehousePanel(warehouseId);
 }
 function preloadRtsSprites(){
   if (spritesPreloadPromise) return spritesPreloadPromise;
@@ -1918,7 +1937,7 @@ function rebuildScene(){
   if (state.selected?.type === 'building' && !isEditingActionPanel()) {
     if (state.selected.data?.kind === 'feature') renderRunSetupPanel(state.selected.data.id);
     else if (state.selected.data?.kind === 'research') renderResearchLabPanel(state.selected.data.id);
-    else if (state.selected.data?.kind === 'warehouse') renderWarehousePanel(state.selected.data.id);
+    else if (state.selected.data?.kind === 'warehouse') renderStoragePanelForBuilding(state.selected.data.id);
   }
 }
 
@@ -2231,7 +2250,7 @@ function placeWarehouseAt(x,y,variant = 'warehouse'){
   queuePersist();
   rebuildScene();
   renderSelection();
-  renderWarehousePanel(warehouseBuilding.id);
+  renderStoragePanelForBuilding(warehouseBuilding.id);
 }
 
 function placeLibraryAt(x,y){
@@ -3127,7 +3146,7 @@ function renderWorld(){
         renderSelection();
         if (b.kind === 'feature') renderRunSetupPanel(b.id);
         if (b.kind === 'research') renderResearchLabPanel(b.id);
-        if (b.kind === 'warehouse') renderWarehousePanel(b.id);
+        if (b.kind === 'warehouse') renderStoragePanelForBuilding(b.id);
         refreshSelectionVisuals();
       }
     });
@@ -3429,7 +3448,7 @@ function renderSelection(){
     }
     if (b.kind === 'warehouse') {
       setFeatureMode(false);
-      if (!isEditingActionPanel()) renderWarehousePanel(b.id);
+      if (!isEditingActionPanel()) renderStoragePanelForBuilding(b.id);
       return;
     }
     renderRunAgentsConsole(b.run);
@@ -4031,7 +4050,7 @@ function renderResearchLabPanel(targetLabId){
         dbg('planDeploy:done', { id, stored: queue.length > 0, size: queue.length });
         rebuildScene();
         if (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse') {
-          renderWarehousePanel(state.selected.data.id);
+          renderStoragePanelForBuilding(state.selected.data.id);
         }
         renderResearchLabPanel(lab.id);
       });
@@ -4156,6 +4175,111 @@ function renderWarehousePanel(targetWarehouseId){
   wirePanelDeleteButton();
 }
 
+async function renderLibraryPanel(targetWarehouseId){
+  const panel = document.getElementById('actionPanel');
+  panel.dataset.mode = 'library';
+  panel.dataset.featureId = '';
+  const warehouse = (state.warehouseBuildings || []).find((it) => String(it.id) === String(targetWarehouseId || ''))
+    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse' ? state.selected.data : null);
+  if (!warehouse) {
+    panel.innerHTML = `${panelToolbar('Library Console')}<div class="notice">Select a Library.</div>`;
+    wirePanelDeleteButton();
+    return;
+  }
+  const repoKey = baseRepoKey(String(warehouse.repo || ''));
+  const view = state.libraryBrowser || { role: 'all', tag: 'all', q: '' };
+  panel.innerHTML = `
+    ${panelToolbar('Library Console', String(repoKey || 'unlinked'))}
+    <div class="kv"><strong>Role View:</strong> ${esc(String(view.role || 'all'))}</div>
+    <div class="notice">Scanning markdown files and agent instructions...</div>
+  `;
+  wirePanelDeleteButton();
+  try {
+    const role = String(view.role || 'all');
+    const tag = String(view.tag || 'all');
+    const q = String(view.q || '');
+    const params = new URLSearchParams();
+    params.set('role', role);
+    params.set('tag', tag);
+    if (q) params.set('q', q);
+    params.set('max', '5000');
+    const res = await json(`/api/rts/library/files?${params.toString()}`);
+    const tags = Array.isArray(res?.tags) ? res.tags.map((x) => String(x || '')).filter(Boolean) : [];
+    const roots = Array.isArray(res?.roots) ? res.roots.map((x) => String(x || '')).filter(Boolean) : [];
+    const files = Array.isArray(res?.files) ? res.files : [];
+    const roleOptions = ['all', 'planner', 'setup', 'developer', 'verifier', 'tester', 'reviewer'];
+    const shown = files.slice(0, 300);
+    panel.innerHTML = `
+      ${panelToolbar('Library Console', String(repoKey || 'unlinked'))}
+      <div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
+      <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
+      <div class="kv"><strong>Indexed roots:</strong> ${roots.length}</div>
+      <div class="kv"><strong>Matches:</strong> ${Number(files.length || 0)}${files.length > shown.length ? ` (showing first ${shown.length})` : ''}</div>
+      <div class="build-card" style="margin-top:8px">
+        <label class="kv">Worker role
+          <select id="libraryRoleFilter">${roleOptions.map((r) => `<option value="${esc(r)}"${r === role ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select>
+        </label>
+        <label class="kv">Tag
+          <select id="libraryTagFilter"><option value="all">all</option>${tags.map((t) => `<option value="${esc(t)}"${t === tag ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
+        </label>
+        <label class="kv">Search path/tags
+          <input id="librarySearchInput" value="${esc(q)}" placeholder="e.g. AGENTS, memory, verifier" />
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="libraryApplyBtn">Apply</button>
+          <button id="libraryResetBtn" class="ghost">Reset</button>
+        </div>
+      </div>
+      <div class="build-card" style="margin-top:8px">
+        <div class="kv"><strong>Markdown File Browser</strong></div>
+        <div>${shown.length ? shown.map((f) => {
+          const p = String(f?.path || '');
+          const absPath = String(f?.absPath || '');
+          const fileTags = Array.isArray(f?.tags) ? f.tags.map((x) => String(x || '')).filter(Boolean) : [];
+          const fileRoles = Array.isArray(f?.roles) ? f.roles.map((x) => String(x || '')).filter(Boolean) : [];
+          return `
+            <div class="agent-row">
+              <div class="agent-meta">
+                <span class="agent-name" title="${esc(absPath)}">${esc(p || absPath || 'unknown')}</span>
+                <span class="notice">${esc(formatBytes(Number(f?.size || 0)))} • ${esc(fileRoles.join(', ') || 'all roles')}</span>
+                <span class="badge">${esc(fileTags.join(' • ') || 'md')}</span>
+              </div>
+            </div>
+          `;
+        }).join('') : '<div class="notice">No markdown files matched this filter.</div>'}</div>
+      </div>
+    `;
+    wirePanelDeleteButton();
+    const apply = () => {
+      state.libraryBrowser = {
+        role: String(document.getElementById('libraryRoleFilter')?.value || 'all'),
+        tag: String(document.getElementById('libraryTagFilter')?.value || 'all'),
+        q: String(document.getElementById('librarySearchInput')?.value || '').trim(),
+      };
+      void renderLibraryPanel(warehouse.id);
+    };
+    document.getElementById('libraryApplyBtn')?.addEventListener('click', apply);
+    document.getElementById('libraryRoleFilter')?.addEventListener('change', apply);
+    document.getElementById('libraryTagFilter')?.addEventListener('change', apply);
+    document.getElementById('librarySearchInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        apply();
+      }
+    });
+    document.getElementById('libraryResetBtn')?.addEventListener('click', () => {
+      state.libraryBrowser = { role: 'all', tag: 'all', q: '' };
+      void renderLibraryPanel(warehouse.id);
+    });
+  } catch (err) {
+    panel.innerHTML = `
+      ${panelToolbar('Library Console', String(repoKey || 'unlinked'))}
+      <div class="notice">Library index failed: ${esc(String(err?.message || err || 'unknown error'))}</div>
+    `;
+    wirePanelDeleteButton();
+  }
+}
+
 function renderRunSetupPanel(targetDraftId){
   const panel = document.getElementById('actionPanel');
   let draft = null;
@@ -4270,37 +4394,30 @@ function renderRunSetupPanel(targetDraftId){
       queuePersist();
     });
   }
-  document.getElementById('markFeatureEmptyBtn')?.addEventListener('click', () => {
-    const runForDraft = draft.runId ? (state.runs || []).find(r => r.id === draft.runId) : null;
-    const current = { ...draft, run: runForDraft, prUrl: extractPrUrl(runForDraft) || draft.prUrl };
-    if (!draft.empty && !canMarkFeatureEmpty(current)) {
-      mutationNotice.textContent = 'Set Free is available once run succeeds and PR is ready.';
-      return;
-    }
-    if (draft.empty) {
-      draft.empty = false;
-      mutationNotice.textContent = 'Factory set to filled.';
-      queuePersist();
-      rebuildScene();
-      renderRunSetupPanel(draft.id);
-      return;
-    }
-    draft.empty = true;
-    const refill = refillFeatureFromWarehouse(draft);
-    if (refill.ok) {
-      mutationNotice.textContent = `Factory set free and pulled from warehouse: ${String(refill.plan?.title || refill.plan?.id || 'item')}`;
-    } else {
-      mutationNotice.textContent = `Factory set free. Pull pending: ${refill.reason}.`;
-    }
-    queuePersist();
-    rebuildScene();
-    renderRunSetupPanel(draft.id);
-  });
-
   const mutationNotice = document.getElementById('featureMutationNotice');
   let launchInFlight = false;
-  document.getElementById('launchFeatureRunBtn').addEventListener('click', async () => {
-    if (launchInFlight) return;
+
+  const reserveFreshWorktreeAndPort = () => {
+    const nowToken = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const repoKey = String(draft.repo || 'repo');
+    const usedPorts = new Set();
+    Object.values(state.portByPath || {}).forEach((p) => {
+      const n = Number(p);
+      if (Number.isFinite(n) && n > 0) usedPorts.add(n);
+    });
+    (state.featureBuildings || []).forEach((fb) => {
+      const n = Number(fb?.port || 0);
+      if (Number.isFinite(n) && n > 0) usedPorts.add(n);
+    });
+    draft.worktreePath = getWorktreeDefault(repoKey, `${draft.id || 'feature'}:${nowToken}`);
+    let nextPort = Number(getPortForPath(draft.worktreePath || '')) || 3334;
+    while (usedPorts.has(nextPort) && nextPort < 65535) nextPort += 1;
+    draft.port = nextPort;
+    setPortForPath(draft.worktreePath, nextPort);
+  };
+
+  const startFeatureRun = async () => {
+    if (launchInFlight) return false;
     const resolvedBase = findBaseForFeature(draft);
     if (resolvedBase?.id) draft.baseId = String(resolvedBase.id);
     const allocation = resolvedBase ? allocateWorkersForBase(resolvedBase, 'feature-dev') : { assignments: {}, missing: [] };
@@ -4312,7 +4429,7 @@ function renderRunSetupPanel(targetDraftId){
     const effectiveRepo = String(draft.repo || resolvedBase?.repo || '').trim();
     if (!effectiveRepo) {
       mutationNotice.textContent = 'Cannot launch: factory repo path is missing.';
-      return;
+      return false;
     }
     draft.repo = effectiveRepo;
     launchInFlight = true;
@@ -4380,13 +4497,51 @@ function renderRunSetupPanel(targetDraftId){
       await persistNow();
       state.runs = latestRuns;
       rebuildScene();
+      return true;
     } catch (err) {
       mutationNotice.textContent = `Error: ${err.message || err}`;
+      return false;
     } finally {
       launchInFlight = false;
       const btn = document.getElementById('launchFeatureRunBtn');
       if (btn) btn.disabled = false;
     }
+  };
+
+  document.getElementById('markFeatureEmptyBtn')?.addEventListener('click', async () => {
+    const runForDraft = draft.runId ? (state.runs || []).find(r => r.id === draft.runId) : null;
+    const current = { ...draft, run: runForDraft, prUrl: extractPrUrl(runForDraft) || draft.prUrl };
+    if (!draft.empty && !canMarkFeatureEmpty(current)) {
+      mutationNotice.textContent = 'Set Free is available once run succeeds and PR is ready.';
+      return;
+    }
+    if (draft.empty) {
+      draft.empty = false;
+      mutationNotice.textContent = 'Factory set to filled.';
+      queuePersist();
+      rebuildScene();
+      renderRunSetupPanel(draft.id);
+      return;
+    }
+    draft.empty = true;
+    const refill = refillFeatureFromWarehouse(draft);
+    if (refill.ok) {
+      mutationNotice.textContent = `Factory set free and pulled from warehouse: ${String(refill.plan?.title || refill.plan?.id || 'item')}. Launching...`;
+      reserveFreshWorktreeAndPort();
+      draft.committed = false;
+      draft.runId = null;
+      draft.phase = 'draft';
+      await startFeatureRun();
+      return;
+    } else {
+      mutationNotice.textContent = `Factory set free. Pull pending: ${refill.reason}.`;
+    }
+    queuePersist();
+    rebuildScene();
+    renderRunSetupPanel(draft.id);
+  });
+  document.getElementById('launchFeatureRunBtn').addEventListener('click', async () => {
+    await startFeatureRun();
   });
 
   document.getElementById('preparePrBtn').addEventListener('click', async () => {
