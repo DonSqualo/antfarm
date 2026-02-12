@@ -9,6 +9,7 @@ interface GatewayConfig {
 }
 
 const GATEWAY_HTTP_TIMEOUT_MS = 5000;
+const CRON_JOBS_PATH = path.join(os.homedir(), ".openclaw", "cron", "jobs.json");
 
 async function fetchWithTimeout(input: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -241,7 +242,17 @@ export async function listCronJobs(): Promise<{ ok: boolean; jobs?: Array<{ id: 
     const jobs: Array<{ id: string; name: string }> = parsed.jobs ?? parsed ?? [];
     return { ok: true, jobs };
   } catch (err) {
-    return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+    // Final fallback: read local cron jobs file directly.
+    try {
+      const content = await fs.readFile(CRON_JOBS_PATH, "utf-8");
+      const parsed = JSON.parse(content) as { jobs?: Array<{ id?: string; name?: string }> };
+      const jobs = (parsed.jobs ?? [])
+        .map((j) => ({ id: String(j?.id || ""), name: String(j?.name || "") }))
+        .filter((j) => j.id && j.name);
+      return { ok: true, jobs };
+    } catch {
+      return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+    }
   }
 }
 
@@ -334,7 +345,28 @@ export async function runCronJobNow(jobId: string): Promise<{ ok: boolean; error
     await runCli(["cron", "run", jobId]);
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+    // Final fallback: nudge nextRunAtMs directly so cron runner picks it up immediately.
+    try {
+      const content = await fs.readFile(CRON_JOBS_PATH, "utf-8");
+      const parsed = JSON.parse(content) as { jobs?: Array<Record<string, unknown>> };
+      const jobs = Array.isArray(parsed.jobs) ? parsed.jobs : [];
+      const nowMs = Date.now();
+      let changed = false;
+      for (const job of jobs) {
+        if (String(job?.id || "") !== String(jobId || "")) continue;
+        const state = (job.state && typeof job.state === "object") ? job.state as Record<string, unknown> : {};
+        state.nextRunAtMs = nowMs;
+        job.state = state;
+        job.updatedAtMs = nowMs;
+        changed = true;
+        break;
+      }
+      if (!changed) return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+      await fs.writeFile(CRON_JOBS_PATH, JSON.stringify({ ...(parsed || {}), jobs }, null, 2), "utf-8");
+      return { ok: true };
+    } catch {
+      return { ok: false, error: `CLI fallback failed: ${err}. ${UPDATE_HINT}` };
+    }
   }
 }
 

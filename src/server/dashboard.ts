@@ -556,26 +556,77 @@ function getRtsLiveStatus(): Record<string, unknown> {
   };
 }
 
-async function deployPendingRuns(maxRuns = 25): Promise<{ attempted: number; kicked: number; runIds: string[] }> {
+function nudgeWorkflowCronSchedules(workflowIds: string[]): void {
+  if (!workflowIds.length) return;
+  try {
+    const jobsPath = path.join(os.homedir(), ".openclaw", "cron", "jobs.json");
+    if (!fs.existsSync(jobsPath)) return;
+    const raw = JSON.parse(fs.readFileSync(jobsPath, "utf-8")) as { jobs?: Array<Record<string, unknown>> };
+    const jobs = Array.isArray(raw.jobs) ? raw.jobs : [];
+    const nowMs = Date.now();
+    let changed = false;
+    for (const job of jobs) {
+      const name = String(job?.name || "");
+      const hit = workflowIds.some((wf) => name.startsWith(`antfarm/${wf}/`));
+      if (!hit || job?.enabled === false) continue;
+      const state = (job.state && typeof job.state === "object") ? job.state as Record<string, unknown> : {};
+      state.nextRunAtMs = nowMs;
+      job.state = state;
+      job.updatedAtMs = nowMs;
+      changed = true;
+    }
+    if (!changed) return;
+    fs.writeFileSync(jobsPath, JSON.stringify({ ...(raw || {}), jobs }, null, 2), "utf-8");
+  } catch {
+    // best-effort fallback only
+  }
+}
+
+async function deployPendingRuns(
+  maxRuns = 25,
+  scope?: { baseId?: string; repoPath?: string },
+): Promise<{ attempted: number; kicked: number; runIds: string[] }> {
   const db = getDb();
   const rows = db.prepare(
-    "SELECT s.id AS step_id, s.run_id AS run_id, r.workflow_id AS workflow_id " +
+    "SELECT s.id AS step_id, s.run_id AS run_id, r.workflow_id AS workflow_id, r.context AS run_context, r.status AS run_status " +
     "FROM steps s JOIN runs r ON r.id = s.run_id " +
-    "WHERE s.status = 'pending' " +
+    "WHERE s.status = 'pending' AND r.status = 'running' " +
     "ORDER BY s.updated_at ASC, s.step_index ASC"
-  ).all() as Array<{ step_id: string; run_id: string; workflow_id: string }>;
+  ).all() as Array<{ step_id: string; run_id: string; workflow_id: string; run_context: string; run_status: string }>;
+
+  const scopeBaseId = String(scope?.baseId || "").trim();
+  const scopeRepo = normalizePathKey(String(scope?.repoPath || ""));
 
   const perRun = new Map<string, { stepId: string; workflowId: string }>();
   for (const row of rows) {
+    let ctx: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(row.run_context || "{}");
+      if (parsed && typeof parsed === "object") ctx = parsed as Record<string, unknown>;
+    } catch {}
+    const rowBaseId = String(ctx.baseId || "").trim();
+    const rowRepo = normalizePathKey(String(ctx.baseRepoPath || ctx.repoPath || ctx.repo || ""));
+    if (scopeBaseId) {
+      if (rowBaseId && rowBaseId !== scopeBaseId) continue;
+      // Legacy runs can have empty baseId; constrain by repo fallback when base is specified.
+      if (!rowBaseId && scopeRepo && rowRepo && rowRepo !== scopeRepo) continue;
+    } else if (scopeRepo && rowRepo && rowRepo !== scopeRepo) {
+      continue;
+    }
     if (!row?.run_id || perRun.has(row.run_id)) continue;
     perRun.set(row.run_id, { stepId: row.step_id, workflowId: row.workflow_id });
   }
 
   const targets = Array.from(perRun.entries()).slice(0, Math.max(1, Number(maxRuns) || 1));
+  const workflowsToActivate = Array.from(new Set(targets.map(([, t]) => String(t.workflowId || "").trim()).filter(Boolean)));
+  nudgeWorkflowCronSchedules(workflowsToActivate);
   let kicked = 0;
   const runIds: string[] = [];
   for (const [runId, target] of targets) {
     runIds.push(runId);
+    // Force a new step version so immediate handoff does not get blocked by version gating.
+    getDb().prepare("UPDATE steps SET updated_at = ? WHERE id = ? AND status = 'pending'")
+      .run(new Date().toISOString(), target.stepId);
     const evt = {
       ts: new Date().toISOString(),
       event: "step.pending" as const,
@@ -924,6 +975,7 @@ function upsertLayoutPosition(input: {
   x: number;
   y: number;
   allowCreate?: boolean;
+  payload?: Record<string, unknown>;
 }): { id: string; entityType: string; runId: string | null } {
   const db = getDb();
   ensureRtsTables(db);
@@ -970,7 +1022,10 @@ function upsertLayoutPosition(input: {
     const parsed = JSON.parse(current?.payload_json || "{}");
     if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
   } catch {}
-  const nextPayload: Record<string, unknown> = { ...payload, id, x, y };
+  const payloadPatch = (input.payload && typeof input.payload === "object")
+    ? input.payload as Record<string, unknown>
+    : {};
+  const nextPayload: Record<string, unknown> = { ...payload, ...payloadPatch, id, x, y };
   if (runId) nextPayload.runId = runId;
   if (repoPath) nextPayload.repo = repoPath;
   if (worktreePath) nextPayload.worktreePath = worktreePath;
@@ -1451,9 +1506,12 @@ export function startDashboard(port = 3333): http.Server {
 
     if (p === "/api/rts/deploy" && method === "POST") {
       try {
-        const body = JSON.parse(await readBody(req)) as { maxRuns?: number };
+        const body = JSON.parse(await readBody(req)) as { maxRuns?: number; baseId?: string; repoPath?: string };
         const maxRuns = Number(body?.maxRuns ?? 25);
-        const result = await deployPendingRuns(maxRuns);
+        const result = await deployPendingRuns(maxRuns, {
+          baseId: String(body?.baseId || ""),
+          repoPath: String(body?.repoPath || ""),
+        });
         return json(res, { ok: true, ...result });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1493,8 +1551,10 @@ export function startDashboard(port = 3333): http.Server {
           taskTitle?: string;
           prompt?: string;
           baseRepoPath?: string;
+          baseId?: string;
           worktreePath?: string;
           branchName?: string;
+          workerAssignments?: Record<string, string>;
           draftId?: string;
           draftX?: number;
           draftY?: number;
@@ -1531,10 +1591,37 @@ export function startDashboard(port = 3333): http.Server {
         const db = getDb();
         const row = db.prepare("SELECT context FROM runs WHERE id = ?").get(run.id) as { context: string } | undefined;
         const context = parseRunContext(row?.context ?? "{}");
+        const draftId = String(body.draftId || "").trim();
+        let baseId = String(body.baseId || "").trim();
+        if (!baseId && draftId) {
+          try {
+            const layoutRow = db.prepare("SELECT payload_json FROM rts_layout_entities WHERE id = ?").get(draftId) as { payload_json: string } | undefined;
+            const payload = JSON.parse(layoutRow?.payload_json || "{}") as Record<string, unknown>;
+            baseId = String(payload.baseId || "").trim();
+          } catch {}
+        }
+        const assignmentInput = (body.workerAssignments && typeof body.workerAssignments === "object")
+          ? body.workerAssignments
+          : {};
+        const defaultRoles = workflowId === "feature-dev"
+          ? ["planner", "setup", "developer", "verifier", "tester", "reviewer"]
+          : [];
+        const workerAssignments: Record<string, string> = {};
+        for (const role of defaultRoles) {
+          workerAssignments[role] = `${role}-1`;
+        }
+        for (const [role, worker] of Object.entries(assignmentInput)) {
+          const r = String(role || "").trim().toLowerCase();
+          const w = String(worker || "").trim();
+          if (!r || !w) continue;
+          workerAssignments[r] = w;
+        }
         const nextContext = {
           ...context,
           prompt: body.prompt || taskTitle,
           task: taskTitle,
+          baseId,
+          workerAssignments,
           baseRepoPath,
           repoPath: baseRepoPath,
           worktreePath,
@@ -1550,7 +1637,6 @@ export function startDashboard(port = 3333): http.Server {
           "SELECT id FROM steps WHERE run_id = ? AND step_index = 0 AND status = 'pending' LIMIT 1"
         ).get(run.id) as { id: string } | undefined;
         let layout: { id: string; entityType: string; runId: string | null } | null = null;
-        const draftId = String(body.draftId || "").trim();
         const draftX = Number(body.draftX);
         const draftY = Number(body.draftY);
         const draftPort = Number(body.draftPort);
@@ -1577,6 +1663,9 @@ export function startDashboard(port = 3333): http.Server {
             kind: "feature",
             repo: baseRepoPath,
             worktreePath,
+            baseId,
+            workerAssignments,
+            prompt: String(body.prompt || taskTitle),
             runId: run.id,
             committed: true,
             phase: "running",
@@ -1640,6 +1729,7 @@ export function startDashboard(port = 3333): http.Server {
           x?: number;
           y?: number;
           allowCreate?: boolean;
+          payload?: Record<string, unknown>;
         };
         const entityType = body.entityType;
         if (entityType !== "base" && entityType !== "feature" && entityType !== "research" && entityType !== "warehouse" && entityType !== "run") {
@@ -1654,6 +1744,7 @@ export function startDashboard(port = 3333): http.Server {
           x: Number(body.x ?? 0),
           y: Number(body.y ?? 0),
           allowCreate: body.allowCreate === true,
+          payload: (body.payload && typeof body.payload === "object") ? body.payload : undefined,
         });
         return json(res, { ok: true, ...result });
       } catch (err) {
