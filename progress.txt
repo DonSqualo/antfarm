@@ -34,3 +34,9 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `tests/rts-helper-label.test.ts`.
 - **Learnings:** For UI copy regression checks in this repo, a lightweight node:test that inspects `src/server/index.html` is sufficient and fast.
 ---
+## 2026-02-12 10:36 - US-001: Remove the Shift-drag/middle-mouse helper label from RTS UI (retry fixes)
+- Added a repository-level `npm test` script in `package.json` so the mandated test command executes and passes in CI/verifier.
+- Confirmed RTS helper-label regression test passes under `npm test` and typecheck/build passes under `npm run build`.
+- Files changed: `package.json`.
+- **Learnings:** This repo's verifier expects a working `npm test` script even when tests are implemented; keep script wiring aligned with required commands.
+---
