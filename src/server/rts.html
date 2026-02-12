@@ -1162,6 +1162,19 @@ function updateBaseDraftPosition(id, x, y){
   state.baseDrafts[i] = { ...state.baseDrafts[i], x, y };
 }
 
+function cancelActiveFeatureDraft(){
+  const selected = state.selected;
+  if (selected?.type !== 'building' || selected?.data?.kind !== 'feature') return false;
+  if (selected.data.committed || selected.data.runId) return false;
+  state.featureBuildings = (state.featureBuildings || []).filter((b) => b.id !== selected.data.id);
+  state.selected = null;
+  queuePersist();
+  rebuildScene();
+  renderSelection();
+  renderRunSetupPanel(null);
+  return true;
+}
+
 async function deleteSelectedStructure(){
   const s = state.selected;
   if (!s) return;
@@ -2220,7 +2233,10 @@ document.addEventListener('keydown', (e) => {
   if (e.target && ['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
   if (e.key === 'b' || e.key === 'B') setPlacement('base');
   if (e.key === 'f' || e.key === 'F') setPlacement('feature');
-  if (e.key === 'Escape') setPlacement(null);
+  if (e.key === 'Escape') {
+    cancelActiveFeatureDraft();
+    setPlacement(null);
+  }
   if (e.key === 'Delete' || e.key === 'Backspace') deleteSelectedStructure();
 });
 

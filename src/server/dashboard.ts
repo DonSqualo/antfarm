@@ -60,13 +60,22 @@ function json(res: http.ServerResponse, data: unknown, status = 200) {
   res.end(JSON.stringify(data));
 }
 
-function serveHTML(res: http.ServerResponse) {
-  const htmlPath = path.join(__dirname, "index.html");
-  // In dist, index.html won't exist—serve from src
-  const srcHtmlPath = path.resolve(__dirname, "..", "..", "src", "server", "index.html");
+function serveHTML(res: http.ServerResponse, fileName = "index.html") {
+  const htmlPath = path.join(__dirname, fileName);
+  // In dist, html may not exist—serve from src
+  const srcHtmlPath = path.resolve(__dirname, "..", "..", "src", "server", fileName);
   const filePath = fs.existsSync(htmlPath) ? htmlPath : srcHtmlPath;
   res.writeHead(200, { "Content-Type": "text/html" });
   res.end(fs.readFileSync(filePath, "utf-8"));
+}
+
+function guessMime(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".svg") return "image/svg+xml";
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  return "application/octet-stream";
 }
 
 export function startDashboard(port = 3333): http.Server {
@@ -126,8 +135,32 @@ export function startDashboard(port = 3333): http.Server {
       }
     }
 
+    // Serve RTS sprite assets
+    if (p.startsWith("/rts-sprites/")) {
+      const spriteName = path.basename(p);
+      const spritePath = path.resolve(__dirname, "rts-sprites", spriteName);
+      const srcSpritePath = path.resolve(__dirname, "..", "..", "src", "server", "rts-sprites", spriteName);
+      const resolvedSprite = fs.existsSync(spritePath) ? spritePath : srcSpritePath;
+      if (fs.existsSync(resolvedSprite)) {
+        res.writeHead(200, {
+          "Content-Type": guessMime(resolvedSprite),
+          "Cache-Control": "public, max-age=86400",
+          "Access-Control-Allow-Origin": "*",
+        });
+        return res.end(fs.readFileSync(resolvedSprite));
+      }
+      res.writeHead(404);
+      return res.end("not found");
+    }
+
     // Serve frontend
-    serveHTML(res);
+    if (p === "/" || p === "/rts" || p === "/rts/") {
+      return serveHTML(res, "rts.html");
+    }
+    if (p === "/classic" || p === "/index" || p === "/index.html") {
+      return serveHTML(res, "index.html");
+    }
+    return serveHTML(res, "rts.html");
   });
 
   server.listen(port, () => {
