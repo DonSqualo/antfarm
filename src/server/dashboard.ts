@@ -564,39 +564,105 @@ function removeRunWorktree(context: Record<string, unknown>): { removed: boolean
   }
 }
 
+function parseRtsState(stateRow: { state_json: string } | undefined): Record<string, unknown> {
+  if (!stateRow?.state_json) return {};
+  try {
+    return JSON.parse(stateRow.state_json) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function removeRunReferencesFromState(stateJson: Record<string, unknown>, runId: string): { nextState: Record<string, unknown>; changed: boolean } {
+  const beforeCount = Array.isArray(stateJson.featureBuildings) ? stateJson.featureBuildings.length : 0;
+  const featureBuildings = Array.isArray(stateJson.featureBuildings)
+    ? (stateJson.featureBuildings as Array<Record<string, unknown>>).filter((b) => String(b?.runId ?? "") !== runId)
+    : [];
+
+  const runLayoutOverrides = (stateJson.runLayoutOverrides && typeof stateJson.runLayoutOverrides === "object")
+    ? { ...(stateJson.runLayoutOverrides as Record<string, unknown>) }
+    : {};
+  const hadOverride = Object.prototype.hasOwnProperty.call(runLayoutOverrides, runId);
+  delete runLayoutOverrides[runId];
+
+  const selected = (stateJson.selected && typeof stateJson.selected === "object")
+    ? stateJson.selected as Record<string, unknown>
+    : null;
+  const selectedData = selected && typeof selected.data === "object" ? selected.data as Record<string, unknown> : null;
+  const selectedRunId = selectedData ? String(selectedData.runId ?? selectedData.id ?? "") : "";
+  const nextSelected = selectedRunId === runId ? null : selected;
+
+  const nextState = { ...stateJson, featureBuildings, runLayoutOverrides, ...(nextSelected ? { selected: nextSelected } : { selected: null }) };
+  const afterCount = Array.isArray(nextState.featureBuildings) ? nextState.featureBuildings.length : 0;
+  const changed = beforeCount !== afterCount || hadOverride || Boolean(selected && !nextSelected);
+  return { nextState, changed };
+}
+
+function findSingleRunIdMatchForPrefix(prefix: string, stateJson: Record<string, unknown>): string | null {
+  const trimmed = String(prefix || "").trim();
+  if (!trimmed) return null;
+  const matches = new Set<string>();
+
+  const runLayoutOverrides = (stateJson.runLayoutOverrides && typeof stateJson.runLayoutOverrides === "object")
+    ? stateJson.runLayoutOverrides as Record<string, unknown>
+    : {};
+  for (const key of Object.keys(runLayoutOverrides)) {
+    if (key.startsWith(trimmed)) matches.add(key);
+  }
+
+  const featureBuildings = Array.isArray(stateJson.featureBuildings)
+    ? stateJson.featureBuildings as Array<Record<string, unknown>>
+    : [];
+  for (const b of featureBuildings) {
+    const runId = String(b?.runId ?? "").trim();
+    if (runId && runId.startsWith(trimmed)) matches.add(runId);
+  }
+
+  const selected = (stateJson.selected && typeof stateJson.selected === "object")
+    ? stateJson.selected as Record<string, unknown>
+    : null;
+  const selectedData = selected && typeof selected.data === "object" ? selected.data as Record<string, unknown> : null;
+  const selectedRunId = selectedData ? String(selectedData.runId ?? selectedData.id ?? "").trim() : "";
+  if (selectedRunId && selectedRunId.startsWith(trimmed)) matches.add(selectedRunId);
+
+  if (matches.size === 1) return Array.from(matches)[0] || null;
+  return null;
+}
+
 function purgeRtsArtifactsForRunId(runId: string): { purged: boolean } {
   const db = getDb();
   ensureRtsTables(db);
+  const targetRunId = String(runId || "").trim();
+  if (!targetRunId) return { purged: false };
+
   let purged = false;
-  const byRun = db.prepare("DELETE FROM rts_layout_entities WHERE run_id = ?").run(runId);
-  const byId = db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(`run:${runId}`);
+  const byRun = db.prepare("DELETE FROM rts_layout_entities WHERE run_id = ?").run(targetRunId);
+  const byId = db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(`run:${targetRunId}`);
   purged = Number(byRun.changes || 0) > 0 || Number(byId.changes || 0) > 0;
 
   const stateRow = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
-  if (stateRow?.state_json) {
-    let stateJson: Record<string, unknown> = {};
-    try { stateJson = JSON.parse(stateRow.state_json) as Record<string, unknown>; } catch { stateJson = {}; }
-    const beforeCount = Array.isArray(stateJson.featureBuildings) ? stateJson.featureBuildings.length : 0;
-    const featureBuildings = Array.isArray(stateJson.featureBuildings)
-      ? (stateJson.featureBuildings as Array<Record<string, unknown>>).filter((b) => String(b?.runId ?? "") !== runId)
-      : [];
-    const runLayoutOverrides = (stateJson.runLayoutOverrides && typeof stateJson.runLayoutOverrides === "object")
-      ? { ...(stateJson.runLayoutOverrides as Record<string, unknown>) }
-      : {};
-    const hadOverride = Object.prototype.hasOwnProperty.call(runLayoutOverrides, runId);
-    delete runLayoutOverrides[runId];
+  const stateJson = parseRtsState(stateRow);
+  const directRemoval = removeRunReferencesFromState(stateJson, targetRunId);
+  let nextState = directRemoval.nextState;
+  let changed = directRemoval.changed;
 
-    const selected = (stateJson.selected && typeof stateJson.selected === "object")
-      ? stateJson.selected as Record<string, unknown>
-      : null;
-    const selectedData = selected && typeof selected.data === "object" ? selected.data as Record<string, unknown> : null;
-    const selectedRunId = selectedData ? String(selectedData.runId ?? selectedData.id ?? "") : "";
-    const nextSelected = selectedRunId === runId ? null : selected;
-    const nextState = { ...stateJson, featureBuildings, runLayoutOverrides, ...(nextSelected ? { selected: nextSelected } : { selected: null }) };
-    const afterCount = Array.isArray(nextState.featureBuildings) ? nextState.featureBuildings.length : 0;
-    if (beforeCount !== afterCount || hadOverride || (selected && !nextSelected)) purged = true;
-    db.prepare("UPDATE rts_state SET state_json = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(nextState), new Date().toISOString());
+  if (!changed) {
+    const prefixedMatch = findSingleRunIdMatchForPrefix(targetRunId, stateJson);
+    if (prefixedMatch && prefixedMatch !== targetRunId) {
+      const prefixedRemoval = removeRunReferencesFromState(stateJson, prefixedMatch);
+      nextState = prefixedRemoval.nextState;
+      changed = prefixedRemoval.changed;
+      const prefixedByRun = db.prepare("DELETE FROM rts_layout_entities WHERE run_id = ?").run(prefixedMatch);
+      const prefixedById = db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(`run:${prefixedMatch}`);
+      purged = purged || Number(prefixedByRun.changes || 0) > 0 || Number(prefixedById.changes || 0) > 0;
+    }
   }
+
+  if (changed) {
+    db.prepare("UPDATE rts_state SET state_json = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(nextState), new Date().toISOString());
+    purged = true;
+  }
+
   return { purged };
 }
 
@@ -607,8 +673,8 @@ function deleteRunWithArtifacts(runIdOrPrefix: string): { deleted: boolean; stat
   if (!run) {
     const idGuess = runIdOrPrefix.trim();
     if (!idGuess) return { deleted: false };
-    const purged = purgeRtsArtifactsForRunId(idGuess);
-    return purged.purged ? { deleted: true, runId: idGuess } : { deleted: false };
+    purgeRtsArtifactsForRunId(idGuess);
+    return { deleted: false, runId: idGuess };
   }
   const runId = run.id;
   let context: Record<string, unknown> = {};
@@ -617,25 +683,9 @@ function deleteRunWithArtifacts(runIdOrPrefix: string): { deleted: boolean; stat
   db.exec("BEGIN");
   try {
     const stateRow = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
-    if (stateRow?.state_json) {
-      let stateJson: Record<string, unknown> = {};
-      try { stateJson = JSON.parse(stateRow.state_json) as Record<string, unknown>; } catch { stateJson = {}; }
-      const featureBuildings = Array.isArray(stateJson.featureBuildings)
-        ? (stateJson.featureBuildings as Array<Record<string, unknown>>).filter((b) => String(b?.runId ?? "") !== runId)
-        : [];
-      const runLayoutOverrides = (stateJson.runLayoutOverrides && typeof stateJson.runLayoutOverrides === "object")
-        ? { ...(stateJson.runLayoutOverrides as Record<string, unknown>) }
-        : {};
-      delete runLayoutOverrides[runId];
-      const selected = (stateJson.selected && typeof stateJson.selected === "object")
-        ? stateJson.selected as Record<string, unknown>
-        : null;
-      const selectedData = selected && typeof selected.data === "object" ? selected.data as Record<string, unknown> : null;
-      const selectedRunId = selectedData ? String(selectedData.runId ?? selectedData.id ?? "") : "";
-      const nextSelected = selectedRunId === runId ? null : selected;
-      const nextState = { ...stateJson, featureBuildings, runLayoutOverrides, ...(nextSelected ? { selected: nextSelected } : { selected: null }) };
-      db.prepare("UPDATE rts_state SET state_json = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(nextState), new Date().toISOString());
-    }
+    const stateJson = parseRtsState(stateRow);
+    const nextState = removeRunReferencesFromState(stateJson, runId).nextState;
+    db.prepare("UPDATE rts_state SET state_json = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(nextState), new Date().toISOString());
 
     db.prepare("DELETE FROM stories WHERE run_id = ?").run(runId);
     db.prepare("DELETE FROM steps WHERE run_id = ?").run(runId);

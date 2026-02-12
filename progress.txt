@@ -104,3 +104,11 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/dashboard.ts`, `tests/rts-layout-nullpath-reconciliation.test.ts`, `dist/server/dashboard.js`, `progress.txt`
 - **Learnings:** RTS state tests can reliably exercise internal `getRtsState`/`upsertLayoutEntitiesFromState` behavior through `/api/rts/state` when run against a temp-HOME SQLite DB seeded directly via `getDb()`.
 ---
+## 2026-02-12 19:35 - US-004: Make run deletion and RTS artifact purge idempotent
+- Hardened RTS cleanup in `src/server/dashboard.ts` by centralizing run-reference stripping (`featureBuildings`, `runLayoutOverrides`, `selected`) and reusing it across both delete and purge flows
+- Made `purgeRtsArtifactsForRunId` no-op-safe: unknown run IDs no longer force-write `rts_state`; state is only updated when artifacts actually change, preventing unrelated state mutation
+- Added unique-prefix fallback for orphaned RTS artifacts so cleanup can still remove stale references when only a unique run-id prefix is available
+- Added regression suite `tests/rts-run-deletion-idempotency.test.ts` covering repeated delete calls, unknown-run purge no-op behavior, and state cleanup for exact-id and prefix deletion paths
+- Files changed: `src/server/dashboard.ts`, `tests/rts-run-deletion-idempotency.test.ts`, `dist/server/dashboard.js`, `progress.txt`
+- **Learnings:** RTS cleanup behavior should avoid blind `rts_state` writes; compare-and-update keeps unknown-run purges idempotent and prevents unrelated state churn.
+---
