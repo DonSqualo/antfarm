@@ -58,8 +58,20 @@ test("RTS building palette shows larger previews and styled hover tooltips", asy
       assert.equal(rootOverflow.hasPageHorizontalOverflow, false, "Unexpected page horizontal overflow");
       assert.equal(rootOverflow.hasPageVerticalOverflow, false, "Unexpected page vertical overflow");
 
-      const commandTitle = await page.$eval(".command-title", (el) => (el.textContent || "").trim());
-      assert.equal(commandTitle, "BUILD FORGE 4");
+      const commandBarState = await page.evaluate(() => {
+        const bar = document.querySelector(".command-bar");
+        const cards = Array.from(document.querySelectorAll(".command-grid .palette-card[data-building]"));
+        const ids = cards.map((el) => String(el.getAttribute("data-building") || ""));
+        return {
+          hasBar: !!bar,
+          cardCount: cards.length,
+          ids,
+        };
+      });
+      assert.equal(commandBarState.hasBar, true);
+      assert.ok(commandBarState.cardCount >= 4, `Expected command bar palette cards, got ${commandBarState.cardCount}`);
+      assert.ok(commandBarState.ids.includes("base"), "Expected base command card");
+      assert.ok(commandBarState.ids.includes("feature"), "Expected feature command card");
 
       const baseCard = ".palette-card[data-building='base']";
       const paletteSize = await page.$eval(baseCard, (el) => {
