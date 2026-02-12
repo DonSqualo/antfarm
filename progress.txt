@@ -9,6 +9,7 @@ Started: 2026-02-11 05:47 ET
 - Build: `npm run build` runs `tsc -p tsconfig.json` + copies HTML + chmod
 - Tests: `node --test dist/<file>.test.js` (node:test + node:assert/strict)
 - `npm test` runs every `tests/*.test.ts` file directly with `node`, so legacy RTS string-regression tests must keep expected helper signatures/call-sites intact in both `src/server/rts.html` and `dist/server/rts.html`
+- Suite-level regression gates can be implemented as a thin `tests/*.test.ts` wrapper that shells out to targeted test files with `execFileSync(process.execPath, [testPath])`
 - ESM with NodeNext module resolution, `.js` extensions in imports
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
@@ -111,4 +112,12 @@ Started: 2026-02-11 05:47 ET
 - Added regression suite `tests/rts-run-deletion-idempotency.test.ts` covering repeated delete calls, unknown-run purge no-op behavior, and state cleanup for exact-id and prefix deletion paths
 - Files changed: `src/server/dashboard.ts`, `tests/rts-run-deletion-idempotency.test.ts`, `dist/server/dashboard.js`, `progress.txt`
 - **Learnings:** RTS cleanup behavior should avoid blind `rts_state` writes; compare-and-update keeps unknown-run purges idempotent and prevents unrelated state churn.
+---
+
+## 2026-02-12 20:08 - US-005: Add repo-health regression suite and PR-ready root-cause summary
+- Added `tests/repo-health-regression-suite.test.ts` as a focused suite-level regression entrypoint that executes and validates the four edge-case regression tests from US-001 through US-004
+- Added `docs/repo-health-root-cause-summary.md` mapping each fixed regression to module, root cause, scoped fix, and targeted test coverage for PR-ready review context
+- Verified no unrelated refactor-only changes were introduced; changes are limited to test orchestration and documentation summary artifacts
+- Files changed: `tests/repo-health-regression-suite.test.ts`, `docs/repo-health-root-cause-summary.md`, `progress.txt`
+- **Learnings:** For workflow review stories, a thin suite wrapper can provide one commandable regression gate while preserving targeted per-area tests as the source of behavioral assertions.
 ---
