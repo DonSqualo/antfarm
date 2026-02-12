@@ -318,6 +318,11 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .draft-ghost .iso-core { border-color:#86dcffa2; }
 .is-half-transparent { opacity:.5; }
 .is-failed { filter:saturate(0.7) hue-rotate(-18deg) brightness(0.92); }
+.entity.is-selected .iso-core {
+  outline:2px solid #8de7ff;
+  outline-offset:3px;
+  box-shadow:0 0 0 1px #d4f7ff55 inset, 0 0 18px #5fe7ff7a;
+}
 .unit {
   position:absolute;
   width:32px; height:32px;
@@ -327,6 +332,10 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   animation:float-unit 1.8s ease-in-out infinite alternate;
   image-rendering:pixelated;
   image-rendering:crisp-edges;
+}
+.unit.is-selected,
+.subunit.is-selected {
+  filter:drop-shadow(0 0 7px #7de7ff);
 }
 .unit-model-chip {
   position:absolute;
@@ -598,7 +607,8 @@ const state = {
     loading: false
   },
   streamSelectionByRun: {},
-  featureMode: false
+  featureMode: false,
+  runStatusOverrides: {}
 };
 
 const skillTrees = {
@@ -637,7 +647,6 @@ function snapshotPersistableState(){
     featureBuildings: state.featureBuildings || [],
     runLayoutOverrides: state.runLayoutOverrides || {},
     portByPath: state.portByPath || {},
-    selected: state.selected || null,
     camera: state.camera || { x:0, y:0 }
   };
 }
@@ -748,14 +757,8 @@ async function hydratePersistedState(){
     state.featureBuildings = persisted.setupDrafts
       .map((d) => normalizeFeatureDraft({ ...d, phase: 'draft' }));
   }
-  // unified view: no persisted workflow filter
-  if (persisted.selected && typeof persisted.selected === 'object') {
-    if (persisted.selected.type === 'featureDraft' && persisted.selected.data) {
-      state.selected = { type:'building', data:{ ...persisted.selected.data, kind:'feature', phase:'draft' } };
-    } else {
-      state.selected = persisted.selected;
-    }
-  }
+  // Do not restore selection across sessions; always boot into clean neutral view.
+  state.selected = null;
 }
 function parseContext(run){ try { return JSON.parse(run.context || '{}'); } catch { return {}; } }
 function extractPrUrl(run){
@@ -964,6 +967,37 @@ function runsSignature(runs){
     .join('|');
 }
 
+function getRunStatusOverride(runId){
+  const key = String(runId || '');
+  if (!key) return '';
+  const row = state.runStatusOverrides?.[key];
+  if (!row || typeof row !== 'object') return '';
+  const until = Number(row.until || 0);
+  if (!until || Date.now() > until) {
+    delete state.runStatusOverrides[key];
+    return '';
+  }
+  return String(row.status || '').trim().toLowerCase();
+}
+
+function getDisplayRunStatus(run, fallbackPhase = '', runId = ''){
+  const rid = String(run?.id || runId || '');
+  const optimistic = getRunStatusOverride(rid);
+  if (optimistic) return optimistic;
+  return String(run?.status || fallbackPhase || '').trim().toLowerCase();
+}
+
+function markRunRelaunched(runId){
+  const rid = String(runId || '').trim();
+  if (!rid) return;
+  state.runStatusOverrides[rid] = { status: 'running', until: Date.now() + 45000 };
+  const run = (state.runs || []).find((r) => String(r.id) === rid);
+  if (run) run.status = 'running';
+  (state.featureBuildings || []).forEach((fb) => {
+    if (String(fb?.runId || '') === rid) fb.phase = 'running';
+  });
+}
+
 async function boot(){
   await hydratePersistedState();
   state.workflows = await json('/api/workflows');
@@ -987,6 +1021,15 @@ async function refreshRuntimeState(throwOnError = false){
     const runsChanged = nextSig !== state.runSig;
     state.runs = runs;
     state.runSig = nextSig;
+    if (state.runStatusOverrides && typeof state.runStatusOverrides === 'object') {
+      Object.keys(state.runStatusOverrides).forEach((runId) => {
+        const liveRun = runs.find((r) => String(r.id) === runId);
+        const liveStatus = String(liveRun?.status || '').trim().toLowerCase();
+        if (!liveRun || ['running', 'done', 'completed', 'success', 'failed', 'error', 'cancelled', 'canceled'].includes(liveStatus)) {
+          delete state.runStatusOverrides[runId];
+        }
+      });
+    }
     state.live = (liveRes && liveRes.live) ? liveRes.live : state.live;
     state.diag = (diagRes && diagRes.diag) ? diagRes.diag : state.diag;
     return runsChanged;
@@ -1466,6 +1509,16 @@ function cancelActiveFeatureDraft(){
   return true;
 }
 
+function clearSelectedEntity(){
+  if (!state.selected) return;
+  state.selected = null;
+  setFeatureMode(false);
+  queuePersist();
+  renderSelection();
+  renderRunSetupPanel(null);
+  rebuildScene();
+}
+
 async function deleteSelectedStructure(){
   const s = state.selected;
   if (!s) return;
@@ -1579,7 +1632,7 @@ function normalizeFeatureDraft(raw){
 function featureStructureVisualState(building){
   if (!building) return 'draft';
   if (!building.committed || !building.runId) return 'draft';
-  const status = normalizeRunStatus(building.run?.status || building.phase || '');
+  const status = normalizeRunStatus(getDisplayRunStatus(building.run, building.phase, building.runId));
   if (SUCCESS_RUN_STATUSES.has(status)) return 'done';
   if (FAILED_RUN_STATUSES.has(status)) return 'failed';
   if (!status || NON_TERMINAL_RUN_STATUSES.has(status)) return 'in-progress';
@@ -1598,6 +1651,12 @@ function renderWorld(){
   const pathLayer = document.getElementById('pathLayer');
   world.innerHTML = '';
   if (pathLayer) pathLayer.innerHTML = '';
+  const selectedBaseId = state.selected?.type === 'base' ? String(state.selected?.data?.id || '') : '';
+  const selectedBaseDraftId = state.selected?.type === 'baseDraft' ? String(state.selected?.data?.id || '') : '';
+  const selectedBuildingId = state.selected?.type === 'building' ? String(state.selected?.data?.id || '') : '';
+  const selectedUnitKey = (state.selected?.type === 'unit' || state.selected?.type === 'subunit')
+    ? `${String(state.selected?.data?.runId || '')}:${String(state.selected?.data?.full || '')}`
+    : '';
 
   const runTargets = runTargetCenterMap();
   const activeMap = activeRunAgentMap();
@@ -1634,12 +1693,12 @@ function renderWorld(){
     const basePort = Number(base.port) || getPortForPath(base.repo || '') || 3333;
     const baseLabel = base.portLabel || pathLabel(base.repo || '');
     const el = renderIsoEntity({
-      className:`base ${movable ? 'movable' : ''}`,
+      className:`base ${movable ? 'movable' : ''} ${selectedBaseId === String(base.id) ? 'is-selected' : ''}`,
       kind:'base',
       x:base.x,
       y:base.y,
       innerHtml: `${structureMarkup('base')}<div class="port-chip">${esc(baseLabel)} :${basePort}</div>`,
-      onClick:() => { state.selected = { type:'base', data:base }; renderSelection(); }
+      onClick:() => { state.selected = { type:'base', data:base }; renderSelection(); rebuildScene(); }
     });
     if (movable) {
       el.addEventListener('mousedown', (e) => {
@@ -1662,7 +1721,7 @@ function renderWorld(){
 
   (state.baseDrafts || []).forEach((draft) => {
     const el = renderIsoEntity({
-      className:'base draft-ghost movable',
+      className:`base draft-ghost movable ${selectedBaseDraftId === String(draft.id) ? 'is-selected' : ''}`,
       kind:'base',
       x:draft.x,
       y:draft.y,
@@ -1671,6 +1730,7 @@ function renderWorld(){
         state.selected = { type:'baseDraft', data:draft };
         renderSelection();
         renderBaseCloneForm(draft);
+        rebuildScene();
       }
     });
     el.addEventListener('mousedown', (e) => {
@@ -1690,11 +1750,11 @@ function renderWorld(){
   });
 
   state.buildings.forEach(b => {
-    const status = prettyStatus(b.run?.status || b.phase || 'waiting');
+    const status = prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting'));
     const color = status === 'done' ? 'var(--ok)' : status === 'failed' ? 'var(--bad)' : 'var(--warn)';
     const movable = true;
     const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';
-    const className = ['building', featureVisualClass, movable ? 'movable' : ''].filter(Boolean).join(' ');
+    const className = ['building', featureVisualClass, movable ? 'movable' : '', selectedBuildingId === String(b.id) ? 'is-selected' : ''].filter(Boolean).join(' ');
     const buildPort = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
     const buildLabel = b.portLabel || pathLabel(b.worktreePath || b.repo || '');
     const el = renderIsoEntity({
@@ -1711,6 +1771,7 @@ function renderWorld(){
         state.selected = { type:'building', data:b };
         renderSelection();
         if (b.kind === 'feature') renderRunSetupPanel(b.id);
+        rebuildScene();
       }
     });
     if (movable) {
@@ -1737,7 +1798,9 @@ function renderWorld(){
   state.units.forEach(u => {
     const el = document.createElement('div');
     const liveEntry = getLiveAgentEntry(u.runId, u.full);
-    el.className = `unit ${liveEntry ? (liveEntry.stale ? 'live-stale' : 'live-running') : ''}`;
+    const unitKey = `${String(u.runId || '')}:${String(u.full || '')}`;
+    const selectedUnit = selectedUnitKey === unitKey;
+    el.className = `unit ${liveEntry ? (liveEntry.stale ? 'live-stale' : 'live-running') : ''} ${selectedUnit ? 'is-selected' : ''}`;
     if (u.moving) el.classList.add('moving');
     const p = worldToScreen(u.x, u.y);
     el.style.left = `${p.x}px`;
@@ -1747,7 +1810,7 @@ function renderWorld(){
     el.dataset.runId = u.runId;
     el.dataset.agentId = u.full;
     el.dataset.baseTitle = `${u.label} • model: ${u.model || 'unknown'}`;
-    el.onclick = () => { state.selected = { type:'unit', data:u }; renderSelection(); };
+    el.onclick = () => { state.selected = { type:'unit', data:u }; renderSelection(); rebuildScene(); };
     world.appendChild(el);
 
     for (let i = 0; i < u.subagents; i++) {
@@ -1756,12 +1819,12 @@ function renderWorld(){
       const sy = u.y + 8 + Math.sin(angle) * 16;
       const sp = worldToScreen(sx, sy);
       const sub = document.createElement('div');
-      sub.className = 'subunit';
+      sub.className = `subunit ${selectedUnit ? 'is-selected' : ''}`;
       sub.style.left = `${sp.x}px`;
       sub.style.top = `${sp.y}px`;
       sub.style.zIndex = String(worldDepth(sy, 1900));
       sub.title = `subagent • ${u.faction}`;
-      sub.onclick = () => { state.selected = { type:'subunit', data:u }; renderSelection(); };
+      sub.onclick = () => { state.selected = { type:'subunit', data:u }; renderSelection(); rebuildScene(); };
       world.appendChild(sub);
     }
   });
@@ -1811,7 +1874,7 @@ function renderRunAgentsConsole(run, selectedAgentId){
     <h3>Agent Status Console</h3>
     <div class="kv"><strong>Run:</strong> ${esc(run.id.slice(0, 12))}</div>
     <div class="kv"><strong>Task:</strong> ${esc(run.task || '')}</div>
-    <div class="notice" id="restartNotice">Select an agent row; restart forces requeue and kick.</div>
+    <div class="notice" id="restartNotice">Select an agent row; restart forces requeue and kick. Press R on Developer to redo from failed test feedback.</div>
     ${renderAgentStatusList(agents, run)}
     <div class="notice" style="margin-top:8px">Read-only terminal stream. No command input available.</div>
   `;
@@ -1871,15 +1934,19 @@ function renderRunAgentsConsole(run, selectedAgentId){
       if (!runId) return;
       try {
         btn.disabled = true;
-        if (restartNotice) restartNotice.textContent = 'Redoing PR step for developer...';
-        const rr = await postJson('/api/rts/agent/redo-pr', { runId });
+        if (restartNotice) restartNotice.textContent = 'Redoing Developer from failed test feedback...';
+        const rr = await postJson('/api/rts/agent/redo-developer', { runId });
+        if (rr?.kicked) {
+          markRunRelaunched(runId);
+          rebuildScene();
+        }
         state.runs = await json('/api/runs');
         rebuildScene();
         const refreshed = (state.runs || []).find(r => r.id === runId);
         if (refreshed) renderRunAgentsConsole(refreshed, 'feature-dev/developer');
         if (restartNotice) restartNotice.textContent = rr?.kicked
-          ? 'PR step requeued and kicked immediately.'
-          : 'PR step requeued; waiting for cron fallback.';
+          ? `Developer redo queued (story ${rr?.storyId || 'rerun'}), kicked immediately.`
+          : `Developer redo queued (story ${rr?.storyId || 'rerun'}); waiting for cron fallback.`;
       } catch (err) {
         if (restartNotice) restartNotice.textContent = `Redo failed: ${err.message || err}`;
       } finally {
@@ -1902,6 +1969,7 @@ function renderSelection(){
   const s = state.selected;
   if (!s) {
     panel.innerHTML = `<h3>Selection Panel</h3><div class="notice">Select base/building/unit for RTS-style intel and actions.</div>`;
+    renderRunSetupPanel(null);
     return;
   }
 
@@ -1911,6 +1979,14 @@ function renderSelection(){
     const basePort = Number(b.port) || getPortForPath(b.repo || '') || 3333;
     const baseLabel = b.portLabel || pathLabel(b.repo || '');
     panel.innerHTML = `<h3>Base Intel</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Role:</strong> ${esc(baseLabel)}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(basePort)}</div><div class="kv"><strong>Buildings:</strong> ${(b.runs || []).length}</div>${renderSkillTree('orchestrator','Base Systems')}`;
+    const actionPanel = document.getElementById('actionPanel');
+    actionPanel.innerHTML = `
+      <h3>Base Command Console</h3>
+      <div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div>
+      <div class="kv"><strong>Role:</strong> ${esc(baseLabel)}</div>
+      <div class="kv"><strong>Runtime:</strong> ${runtimeLink(basePort)}</div>
+      <div class="notice">Place Feature structures near this base, then launch workflow runs.</div>
+    `;
     stopAgentStream();
     return;
   }
@@ -1919,12 +1995,12 @@ function renderSelection(){
     if (b.kind === 'feature') {
       setFeatureMode(true);
       const port = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
-      panel.innerHTML = `<h3>Feature Forge</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || '-')}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(port)}</div><div class="kv"><strong>Status:</strong> ${esc(prettyStatus(b.run?.status || b.phase || 'draft'))}</div><div class="kv"><strong>Progress:</strong> ${b.progress || 0}%</div>${b.prUrl ? `<a class="pr-link" href="${b.prUrl}" target="_blank">OPEN PULL REQUEST</a>` : '<div class="notice">No PR link detected yet.</div>'}${renderSkillTree('builder','Run Build Matrix')}`;
+      panel.innerHTML = `<h3>Feature Forge</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || '-')}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(port)}</div><div class="kv"><strong>Status:</strong> ${esc(prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'draft')))}</div><div class="kv"><strong>Progress:</strong> ${b.progress || 0}%</div>${b.prUrl ? `<a class="pr-link" href="${b.prUrl}" target="_blank">OPEN PULL REQUEST</a>` : '<div class="notice">No PR link detected yet.</div>'}${renderSkillTree('builder','Run Build Matrix')}`;
       if (!isEditingActionPanel()) renderRunSetupPanel(b.id);
       return;
     }
     const port = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
-    panel.innerHTML = `<h3>Structure Status</h3><div class="kv"><strong>Task:</strong> ${esc(b.run.task || '')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || '-')}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(port)}</div><div class="kv"><strong>Status:</strong> ${esc(prettyStatus(b.run.status || 'waiting'))}</div><div class="kv"><strong>Progress:</strong> ${b.progress}%</div>${b.prUrl ? `<a class="pr-link" href="${b.prUrl}" target="_blank">OPEN PULL REQUEST</a>` : '<div class="notice">No PR link detected yet.</div>'}${renderSkillTree('builder','Run Build Matrix')}`;
+    panel.innerHTML = `<h3>Structure Status</h3><div class="kv"><strong>Task:</strong> ${esc(b.run.task || '')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || '-')}</div><div class="kv"><strong>Runtime:</strong> ${runtimeLink(port)}</div><div class="kv"><strong>Status:</strong> ${esc(prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting')))}</div><div class="kv"><strong>Progress:</strong> ${b.progress}%</div>${b.prUrl ? `<a class="pr-link" href="${b.prUrl}" target="_blank">OPEN PULL REQUEST</a>` : '<div class="notice">No PR link detected yet.</div>'}${renderSkillTree('builder','Run Build Matrix')}`;
     renderRunAgentsConsole(b.run);
     return;
   }
@@ -2356,7 +2432,7 @@ function renderAgentStatusList(agents, run){
           ${canRestartAgentStatus(a.status)
             ? `<button class="agent-restart" data-restart-agent="${esc(a.agentId)}" data-restart-run="${esc(run?.id || '')}">restart</button>`
             : ''}
-          ${baseAgentId(a.agentId).toLowerCase().endsWith('/developer') ? `<button class="agent-redo" data-redo-run="${esc(run?.id || '')}" title="Requeue PR step for developer">redo</button>` : ''}
+          ${baseAgentId(a.agentId).toLowerCase().endsWith('/developer') ? `<button class="agent-redo" data-redo-run="${esc(run?.id || '')}" title="Redo developer from failed test feedback (R)">redo</button>` : ''}
         </div>
       </div>`).join('')
     : '<div class="notice">No assigned agents yet.</div>';
@@ -2365,7 +2441,13 @@ function renderAgentStatusList(agents, run){
 
 function renderRunSetupPanel(targetDraftId){
   const panel = document.getElementById('actionPanel');
-  let draft = targetDraftId ? state.featureBuildings.find(d => d.id === targetDraftId) : state.featureBuildings[state.featureBuildings.length - 1];
+  let draft = null;
+  if (targetDraftId) {
+    draft = state.featureBuildings.find(d => d.id === targetDraftId) || null;
+  } else if (state.selected?.type === 'building' && state.selected?.data?.kind === 'feature') {
+    const selectedId = String(state.selected?.data?.id || '');
+    draft = state.featureBuildings.find(d => d.id === selectedId) || null;
+  }
   if (!draft && targetDraftId) {
     const inferred = (state.buildings || []).find((b) => b.id === targetDraftId && b.kind === 'feature');
     if (inferred) {
@@ -2565,14 +2647,18 @@ function renderRunSetupPanel(targetDraftId){
         try {
           btn.disabled = true;
           const mutationNotice = document.getElementById('featureMutationNotice');
-          if (mutationNotice) mutationNotice.textContent = 'Redoing PR step for developer...';
-          const rr = await postJson('/api/rts/agent/redo-pr', { runId });
+          if (mutationNotice) mutationNotice.textContent = 'Redoing Developer from failed test feedback...';
+          const rr = await postJson('/api/rts/agent/redo-developer', { runId });
+          if (rr?.kicked) {
+            markRunRelaunched(runId);
+            rebuildScene();
+          }
           state.runs = await json('/api/runs');
           rebuildScene();
           renderRunSetupPanel(draft.id);
           if (mutationNotice) mutationNotice.textContent = rr?.kicked
-            ? 'PR step requeued and kicked immediately.'
-            : 'PR step requeued; waiting for cron fallback.';
+            ? `Developer redo queued (story ${rr?.storyId || 'rerun'}), kicked immediately.`
+            : `Developer redo queued (story ${rr?.storyId || 'rerun'}); waiting for cron fallback.`;
         } catch (err) {
           const mutationNotice = document.getElementById('featureMutationNotice');
           if (mutationNotice) mutationNotice.textContent = `Redo failed: ${err.message || err}`;
@@ -2671,13 +2757,28 @@ document.addEventListener('keydown', (e) => {
       return;
     }
   }
+  if (e.key === 'Escape') {
+    clearSelectedEntity();
+    setPlacement(null);
+    return;
+  }
   if (e.target && ['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+  if (e.key === 'r' || e.key === 'R') {
+    const activeRow = document.querySelector('#assignedAgentList .agent-row.active');
+    const activeAgent = String(activeRow?.getAttribute?.('data-agent') || '');
+    const activeIsDeveloper = /\/developer$/i.test(activeAgent);
+    const developerRow = activeIsDeveloper
+      ? activeRow
+      : document.querySelector('#assignedAgentList .agent-row[data-agent$="/developer"]');
+    const redoBtn = developerRow?.querySelector?.('.agent-redo');
+    if (redoBtn) {
+      e.preventDefault();
+      redoBtn.click();
+      return;
+    }
+  }
   if (e.key === 'b' || e.key === 'B') setPlacement('base');
   if (e.key === 'f' || e.key === 'F') setPlacement('feature');
-  if (e.key === 'Escape') {
-    cancelActiveFeatureDraft();
-    setPlacement(null);
-  }
   if (e.key === 'Delete' || e.key === 'Backspace') deleteSelectedStructure();
 });
 
@@ -2760,6 +2861,9 @@ worldEl.addEventListener('click', (e) => {
     state.suppressWorldClick = false;
     return;
   }
+  const target = e.target instanceof Element ? e.target : null;
+  if (target?.closest('.entity, .unit, .subunit, .build-note')) return;
+  if (state.selected) clearSelectedEntity();
 });
 
 boot();
