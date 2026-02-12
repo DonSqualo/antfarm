@@ -70,3 +70,10 @@ Started: 2026-02-11 05:47 ET
 - Files changed: `src/server/rts.html`, `tests/rts-research-agenda-persistence.test.ts`, `progress.txt`
 - **Learnings:** RTS state snapshots can persist selective layout-owned entity arrays (e.g., `researchBuildings`) when paired with server-side layout upsert reconciliation.
 ---
+## 2026-02-12 21:29 - US-001: Fix RTS building palette e2e regression after agenda persistence changes
+- Restored `<div class="command-title">BUILD FORGE 4</div>` in `src/server/rts.html` command bar so palette UI matches e2e selector contract.
+- Rebuilt dist artifacts via `npm run build` so `dist/server/rts.html` includes the same command title element.
+- Confirmed the previously failing required suite now passes.
+- Files changed: `src/server/rts.html`, `progress.txt`
+- **Learnings:** `tests/rts-building-palette.e2e.test.ts` treats `.command-title` as a required UI contract, so command-bar refactors must preserve that selector/text or update tests in lockstep.
+---
