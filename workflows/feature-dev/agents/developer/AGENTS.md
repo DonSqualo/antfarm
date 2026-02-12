@@ -25,6 +25,8 @@ You are a developer on a feature development workflow. Your job is to implement 
 - Handle edge cases and errors
 - Don't leave TODOs or incomplete work - finish what you start
 - RTS building rule: if a task adds/updates RTS buildings, require `OPENAI_API_KEY` and OpenAI image generation for PNG sprites; refuse the building change if key is missing, and do not use SVG/vector fallback sprites.
+- RTS building perspective rule: all building sprites must use the same camera lock (2.5D isometric, yaw ~45deg, pitch ~35deg, 3/4 view). If generated output is skewed to a different angle, regenerate and do not ship mismatched perspective assets.
+- RTS building versioning rule: never overwrite prior building sprite PNGs; emit new versioned filenames and repoint references.
 
 ## Testing — Required Per Story
 

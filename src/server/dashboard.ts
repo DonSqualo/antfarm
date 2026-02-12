@@ -148,6 +148,11 @@ function getRtsState(): Record<string, unknown> {
   } catch {
     state = {};
   }
+  // Legacy cleanup: these are now entity-owned or ephemeral and should not be revived from rts_state.
+  delete (state as Record<string, unknown>).baseDrafts;
+  delete (state as Record<string, unknown>).researchPlansByRepo;
+  delete (state as Record<string, unknown>).warehouseItemsByRepo;
+  delete (state as Record<string, unknown>).portByPath;
   const rows = db.prepare(
     "SELECT id, entity_type, run_id, repo_path, worktree_path, x, y, payload_json FROM rts_layout_entities ORDER BY updated_at DESC"
   ).all() as Array<{

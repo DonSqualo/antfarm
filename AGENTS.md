@@ -49,6 +49,8 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - RTS sprite assets are in `src/server/rts-sprites/`.
 - `npm run build` copies `src/server/index.html`, `src/server/rts.html`, and `src/server/rts-sprites/*` into `dist/server/`.
 - Building sprite policy: refuse building create/update work when `OPENAI_API_KEY` is not set; building sprites must be produced via OpenAI image generation as PNG assets (no SVG/vector fallback pipeline for buildings).
+- RTS building perspective policy: enforce a fixed camera lock for all building sprites (2.5D isometric 3/4 view, yaw ~45deg, pitch ~35deg, same angle across base/feature/research/warehouse). Refuse delivery when perspective does not match.
+- RTS sprite versioning policy: do not replace existing building sprite files; add new versioned PNG filenames and update `src/server/rts.html` references.
 
 ## What It Changes in OpenClaw
 

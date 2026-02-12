@@ -23,7 +23,24 @@
   --warn:#ffd06b;
   --bad:#ff7198;
 }
-* { box-sizing:border-box; margin:0; padding:0; }
+* {
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
+  -ms-overflow-style:none;
+  scrollbar-width:none;
+}
+*::-webkit-scrollbar {
+  width:0;
+  height:0;
+  display:none;
+  background:transparent;
+}
+html, body {
+  width:100%;
+  height:100%;
+  overflow:hidden;
+}
 body {
   font-family:Inter,system-ui,sans-serif;
   color:var(--corpus-ice);
@@ -174,16 +191,28 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   gap:8px;
   align-items:center;
   overflow-x:auto;
-  overflow-y:hidden;
+  overflow-y:visible;
 }
 .palette-card {
+  --palette-bg:none;
+  --overlay-opacity:0.85;
   appearance:none;
   border:1px solid #5584ab;
-  width:88px;
-  height:88px;
-  min-width:88px;
+  width:116px;
+  height:116px;
+  min-width:116px;
   border-radius:12px;
-  background:linear-gradient(150deg,#0f2842 0%,#0a1e34 58%,#081629 100%);
+  background-image:
+    linear-gradient(
+      150deg,
+      rgb(15 40 66 / var(--overlay-opacity)) 0%,
+      rgb(10 30 52 / var(--overlay-opacity)) 58%,
+      rgb(8 22 41 / var(--overlay-opacity)) 100%
+    ),
+    var(--palette-bg);
+  background-size:auto, cover;
+  background-position:center, center;
+  background-repeat:no-repeat, no-repeat;
   box-shadow:0 7px 14px #00000066;
   cursor:grab;
   display:flex;
@@ -192,17 +221,19 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   position:relative;
 }
 .palette-card:hover {
+  --overlay-opacity:0;
   border-color:#8de7ff;
   box-shadow:0 0 0 1px #95e6ff44 inset, 0 8px 18px #0000007a;
 }
 .palette-card.active {
+  --overlay-opacity:0;
   border-color:#8de7ff;
   box-shadow:0 0 0 1px #95e6ff77 inset, 0 0 20px #57dfff4f;
 }
 .palette-card:active { cursor:grabbing; }
 .palette-sprite {
-  width:56px;
-  height:56px;
+  width:84px;
+  height:84px;
   object-fit:contain;
   opacity:.95;
   filter:none;
@@ -218,6 +249,55 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   font-family:'Geist Mono', monospace;
   letter-spacing:.5px;
 }
+.palette-tooltip {
+  position:absolute;
+  left:50%;
+  bottom:calc(100% + 10px);
+  transform:translateX(-50%) translateY(8px);
+  width:220px;
+  padding:9px 10px;
+  border:1px solid #79dfff;
+  border-radius:10px;
+  background:linear-gradient(180deg, #0b233c 0%, #09182c 100%);
+  box-shadow:0 12px 20px #0000008a;
+  color:#d9f7ff;
+  text-align:left;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .14s ease, transform .14s ease;
+  z-index:85;
+}
+.palette-tooltip::after {
+  content:'';
+  position:absolute;
+  left:50%;
+  top:100%;
+  width:10px;
+  height:10px;
+  transform:translateX(-50%) rotate(45deg);
+  border-right:1px solid #79dfff;
+  border-bottom:1px solid #79dfff;
+  background:#09182c;
+}
+.palette-tooltip .tooltip-title {
+  display:block;
+  font-family:Orbitron,sans-serif;
+  font-size:11px;
+  letter-spacing:.4px;
+  color:#90e5ff;
+  margin-bottom:3px;
+}
+.palette-tooltip .tooltip-copy {
+  display:block;
+  font-size:11px;
+  line-height:1.35;
+  color:#caeefb;
+}
+.palette-card:hover .palette-tooltip,
+.palette-card:focus-visible .palette-tooltip {
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
 .world-wrap.drop-armed { outline:2px dashed #8de7ff; outline-offset:-6px; }
 .placement-layer { pointer-events:none; }
 .placement-ghost { opacity:.45; border-style:dashed; }
@@ -229,8 +309,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   display:block;
   pointer-events:none;
   filter:none;
-  image-rendering:pixelated;
-  image-rendering:crisp-edges;
+  image-rendering:auto;
   position:absolute;
   left:50%;
   top:50%;
@@ -507,13 +586,17 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     bottom:8px;
   }
   .palette-card {
-    width:72px;
-    height:72px;
-    min-width:72px;
+    width:88px;
+    height:88px;
+    min-width:88px;
   }
   .palette-sprite {
-    width:44px;
-    height:44px;
+    width:60px;
+    height:60px;
+  }
+  .palette-tooltip {
+    width:180px;
+    font-size:10px;
   }
   .term-view {
     min-height:180px;
@@ -533,7 +616,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     </div>
     <div class="hud">
       <div class="hud-left panel">
-        <div class="command-title">BUILD TRACE 3</div>
+        <div class="command-title">BUILD FORGE 4</div>
         <button id="cancelPlacementBtn" class="command-icon-btn" title="Cancel placement (Esc)" aria-label="Cancel placement (Escape)">
           <img src="/rts-sprites/cancel-button.svg?v=20260212" alt="" aria-hidden="true" />
         </button>
@@ -561,20 +644,32 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 
     <section class="command-bar">
       <div class="command-grid">
-        <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)">
-          <img class="palette-sprite" src="/rts-sprites/base-core-corpus-test.png?v=20260212b" alt="" />
+        <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)" style="--palette-bg:url('/rts-sprites/base-core-ogame-preview-20260212k.webp?v=20260212k');">
+          <span class="palette-tooltip" role="tooltip">
+            <span class="tooltip-title">Base Core</span>
+            <span class="tooltip-copy">Main command hub. Place first to anchor routing and runtime links.</span>
+          </span>
           <span class="hotkey">B</span>
         </button>
-        <button class="palette-card" draggable="true" data-building="feature" title="Feature Forge (F)">
-          <img class="palette-sprite" src="/rts-sprites/feature-forge-corpus-test.png?v=20260212b" alt="" />
+        <button class="palette-card" draggable="true" data-building="feature" title="Feature Forge (F)" style="--palette-bg:url('/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k');">
+          <span class="palette-tooltip" role="tooltip">
+            <span class="tooltip-title">Feature Forge</span>
+            <span class="tooltip-copy">Creates feature runs. Link a base repo, draft stories, and launch agents.</span>
+          </span>
           <span class="hotkey">F</span>
         </button>
-        <button class="palette-card" draggable="true" data-building="research" title="Research Lab (L)">
-          <img class="palette-sprite" src="/rts-sprites/research-lab-corpus-test.png?v=20260212d" alt="" />
+        <button class="palette-card" draggable="true" data-building="research" title="Research Lab (L)" style="--palette-bg:url('/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k');">
+          <span class="palette-tooltip" role="tooltip">
+            <span class="tooltip-title">Research Lab</span>
+            <span class="tooltip-copy">Scans repos and generates plan cards. Drag plans to seed feature drafts.</span>
+          </span>
           <span class="hotkey">L</span>
         </button>
-        <button class="palette-card" draggable="true" data-building="warehouse" title="Warehouse (W)">
-          <img class="palette-sprite" src="/rts-sprites/warehouse-corpus-test.png?v=20260212c" alt="" />
+        <button class="palette-card" draggable="true" data-building="warehouse" title="Warehouse (W)" style="--palette-bg:url('/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k');">
+          <span class="palette-tooltip" role="tooltip">
+            <span class="tooltip-title">Warehouse</span>
+            <span class="tooltip-copy">Stores completed artifacts and links them back to base logistics.</span>
+          </span>
           <span class="hotkey">W</span>
         </button>
       </div>
@@ -592,8 +687,6 @@ const state = {
   featureBuildings: [],
   researchBuildings: [],
   warehouseBuildings: [],
-  researchPlansByRepo: {},
-  warehouseItemsByRepo: {},
   runLayoutOverrides: {},
   portByPath: {},
   runtime: null,
@@ -659,10 +752,6 @@ async function postJson(url, body){
 
 function snapshotPersistableState(){
   return {
-    baseDrafts: state.baseDrafts || [],
-    researchPlansByRepo: state.researchPlansByRepo || {},
-    warehouseItemsByRepo: state.warehouseItemsByRepo || {},
-    portByPath: state.portByPath || {},
     camera: state.camera || { x:0, y:0 }
   };
 }
@@ -756,7 +845,6 @@ async function hydratePersistedState(){
     }
     state.customBases = Array.from(byRepo.values());
   }
-  if (Array.isArray(persisted.baseDrafts)) state.baseDrafts = persisted.baseDrafts;
   if (Array.isArray(persisted.featureBuildings)) {
     const seen = new Set();
     state.featureBuildings = persisted.featureBuildings
@@ -779,28 +867,7 @@ async function hydratePersistedState(){
       .map(normalizeWarehouseBuilding)
       .filter((wb) => !!wb.repo);
   }
-  if (persisted.researchPlansByRepo && typeof persisted.researchPlansByRepo === 'object') {
-    const byRepo = {};
-    for (const [repoKey, list] of Object.entries(persisted.researchPlansByRepo)) {
-      byRepo[String(repoKey)] = (Array.isArray(list) ? list : []).map((plan, idx) =>
-        normalizeResearchPlan(plan, `persisted-${Date.now()}-${idx + 1}`)
-      );
-    }
-    state.researchPlansByRepo = byRepo;
-  }
-  if (persisted.warehouseItemsByRepo && typeof persisted.warehouseItemsByRepo === 'object') {
-    const byRepo = {};
-    for (const [repoKey, list] of Object.entries(persisted.warehouseItemsByRepo)) {
-      byRepo[String(repoKey)] = (Array.isArray(list) ? list : []).map((plan, idx) =>
-        normalizeResearchPlan(plan, `warehouse-${Date.now()}-${idx + 1}`)
-      );
-    }
-    state.warehouseItemsByRepo = byRepo;
-  }
   if (persisted.runLayoutOverrides && typeof persisted.runLayoutOverrides === 'object') state.runLayoutOverrides = persisted.runLayoutOverrides;
-  if (persisted.portByPath && typeof persisted.portByPath === 'object') {
-    state.portByPath = persisted.portByPath;
-  }
   if (persisted.camera && typeof persisted.camera === 'object') {
     state.camera = {
       x: Number(persisted.camera.x) || 0,
@@ -1549,6 +1616,7 @@ function placeResearchAt(x,y){
     x, y,
     repo: base.repo || 'unlinked-repo',
     worktreePath: base.repo || 'unlinked-repo',
+    plans: [],
     baseId: base.id
   };
   state.researchBuildings.push(researchBuilding);
@@ -1582,6 +1650,7 @@ function placeWarehouseAt(x,y){
     x, y,
     repo: base.repo || 'unlinked-repo',
     worktreePath: base.repo || 'unlinked-repo',
+    items: [],
     baseId: base.id
   };
   state.warehouseBuildings.push(warehouseBuilding);
@@ -1604,18 +1673,18 @@ function placeWarehouseAt(x,y){
 
 function structureMarkup(kind){
   if (kind === 'base') {
-    return `<img class="building-sprite" src="/rts-sprites/base-core-corpus-test.png?v=20260212b" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/base-core-ogame-map-20260212m.png?v=20260212m" alt="" />`;
   }
   if (kind === 'feature') {
-    return `<img class="building-sprite" src="/rts-sprites/feature-forge-corpus-test.png?v=20260212b" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/feature-forge-ogame-map-20260212i.png?v=20260212i" alt="" />`;
   }
   if (kind === 'research') {
-    return `<img class="building-sprite" src="/rts-sprites/research-lab-corpus-test.png?v=20260212d" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/research-lab-ogame-map-20260212m.png?v=20260212m" alt="" />`;
   }
   if (kind === 'warehouse') {
-    return `<img class="building-sprite" src="/rts-sprites/warehouse-corpus-test.png?v=20260212c" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/warehouse-ogame-map-20260212m.png?v=20260212m" alt="" />`;
   }
-  return `<img class="building-sprite" src="/rts-sprites/feature-forge-corpus-test.png?v=20260212b" alt="" />`;
+  return `<img class="building-sprite" src="/rts-sprites/feature-forge-ogame-map-20260212i.png?v=20260212i" alt="" />`;
 }
 
 function snapPlacement(kind, worldX, worldY){
@@ -1926,6 +1995,7 @@ function normalizeResearchBuilding(raw){
     kind: 'research',
     repo,
     worktreePath: String(src.worktreePath || repo),
+    plans: (Array.isArray(src.plans) ? src.plans : []).map((p, idx) => normalizeResearchPlan(p, `lab-plan-${idx + 1}`)),
     baseId: String(src.baseId || ''),
     x: Number(src.x || 0),
     y: Number(src.y || 0)
@@ -1941,6 +2011,7 @@ function normalizeWarehouseBuilding(raw){
     kind: 'warehouse',
     repo,
     worktreePath: String(src.worktreePath || repo),
+    items: (Array.isArray(src.items) ? src.items : []).map((p, idx) => normalizeResearchPlan(p, `wh-item-${idx + 1}`)),
     baseId: String(src.baseId || ''),
     x: Number(src.x || 0),
     y: Number(src.y || 0)
@@ -1991,12 +2062,28 @@ function mergeResearchPlans(existingList, incomingList){
   return Array.from(byId.values());
 }
 
+function primaryResearchLabForRepo(repoKey){
+  const key = baseRepoKey(String(repoKey || ''));
+  const labs = (state.researchBuildings || [])
+    .filter((rb) => baseRepoKey(String(rb.repo || '')) === key)
+    .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+  return labs[0] || null;
+}
+
+function primaryWarehouseForRepo(repoKey){
+  const key = baseRepoKey(String(repoKey || ''));
+  const warehouses = (state.warehouseBuildings || [])
+    .filter((wb) => baseRepoKey(String(wb.repo || '')) === key)
+    .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+  return warehouses[0] || null;
+}
+
 function appendResearchPlans(repoKey, incomingList){
-  const key = String(repoKey || '');
-  if (!key) return [];
-  const existing = Array.isArray(state.researchPlansByRepo?.[key]) ? state.researchPlansByRepo[key] : [];
+  const lab = primaryResearchLabForRepo(repoKey);
+  if (!lab) return [];
+  const existing = Array.isArray(lab.plans) ? lab.plans : [];
   const merged = mergeResearchPlans(existing, incomingList);
-  state.researchPlansByRepo = { ...(state.researchPlansByRepo || {}), [key]: merged };
+  lab.plans = merged;
   queuePersist();
   return merged;
 }
@@ -2009,19 +2096,19 @@ function planImportanceScore(plan){
 }
 
 function appendWarehouseItems(repoKey, incomingList){
-  const key = String(repoKey || '');
-  if (!key) return [];
-  const existing = Array.isArray(state.warehouseItemsByRepo?.[key]) ? state.warehouseItemsByRepo[key] : [];
+  const warehouse = primaryWarehouseForRepo(repoKey);
+  if (!warehouse) return [];
+  const existing = Array.isArray(warehouse.items) ? warehouse.items : [];
   const merged = mergeResearchPlans(existing, incomingList);
-  state.warehouseItemsByRepo = { ...(state.warehouseItemsByRepo || {}), [key]: merged };
+  warehouse.items = merged;
   queuePersist();
   return merged;
 }
 
 function consumeMostImportantWarehouseItem(repoKey){
-  const key = String(repoKey || '');
-  if (!key) return null;
-  const list = Array.isArray(state.warehouseItemsByRepo?.[key]) ? state.warehouseItemsByRepo[key] : [];
+  const warehouse = primaryWarehouseForRepo(repoKey);
+  if (!warehouse) return null;
+  const list = Array.isArray(warehouse.items) ? warehouse.items : [];
   if (!list.length) return null;
   let bestIdx = -1;
   let bestScore = -1;
@@ -2035,16 +2122,16 @@ function consumeMostImportantWarehouseItem(repoKey){
   if (bestIdx < 0) return null;
   const plan = normalizeResearchPlan(list[bestIdx]);
   const next = [...list.slice(0, bestIdx), ...list.slice(bestIdx + 1)];
-  state.warehouseItemsByRepo = { ...(state.warehouseItemsByRepo || {}), [key]: next };
+  warehouse.items = next;
   queuePersist();
   return plan;
 }
 
 function markResearchPlanWontFix(repoKey, planId){
-  const key = String(repoKey || '');
+  const lab = primaryResearchLabForRepo(repoKey);
   const id = String(planId || '');
-  if (!key || !id) return false;
-  const existing = Array.isArray(state.researchPlansByRepo?.[key]) ? state.researchPlansByRepo[key] : [];
+  if (!lab || !id) return false;
+  const existing = Array.isArray(lab.plans) ? lab.plans : [];
   let changed = false;
   const next = existing.map((raw) => {
     const plan = normalizeResearchPlan(raw);
@@ -2053,7 +2140,7 @@ function markResearchPlanWontFix(repoKey, planId){
     return { ...plan, disposition: 'WONT_FIX' };
   });
   if (!changed) return false;
-  state.researchPlansByRepo = { ...(state.researchPlansByRepo || {}), [key]: next };
+  lab.plans = next;
   queuePersist();
   return true;
 }
@@ -2305,7 +2392,7 @@ function renderWorld(){
         : prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting')));
     const warehouseRepo = baseRepoKey(String(b.repo || ''));
     const warehouseCount = b.kind === 'warehouse'
-      ? (Array.isArray(state.warehouseItemsByRepo?.[warehouseRepo]) ? state.warehouseItemsByRepo[warehouseRepo].length : 0)
+      ? (Array.isArray(b.items) ? b.items.length : 0)
       : 0;
     const color = status === 'done' ? 'var(--ok)' : status === 'failed' ? 'var(--bad)' : 'var(--warn)';
     const movable = true;
@@ -2568,7 +2655,7 @@ function renderSelection(){
     if (b.kind === 'warehouse') {
       setFeatureMode(false);
       const repoKey = baseRepoKey(String(b.repo || ''));
-      const count = Array.isArray(state.warehouseItemsByRepo?.[repoKey]) ? state.warehouseItemsByRepo[repoKey].length : 0;
+      const count = Array.isArray(b.items) ? b.items.length : 0;
       panel.innerHTML = `<h3>Warehouse</h3><div class="kv"><strong>Repo:</strong> ${esc(b.repo || 'unlinked')}</div><div class="kv"><strong>Worktree:</strong> ${esc(b.worktreePath || b.repo || '-')}</div><div class="kv"><strong>Stored Items:</strong> ${count}</div><div class="notice">Input: Research Lab deploy. Output: feature refill when marked empty.</div>`;
       if (!isEditingActionPanel()) renderWarehousePanel(b.id);
       return;
@@ -3063,7 +3150,9 @@ function placeFeatureDraftFromPlan(plan, x, y, repo){
 function consumeResearchPlan(repoKey, planId){
   dbg('planQueue:consume:start', { repoKey, planId });
   if (!repoKey || !planId) return null;
-  const list = Array.isArray(state.researchPlansByRepo?.[repoKey]) ? state.researchPlansByRepo[repoKey] : [];
+  const lab = primaryResearchLabForRepo(repoKey);
+  if (!lab) return null;
+  const list = Array.isArray(lab.plans) ? lab.plans : [];
   const idx = list.findIndex((p) => String(p.id) === String(planId));
   if (idx < 0) {
     dbg('planQueue:consume:miss', { repoKey, planId, size: list.length });
@@ -3071,18 +3160,16 @@ function consumeResearchPlan(repoKey, planId){
   }
   const plan = list[idx];
   const next = [...list.slice(0, idx), ...list.slice(idx + 1)];
-  state.researchPlansByRepo = { ...(state.researchPlansByRepo || {}), [repoKey]: next };
+  lab.plans = next;
   queuePersist();
   dbg('planQueue:consume:ok', { repoKey, planId, remaining: next.length });
   return plan;
 }
 
 function consumeResearchPlanAny(planId, preferredRepoKey = ''){
-  dbg('planQueue:consumeAny:start', { planId, preferredRepoKey, keys: Object.keys(state.researchPlansByRepo || {}) });
+  const labs = Array.isArray(state.researchBuildings) ? state.researchBuildings : [];
+  dbg('planQueue:consumeAny:start', { planId, preferredRepoKey, labs: labs.map((l) => l.id) });
   const preferred = String(preferredRepoKey || '');
-  const byRepo = state.researchPlansByRepo && typeof state.researchPlansByRepo === 'object'
-    ? state.researchPlansByRepo
-    : {};
   if (preferred) {
     const plan = consumeResearchPlan(preferred, planId);
     if (plan) {
@@ -3090,8 +3177,8 @@ function consumeResearchPlanAny(planId, preferredRepoKey = ''){
       return { plan, repoKey: preferred };
     }
   }
-  const keys = Object.keys(byRepo);
-  for (const key of keys) {
+  const keys = labs.map((l) => baseRepoKey(String(l.repo || ''))).filter(Boolean);
+  for (const key of [...new Set(keys)]) {
     const plan = consumeResearchPlan(key, planId);
     if (plan) {
       dbg('planQueue:consumeAny:hit_fallback', { repoKey: key, planId });
@@ -3114,7 +3201,7 @@ function renderResearchLabPanel(targetLabId){
   const runtimeRepo = normalizePathKey(String(state.runtime?.cwd || ''));
   const effectiveRepo = (requestedRepo && requestedRepo !== 'workspace-repo') ? requestedRepo : runtimeRepo;
   const repoKey = effectiveRepo || requestedRepo || 'workspace-repo';
-  const plans = (Array.isArray(state.researchPlansByRepo?.[repoKey]) ? state.researchPlansByRepo[repoKey] : [])
+  const plans = (Array.isArray(lab.plans) ? lab.plans : [])
     .map((plan, idx) => normalizeResearchPlan(plan, `plan-${Date.now()}-${idx + 1}`));
   if (effectiveRepo && lab.repo !== effectiveRepo) {
     lab.repo = effectiveRepo;
@@ -3156,10 +3243,8 @@ function renderResearchLabPanel(targetLabId){
         if (!plan) return;
         const queue = appendWarehouseItems(repoKey, [plan]);
         if (!queue.length) {
-          state.researchPlansByRepo = {
-            ...(state.researchPlansByRepo || {}),
-            [repoKey]: [plan, ...(state.researchPlansByRepo?.[repoKey] || [])]
-          };
+          const existing = Array.isArray(lab.plans) ? lab.plans : [];
+          lab.plans = [plan, ...existing];
           queuePersist();
           dbg('planDeploy:restore_after_failed_store', { id, repoKey });
         }
@@ -3184,7 +3269,7 @@ function renderResearchLabPanel(targetLabId){
     list.querySelectorAll('.research-plan').forEach((row) => {
       row.addEventListener('dragstart', (e) => {
         const id = row.getAttribute('data-plan-id') || '';
-        const plan = (Array.isArray(state.researchPlansByRepo?.[repoKey]) ? state.researchPlansByRepo[repoKey] : [])
+        const plan = (Array.isArray(lab.plans) ? lab.plans : [])
           .map((x) => normalizeResearchPlan(x))
           .find((x) => String(x.id) === String(id));
         if (String(plan?.disposition || 'OPEN').toUpperCase() === 'WONT_FIX') {
@@ -3246,7 +3331,7 @@ function renderWarehousePanel(targetWarehouseId){
     return;
   }
   const repoKey = baseRepoKey(String(warehouse.repo || ''));
-  const items = (Array.isArray(state.warehouseItemsByRepo?.[repoKey]) ? state.warehouseItemsByRepo[repoKey] : [])
+  const items = (Array.isArray(warehouse.items) ? warehouse.items : [])
     .map((plan, idx) => normalizeResearchPlan(plan, `warehouse-plan-${idx + 1}`));
   const nearestLab = (state.researchBuildings || [])
     .filter((rb) => baseRepoKey(String(rb.repo || '')) === repoKey)
@@ -3595,10 +3680,9 @@ function commitResearchDropFromPayload(researchDrop, snapped){
   const placed = placeFeatureDraftFromPlan(consumed.plan, snapped.x, snapped.y, effectiveRepoPath);
   dbg('planDrop:commit:placed', { placed, effectiveRepoPath });
   if (!placed) {
-    state.researchPlansByRepo = {
-      ...(state.researchPlansByRepo || {}),
-      [consumed.repoKey]: [consumed.plan, ...(state.researchPlansByRepo?.[consumed.repoKey] || [])]
-    };
+    const lab = primaryResearchLabForRepo(consumed.repoKey);
+    const existing = Array.isArray(lab?.plans) ? lab.plans : [];
+    if (lab) lab.plans = [consumed.plan, ...existing];
     queuePersist();
     return false;
   }
@@ -3621,10 +3705,9 @@ function commitQueuedResearchPlan(snapped){
   const placed = placeFeatureDraftFromPlan(consumed.plan, snapped.x, snapped.y, effectiveRepoPath);
   dbg('planDrop:queued:commit:placed', { placed, effectiveRepoPath });
   if (!placed) {
-    state.researchPlansByRepo = {
-      ...(state.researchPlansByRepo || {}),
-      [consumed.repoKey]: [consumed.plan, ...(state.researchPlansByRepo?.[consumed.repoKey] || [])]
-    };
+    const lab = primaryResearchLabForRepo(consumed.repoKey);
+    const existing = Array.isArray(lab?.plans) ? lab.plans : [];
+    if (lab) lab.plans = [consumed.plan, ...existing];
     queuePersist();
     return false;
   }
