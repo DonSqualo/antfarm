@@ -1530,6 +1530,30 @@ export function startDashboard(port = 3333): http.Server {
       return json(res, discoverLocalGitRepos());
     }
 
+    if (p === "/api/rts/base/clone" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { useExistingRepoPath?: string; repoUrl?: string; targetPath?: string };
+        const existingRepoPath = normalizeRepoPath(String(body?.useExistingRepoPath || ""));
+        if (existingRepoPath) {
+          if (!fs.existsSync(existingRepoPath)) {
+            return json(res, { ok: false, error: `Existing repo path not found: ${existingRepoPath}` }, 400);
+          }
+          if (!isGitRepoDirectory(existingRepoPath)) {
+            return json(res, { ok: false, error: `Not a git repo: ${existingRepoPath}` }, 400);
+          }
+          return json(res, { ok: true, mode: "existing", repoPath: existingRepoPath });
+        }
+
+        return json(res, {
+          ok: false,
+          error: "Clone-mode base creation is not supported in this flow. Select an existing local git repo.",
+        }, 400);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 400);
+      }
+    }
+
     if (p === "/api/rts/state" && method === "GET") {
       return json(res, { ok: true, state: getRtsState() });
     }
