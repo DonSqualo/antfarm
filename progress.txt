@@ -14,6 +14,7 @@ Started: 2026-02-11 05:47 ET
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
 - RTS multi-panel API responses should use `createPanelUpdateEnvelope` + `PANEL_TARGETS` (`src/server/panel-update-contract.ts`) so panel targets stay typed and centrally validated.
 - RTS client panel swaps should flow through target registries (`panelPatchRenderers`, `buildingSelectionRenderers`) so new panel targets/kinds can be added without changing click handlers.
+- Building selection flows should emit one `createBuildingSelectionPanelUpdate(...)` envelope containing both bottom-bar and right-sidebar patches, then dispatch via `applyPanelUpdateRouter(...)`.
 
 ---
 
@@ -125,4 +126,12 @@ Started: 2026-02-11 05:47 ET
 - Added regression coverage in `tests/rts-panel-patch-router.test.ts` for router presence, default-route behavior, and renderer mapping in both `src/server/rts.html` and `dist/server/rts.html`.
 - Files changed: `src/server/rts.html`, `tests/rts-panel-patch-router.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** The RTS client now has a target-ID panel dispatch seam that can be extended for future left-panel/video content without changing selection click wiring.
+---
+## 2026-02-13 20:52 - US-003: Emit building-selection panel patches instead of direct panel mutations
+- Added `createBuildingSelectionPanelUpdate(building)` to emit one multi-target envelope for building clicks, containing both bottom command-bar and right action-sidebar patches.
+- Routed all building selection renderers (`feature`, `research`, `university`, `warehouse`, `library`, `power`) through `applyPanelUpdateRouter(...)` instead of directly mutating sidebar DOM render functions from selection handlers.
+- Extended right-sidebar panel patch renderer to handle research/university/storage modes by `buildingId`, keeping the selection-state mechanics and visual markers unchanged.
+- Added regression test `tests/rts-building-selection-panel-patches.test.ts` validating envelope structure and router-based building selection orchestration in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-building-selection-panel-patches.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** Building click flows should emit a single multi-panel update envelope and let target patch renderers own DOM updates per panel.
 ---
