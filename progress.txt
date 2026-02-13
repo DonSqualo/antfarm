@@ -13,6 +13,7 @@ Started: 2026-02-11 05:47 ET
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
 - RTS multi-panel API responses should use `createPanelUpdateEnvelope` + `PANEL_TARGETS` (`src/server/panel-update-contract.ts`) so panel targets stay typed and centrally validated.
+- RTS client panel swaps should flow through target registries (`panelPatchRenderers`, `buildingSelectionRenderers`) so new panel targets/kinds can be added without changing click handlers.
 
 ---
 
@@ -115,4 +116,13 @@ Started: 2026-02-11 05:47 ET
 - Added regression coverage in `tests/panel-update-contract.test.ts` for target constants, deterministic rejection of unknown targets, normalization behavior, and dashboard usage of the contract.
 - Files changed: `src/server/panel-update-contract.ts`, `src/server/dashboard.ts`, `tests/panel-update-contract.test.ts`, `progress.txt`
 - **Learnings:** For cross-panel RTS updates, return a typed `uiUpdate` envelope from API responses instead of coupling callers to DOM IDs directly.
+---
+## 2026-02-13 19:03 - US-002: Add a central panel patch router in the RTS client
+- Added a client-side panel patch router in `src/server/rts.html` with target registration (`registerPanelPatchRenderer`) and dispatch (`applyPanelUpdateRouter` / `applyPanelPatch`) keyed by panel target ID.
+- Routed default Action Console rendering through the new dispatcher (`routeDefaultActionConsole`) so default sidebar behavior is preserved through the central routing path.
+- Refactored building selection panel rendering to a mapped registry (`buildingSelectionRenderers`) so adding new building/panel kinds no longer requires hardcoded click-handler branching.
+- Wired feature run start/delete API responses to apply server-provided `uiUpdate` panel patches via the dispatcher.
+- Added regression coverage in `tests/rts-panel-patch-router.test.ts` for router presence, default-route behavior, and renderer mapping in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-panel-patch-router.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** The RTS client now has a target-ID panel dispatch seam that can be extended for future left-panel/video content without changing selection click wiring.
 ---
