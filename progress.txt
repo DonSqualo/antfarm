@@ -12,6 +12,7 @@ Started: 2026-02-11 05:47 ET
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
+- RTS multi-panel API responses should use `createPanelUpdateEnvelope` + `PANEL_TARGETS` (`src/server/panel-update-contract.ts`) so panel targets stay typed and centrally validated.
 
 ---
 
@@ -107,4 +108,11 @@ Started: 2026-02-11 05:47 ET
 - Expanded RTS e2e script to run both palette UI regression and existing-repo base flow regression
 - Files changed: `src/server/dashboard.ts`, `tests/rts-base-existing-repo.e2e.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** RTS base creation server contract now explicitly supports existing-local-repo mode through `/api/rts/base/clone`; regression coverage should assert this contract directly.
+---
+## 2026-02-13 16:58 - US-001: Define an internal panel-update contract with explicit target regions
+- Added shared panel update contract in `src/server/panel-update-contract.ts` with typed envelope/patch models, canonical panel target IDs, and deterministic target validation/normalization helpers.
+- Wired RTS API update paths in `src/server/dashboard.ts` to emit `uiUpdate` envelopes for feature run start and delete flows, targeting bottom command bar, right action sidebar, and left media panel placeholder.
+- Added regression coverage in `tests/panel-update-contract.test.ts` for target constants, deterministic rejection of unknown targets, normalization behavior, and dashboard usage of the contract.
+- Files changed: `src/server/panel-update-contract.ts`, `src/server/dashboard.ts`, `tests/panel-update-contract.test.ts`, `progress.txt`
+- **Learnings:** For cross-panel RTS updates, return a typed `uiUpdate` envelope from API responses instead of coupling callers to DOM IDs directly.
 ---
