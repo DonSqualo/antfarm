@@ -15,6 +15,7 @@ import YAML from "yaml";
 
 import type { RunInfo, StepInfo } from "../installer/status.js";
 import { getRunEvents } from "../installer/events.js";
+import { createPanelUpdateEnvelope, PANEL_TARGETS } from "./panel-update-contract.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const immediateHandoff = createImmediateHandoffHandler();
@@ -2559,7 +2560,17 @@ export function startDashboard(port = 3333): http.Server {
           } catch {}
         }
 
-        return json(res, { ok: true, run: getRunById(run.id), worktreePath, branchName, layout, runtime: runtimeStart });
+        const uiUpdate = createPanelUpdateEnvelope({
+          event: "feature.run.started",
+          payload: { runId: run.id, workflowId, layoutId: layout?.id || null },
+          patches: [
+            { target: PANEL_TARGETS.bottomCommandBar, mode: "merge", payload: { active: "feature" } },
+            { target: PANEL_TARGETS.rightActionSidebar, mode: "replace", payload: { mode: "feature", featureId: layout?.id || null } },
+            { target: PANEL_TARGETS.leftMediaPanel, mode: "merge", payload: { mode: "placeholder" } },
+          ],
+        });
+
+        return json(res, { ok: true, run: getRunById(run.id), worktreePath, branchName, layout, runtime: runtimeStart, uiUpdate });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return json(res, { ok: false, error: message }, 500);
@@ -2573,6 +2584,15 @@ export function startDashboard(port = 3333): http.Server {
         if (!runId) return json(res, { ok: false, error: "runId is required" }, 400);
         const result = deleteRunWithArtifacts(runId);
         if (!result.deleted) return json(res, { ok: true, runId, deleted: false, alreadyAbsent: true });
+        const uiUpdate = createPanelUpdateEnvelope({
+          event: "feature.run.deleted",
+          payload: { runId: result.runId || runId },
+          patches: [
+            { target: PANEL_TARGETS.bottomCommandBar, mode: "merge", payload: { active: "default" } },
+            { target: PANEL_TARGETS.rightActionSidebar, mode: "replace", payload: { mode: "default" } },
+            { target: PANEL_TARGETS.leftMediaPanel, mode: "merge", payload: { mode: "placeholder" } },
+          ],
+        });
         return json(res, {
           ok: true,
           runId: result.runId || runId,
@@ -2580,6 +2600,7 @@ export function startDashboard(port = 3333): http.Server {
           previousStatus: result.status,
           worktreeRemoved: !!result.worktreeRemoved,
           worktreePath: result.worktreePath || null,
+          uiUpdate,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

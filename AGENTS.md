@@ -52,6 +52,7 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - RTS building perspective policy: enforce a fixed camera lock for all building sprites (2.5D isometric 3/4 view, yaw ~45deg, pitch ~35deg, same angle across base/feature/research/warehouse). Refuse delivery when perspective does not match.
 - RTS sprite versioning policy: do not replace existing building sprite files; add new versioned PNG filenames and update `src/server/rts.html` references.
 - Responsive RTS shell behavior is class-driven on `.layout` (`mobile-tab-build|runs|intel`) and must preserve desktop fallback by explicitly restoring non-mobile panel visibility in client JS.
+- RTS multi-panel API update contract lives in `src/server/panel-update-contract.ts`; prefer returning a typed `uiUpdate` envelope (`createPanelUpdateEnvelope`) from dashboard endpoints instead of ad-hoc target strings.
 
 ## What It Changes in OpenClaw
 
