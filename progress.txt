@@ -15,6 +15,7 @@ Started: 2026-02-11 05:47 ET
 - RTS HTTP endpoints are in `src/server/dashboard.ts`; prefer extracting exported pure helper functions there for API response shaping + focused node:test coverage
 - For RTS layout/state changes, mutate via `getRtsState()` + `saveRtsState()` so persistence writes through `rts_layout_entities` and preserves payload linkage fields (e.g., `baseId`)
 - Mobile list interactions should use delegated click handling on `#mobileListPanel` so re-renders from `panel.innerHTML` don’t break action wiring
+- Mobile RTS detail navigation should use hash routes (`#mobile-building/<id>`) so detail/back transitions stay client-side without server route changes
 
 ---
 
@@ -99,4 +100,12 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-mobile-base-plus-create.test.ts` to validate plus-control wiring, API call contract, and error-state handling in both `src` and `dist` RTS HTML
 - Files changed: `src/server/rts.html`, `tests/rts-mobile-base-plus-create.test.ts`, `progress.txt`
 - **Learnings:** For re-rendered mobile list UIs, keep actions resilient by delegating click handlers on a stable parent element.
+---
+## 2026-02-13 01:48 - US-005: Add building detail route and navigation from mobile list items
+- Added hash-based mobile detail routing (`#mobile-building/<id>`) with `getMobileBuildingRouteId`, route setter, and lookup helper for tree-backed building detail selection
+- Updated mobile list rendering to show a dedicated building detail screen with back navigation and route-aware not-found state for missing/invalid IDs
+- Extended delegated mobile list click handling to support building row navigation and back-to-list transitions without full page reload
+- Added regression test `tests/rts-mobile-building-detail-route.test.ts` to assert route wiring, detail/back controls, and deterministic not-found UI in both `src` and `dist`
+- Files changed: `src/server/rts.html`, `tests/rts-mobile-building-detail-route.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** Mobile detail routing can be implemented safely with hash navigation so behavior remains deterministic in static HTML deployments.
 ---

@@ -891,6 +891,7 @@ const state = {
   mobileTree: { bases: [] },
   mobileFactoryCreate: { inFlightBaseId: '', errorByBase: {} },
   mobileMediaQuery: null,
+  mobileRouteSyncing: false,
   draggingEntity: null,
   draggingMoved: false,
   suppressWorldClick: false,
@@ -1692,9 +1693,55 @@ async function refreshMobileTree(){
   }
 }
 
+function getMobileBuildingRouteId(){
+  const raw = String(window.location.hash || '').trim();
+  const match = raw.match(/^#mobile-building\/(.+)$/i);
+  if (!match) return '';
+  try { return decodeURIComponent(match[1] || '').trim(); } catch { return String(match[1] || '').trim(); }
+}
+
+function setMobileBuildingRoute(buildingId, { replace = false } = {}){
+  const safeId = String(buildingId || '').trim();
+  const url = new URL(window.location.href);
+  const nextHash = safeId ? `#mobile-building/${encodeURIComponent(safeId)}` : '';
+  if (url.hash === nextHash) return;
+  state.mobileRouteSyncing = true;
+  if (replace) {
+    url.hash = nextHash;
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } else {
+    window.location.hash = nextHash;
+  }
+  state.mobileRouteSyncing = false;
+}
+
+function findMobileBuildingById(buildingId){
+  const safeId = String(buildingId || '').trim();
+  if (!safeId) return null;
+  const bases = Array.isArray(state.mobileTree?.bases) ? state.mobileTree.bases : [];
+  for (const base of bases) {
+    const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
+    const building = buildings.find((item) => String(item?.id || '').trim() === safeId);
+    if (building) return { base, building };
+  }
+  return null;
+}
+
 function renderMobileListMode(){
   const panel = document.getElementById('mobileListPanel');
   if (!panel) return;
+  const routeBuildingId = getMobileBuildingRouteId();
+  const selected = routeBuildingId ? findMobileBuildingById(routeBuildingId) : null;
+  if (routeBuildingId) {
+    if (!selected) {
+      panel.innerHTML = `<h3>Building Detail</h3><article class="mobile-tree-base"><div class="mobile-tree-base-head"><button class="mobile-tree-item" data-mobile-list-back="1">← Back to list</button></div><div class="notice">Building not found for ID: ${esc(routeBuildingId)}</div></article>`;
+      return;
+    }
+    const baseLabel = String(selected.base?.label || 'Base');
+    const buildingLabel = String(selected.building?.label || selected.building?.kind || 'Building');
+    panel.innerHTML = `<h3>Building Detail</h3><article class="mobile-tree-base"><div class="mobile-tree-base-head"><button class="mobile-tree-item" data-mobile-list-back="1">← Back to list</button></div><div class="kv"><strong>${esc(buildingLabel)}</strong></div><div class="notice">ID: ${esc(String(selected.building?.id || ''))}</div><div class="notice">Base: ${esc(baseLabel)}</div><div class="notice">Kind: ${esc(String(selected.building?.kind || 'unknown'))}</div></article>`;
+    return;
+  }
   const bases = Array.isArray(state.mobileTree?.bases) ? state.mobileTree.bases : [];
   if (!bases.length) {
     panel.innerHTML = `<h3>Mobile Ops List</h3><div class="notice">No bases yet. Switch to desktop view to place your first base.</div>`;
@@ -1780,12 +1827,33 @@ async function boot(){
   const mobileListPanel = document.getElementById('mobileListPanel');
   mobileListPanel?.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
+    const backBtn = target?.closest('[data-mobile-list-back]');
+    if (backBtn) {
+      event.preventDefault();
+      setMobileBuildingRoute('', { replace: true });
+      renderMobileListMode();
+      return;
+    }
+    const buildingBtn = target?.closest('[data-mobile-building-id]');
+    if (buildingBtn) {
+      event.preventDefault();
+      const buildingId = String(buildingBtn.getAttribute('data-mobile-building-id') || '').trim();
+      if (!buildingId) return;
+      setMobileBuildingRoute(buildingId);
+      renderMobileListMode();
+      return;
+    }
     const createBtn = target?.closest('[data-mobile-base-create]');
     if (!createBtn) return;
     event.preventDefault();
     const baseId = String(createBtn.getAttribute('data-mobile-base-create') || '').trim();
     if (!baseId) return;
     void createFactoryForMobileBase(baseId);
+  });
+  window.addEventListener('hashchange', () => {
+    if (state.mobileRouteSyncing) return;
+    if (!state.mobileListMode) return;
+    renderMobileListMode();
   });
   syncMobileListMode();
   queuePersist();
