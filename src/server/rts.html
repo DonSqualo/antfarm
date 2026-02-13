@@ -664,6 +664,55 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 }
 .unit.live-running { filter:saturate(1.1) brightness(1.05); }
 .unit.live-stale { filter:hue-rotate(-30deg) saturate(1.2); }
+.mobile-list-panel {
+  display:none;
+  position:absolute;
+  inset:0;
+  z-index:260;
+  overflow:auto;
+  padding:12px;
+  background:linear-gradient(180deg,#09172d 0%, #071223 100%);
+}
+.mobile-list-panel h3 {
+  font-family:Orbitron,sans-serif;
+  font-size:13px;
+  letter-spacing:.5px;
+  color:var(--corpus-teal);
+  margin-bottom:8px;
+}
+.mobile-tree-base {
+  border:1px solid var(--panel-edge);
+  background:#0b1a2dcc;
+  border-radius:8px;
+  padding:10px;
+  margin-bottom:10px;
+}
+.mobile-tree-base > ul {
+  margin-top:8px;
+  list-style:none;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.mobile-tree-item {
+  display:block;
+  width:100%;
+  text-align:left;
+  border:1px solid #4f799f;
+  background:#0b1b30;
+  color:var(--corpus-ice);
+  border-radius:8px;
+  padding:8px 10px;
+  font-size:12px;
+}
+.layout.mobile-list-mode .world-wrap,
+.layout.mobile-list-mode .hud,
+.layout.mobile-list-mode .command-bar {
+  display:none;
+}
+.layout.mobile-list-mode .mobile-list-panel {
+  display:block;
+}
 @media (max-width:1180px) {
   :root { --dock-w:min(280px, 30vw); --command-h:128px; --panel-gutter:var(--dock-w); }
   .hud-right { width:100%; max-height:100%; }
@@ -720,6 +769,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
       <div id="pathLayer" class="world path-layer"></div>
       <div id="placementLayer" class="world placement-layer"></div>
     </div>
+    <section id="mobileListPanel" class="mobile-list-panel" aria-label="Mobile base and building list"></section>
     <div class="hud">
       <div class="hud-right">
         <div class="panel" id="livePanel">
@@ -811,6 +861,9 @@ const state = {
   persistTimer: null,
   camera: { x: 0, y: 0 },
   cameraDrag: { active:false, startX:0, startY:0, originX:0, originY:0 },
+  mobileListMode: false,
+  mobileTree: { bases: [] },
+  mobileMediaQuery: null,
   draggingEntity: null,
   draggingMoved: false,
   suppressWorldClick: false,
@@ -832,6 +885,7 @@ const state = {
 };
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.2';
+const MOBILE_LIST_BREAKPOINT = 900;
 const RTS_SPRITE_URLS = [
   '/rts-sprites/bg-space-tile-20260212b.png?v=20260212b',
   '/rts-sprites/base_core_sprite.png?v=20260212v',
@@ -1601,9 +1655,62 @@ function markRunRelaunched(runId){
   });
 }
 
+async function refreshMobileTree(){
+  try {
+    const tree = await json('/api/rts/mobile/tree');
+    const bases = Array.isArray(tree?.bases) ? tree.bases : [];
+    state.mobileTree = { bases };
+  } catch {
+    state.mobileTree = { bases: [] };
+  }
+}
+
+function renderMobileListMode(){
+  const panel = document.getElementById('mobileListPanel');
+  if (!panel) return;
+  const bases = Array.isArray(state.mobileTree?.bases) ? state.mobileTree.bases : [];
+  if (!bases.length) {
+    panel.innerHTML = `<h3>Mobile Ops List</h3><div class="notice">No bases yet. Switch to desktop view to place your first base.</div>`;
+    return;
+  }
+  const baseMarkup = bases.map((base) => {
+    const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
+    const buildingRows = buildings.length
+      ? buildings.map((building) => `<li><button class="mobile-tree-item" data-mobile-building-id="${esc(String(building?.id || ''))}">${esc(String(building?.label || building?.kind || 'Building'))}</button></li>`).join('')
+      : '<li><span class="notice">No buildings</span></li>';
+    return `<article class="mobile-tree-base"><h3>${esc(String(base?.label || 'Base'))}</h3><ul>${buildingRows}</ul></article>`;
+  }).join('');
+  panel.innerHTML = `<h3>Mobile Ops List</h3>${baseMarkup}`;
+}
+
+async function setMobileListMode(active){
+  const enabled = !!active;
+  if (state.mobileListMode === enabled) return;
+  state.mobileListMode = enabled;
+  const layout = document.querySelector('.layout');
+  if (layout) layout.classList.toggle('mobile-list-mode', enabled);
+  if (enabled) {
+    state.cameraDrag.active = false;
+    state.draggingEntity = null;
+    setPlacement(null);
+    hidePlacementGhost();
+    await refreshMobileTree();
+  }
+  renderMobileListMode();
+}
+
+function syncMobileListMode(){
+  const query = state.mobileMediaQuery || window.matchMedia(`(max-width: ${MOBILE_LIST_BREAKPOINT}px)`);
+  state.mobileMediaQuery = query;
+  void setMobileListMode(query.matches);
+}
+
 async function boot(){
   // Warm sprite decode/cache so first placement/select doesn't pop in images.
   void preloadRtsSprites();
+  state.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_LIST_BREAKPOINT}px)`);
+  if (typeof state.mobileMediaQuery?.addEventListener === 'function') state.mobileMediaQuery.addEventListener('change', syncMobileListMode);
+  else if (typeof state.mobileMediaQuery?.addListener === 'function') state.mobileMediaQuery.addListener(syncMobileListMode);
   await hydratePersistedState();
   state.workflows = await json('/api/workflows');
   try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
@@ -1612,6 +1719,7 @@ async function boot(){
   rebuildScene();
   renderLiveConsole();
   startLiveStream();
+  syncMobileListMode();
   queuePersist();
 }
 
@@ -1676,6 +1784,7 @@ function startLiveStream(){
 
 function rebuildScene(){
   updateCameraVisuals();
+  if (state.mobileListMode) renderMobileListMode();
   const customByRepo = new Map();
   (state.customBases || []).forEach((cb) => {
     if (!cb?.repo) return;
@@ -2339,6 +2448,7 @@ function localPointInWorld(event){
 }
 
 function edgeAutoPan(clientX, clientY, margin = 36, speed = 18){
+  if (state.mobileListMode) return false;
   // Use wrapper bounds; worldEl is camera-transformed and skews edge detection.
   const rect = worldWrapEl.getBoundingClientRect();
   if (!rect || rect.width <= 0 || rect.height <= 0) return false;
@@ -3039,7 +3149,7 @@ function renderWorld(){
   }
 
   state.bases.forEach(base => {
-    const movable = true;
+    const movable = !state.mobileListMode;
     const basePort = Number(base.port) || getPortForPath(base.repo || '') || 3333;
     const baseLabel = base.portLabel || pathLabel(base.repo || '');
     const entityKey = `base:${String(base.id)}`;
@@ -3094,6 +3204,7 @@ function renderWorld(){
       }
     });
     el.onmousedown = (e) => {
+      if (state.mobileListMode) return;
       if (e.button !== 0) return;
       if (state.placementMode) return;
       e.stopPropagation();
@@ -3119,7 +3230,7 @@ function renderWorld(){
       ? (Array.isArray(b.items) ? b.items.length : 0)
       : 0;
     const color = status === 'done' ? 'var(--ok)' : status === 'failed' ? 'var(--bad)' : 'var(--warn)';
-    const movable = true;
+    const movable = !state.mobileListMode;
     const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';
     const className = ['building', featureVisualClass, movable ? 'movable' : '', selectedBuildingId === String(b.id) ? 'is-selected' : ''].filter(Boolean).join(' ');
     const buildPort = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
@@ -4884,6 +4995,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 const handlePointerMove = (e) => {
+  if (state.mobileListMode) return;
   if (state.cameraDrag.active) {
     state.camera.x = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
     state.camera.y = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
@@ -4922,6 +5034,7 @@ window.addEventListener('mousemove', handlePointerMove);
 worldWrapEl.addEventListener('mouseleave', hidePlacementGhost);
 
 worldWrapEl.addEventListener('mousedown', (e) => {
+  if (state.mobileListMode) return;
   const target = e.target instanceof Element ? e.target : null;
   const hitEntity = !!target?.closest('.entity');
   const hitBelt = !!target?.closest('.rts-path');
@@ -4982,6 +5095,7 @@ boot();
 updateCameraVisuals();
 setInterval(async () => {
   const runsChanged = await refreshRuntimeState(false);
+  if (state.mobileListMode) await refreshMobileTree();
   if (!state.liveStream) startLiveStream();
   if (runsChanged) rebuildScene();
   else if (Number(state.live?.runningAgentCount || 0) > 0) {

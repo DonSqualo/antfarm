@@ -4,6 +4,7 @@ Task: Add easter egg ant command to antfarm CLI
 Started: 2026-02-11 05:47 ET
 
 ## Codebase Patterns
+- RTS mobile/desktop behavior should be toggled via `window.matchMedia` + `.layout` mode class to keep interaction guards and rendering in sync across breakpoints
 - CLI entry: `src/cli/cli.ts`, commands matched via `group` variable from `process.argv[2]`
 - Dynamic imports used for command modules (e.g., `await import("./ant.js")`)
 - Build: `npm run build` runs `tsc -p tsconfig.json` + copies HTML + chmod
@@ -79,4 +80,13 @@ Started: 2026-02-11 05:47 ET
 - Added regression coverage in `tests/rts-base-scoped-factory-create.test.ts` for 4xx-style validation errors and successful base-linked creation visibility in mobile tree responses
 - Files changed: `src/server/dashboard.ts`, `tests/rts-base-scoped-factory-create.test.ts`, `progress.txt`
 - **Learnings:** Base-scoped mobile creation should write through canonical RTS state persistence to keep `payload_json.baseId` available for deterministic mobile hierarchy grouping.
+---
+
+## 2026-02-13 01:08 - US-003: Implement mobile list mode that disables RTS pan-map interactions
+- Added breakpoint-driven mobile list mode in `src/server/rts.html` using `MOBILE_LIST_BREAKPOINT` + `matchMedia`, with `.layout.mobile-list-mode` class switching
+- Implemented `mobileListPanel` hierarchical rendering from `/api/rts/mobile/tree` (`refreshMobileTree`, `renderMobileListMode`) for a scrollable base/building list in mobile viewport sizes
+- Disabled map pan/drag interactions in mobile list mode by guarding camera drag start, pointer move updates, edge auto-pan, and movable entity drag handlers
+- Added regression test `tests/rts-mobile-list-mode.test.ts` to verify mobile list wiring and pan-disable guards in both `src/server/rts.html` and built `dist/server/rts.html`
+- Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-mobile-list-mode.test.ts`, `progress.txt`
+- **Learnings:** Mobile interaction mode changes in RTS should guard both handler entry points (mousedown/pointer move/edge pan) and draggable entity setup to avoid accidental camera or structure movement.
 ---
