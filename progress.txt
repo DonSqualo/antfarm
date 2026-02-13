@@ -12,6 +12,7 @@ Started: 2026-02-11 05:47 ET
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
+- Bundled OpenClaw skills are managed centrally in `src/installer/skill-install.ts` via `BUNDLED_SKILLS`; install/uninstall flows should call shared bundled-skill helpers
 
 ---
 
@@ -107,4 +108,12 @@ Started: 2026-02-11 05:47 ET
 - Expanded RTS e2e script to run both palette UI regression and existing-repo base flow regression
 - Files changed: `src/server/dashboard.ts`, `tests/rts-base-existing-repo.e2e.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** RTS base creation server contract now explicitly supports existing-local-repo mode through `/api/rts/base/clone`; regression coverage should assert this contract directly.
+---
+## 2026-02-13 15:35 - US-001: Add a distributable Mittens OpenClaw skill package and wire installer support
+- Added new bundled skill package `skills/mittens/SKILL.md` with Mittens CLI workflows and explicit factory runtime port pairing guidance (renderer on `PORT`, server on `PORT + 1`)
+- Refactored installer skill handling in `src/installer/skill-install.ts` to support multiple bundled skills via `BUNDLED_SKILLS`, `installBundledSkills()`, and `uninstallBundledSkills()` while keeping antfarm-only wrappers for compatibility
+- Updated install/uninstall flows (`src/installer/install.ts`, `src/installer/uninstall.ts`) to install/remove all bundled skills, ensuring `antfarm-workflows` and `mittens` coexist and clean up together
+- Added regression tests in `src/installer/skill-install.test.ts` covering bundled install, bundled uninstall, and backward-compatible antfarm-only wrappers
+- Files changed: `skills/mittens/SKILL.md`, `src/installer/skill-install.ts`, `src/installer/install.ts`, `src/installer/uninstall.ts`, `src/installer/skill-install.test.ts`, `progress.txt`
+- **Learnings:** Skill lifecycle for Antfarm install/uninstall should be centralized through bundled-skill helpers so adding new built-in skills does not require flow-level logic changes.
 ---

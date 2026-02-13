@@ -57,6 +57,7 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - Adds workflow agents to `openclaw.json` (your main agent stays default).
 - Creates workflow workspaces under `~/.openclaw/workspaces/workflows`.
 - Stores workflow definitions and run state under `~/.openclaw/antfarm`.
+- Installs bundled OpenClaw skills from `skills/` into `~/.openclaw/skills` via `src/installer/skill-install.ts` (`BUNDLED_SKILLS`).
 - Inserts an Antfarm guidance block into the main agent's `AGENTS.md` and `TOOLS.md`.
 
 ## Uninstalling

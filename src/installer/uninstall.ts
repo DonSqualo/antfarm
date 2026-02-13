@@ -12,7 +12,7 @@ import {
   resolveWorkflowRoot,
 } from "./paths.js";
 import { removeSubagentAllowlist } from "./subagent-allowlist.js";
-import { uninstallAntfarmSkill } from "./skill-install.js";
+import { uninstallBundledSkills } from "./skill-install.js";
 import { removeAgentCrons } from "./agent-cron.js";
 import { deleteAgentCronJobs } from "./gateway-api.js";
 import { getDb } from "../db.js";
@@ -144,7 +144,7 @@ export async function uninstallAllWorkflows(): Promise<void> {
   await writeOpenClawConfig(configPath, config);
 
   await removeMainAgentGuidance();
-  await uninstallAntfarmSkill();
+  await uninstallBundledSkills();
 
   // Remove all antfarm cron jobs
   await deleteAgentCronJobs("antfarm/");
