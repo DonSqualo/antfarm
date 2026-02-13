@@ -8,6 +8,21 @@ description: |
   Fixer implements the fix with a regression test. Verifier confirms correctness.
   PR agent creates the pull request.
 
+prompt_tree:
+  base: prompts/base/AGENT.md
+  classes:
+    analysis: prompts/classes/analysis.md
+    coding: prompts/classes/coding.md
+    verification: prompts/classes/verification.md
+    pr: prompts/classes/pr.md
+  subclasses:
+    triager: prompts/subclasses/triager.md
+    investigator: prompts/subclasses/investigator.md
+    setup: prompts/subclasses/setup.md
+    fixer: prompts/subclasses/fixer.md
+    verifier: prompts/subclasses/verifier.md
+    pr: prompts/subclasses/pr.md
+
 agents:
   - id: triager
     name: Triager
@@ -19,6 +34,10 @@ agents:
         AGENTS.md: agents/triager/AGENTS.md
         SOUL.md: agents/triager/SOUL.md
         IDENTITY.md: agents/triager/IDENTITY.md
+    prompt_profile:
+      class: analysis
+      subclass: triager
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: investigator
     name: Investigator
@@ -30,6 +49,10 @@ agents:
         AGENTS.md: agents/investigator/AGENTS.md
         SOUL.md: agents/investigator/SOUL.md
         IDENTITY.md: agents/investigator/IDENTITY.md
+    prompt_profile:
+      class: analysis
+      subclass: investigator
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: setup
     name: Setup
@@ -41,6 +64,10 @@ agents:
         AGENTS.md: ../../agents/shared/setup/AGENTS.md
         SOUL.md: ../../agents/shared/setup/SOUL.md
         IDENTITY.md: ../../agents/shared/setup/IDENTITY.md
+    prompt_profile:
+      class: coding
+      subclass: setup
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: fixer
     name: Fixer
@@ -52,6 +79,10 @@ agents:
         AGENTS.md: agents/fixer/AGENTS.md
         SOUL.md: agents/fixer/SOUL.md
         IDENTITY.md: agents/fixer/IDENTITY.md
+    prompt_profile:
+      class: coding
+      subclass: fixer
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: verifier
     name: Verifier
@@ -63,6 +94,10 @@ agents:
         AGENTS.md: ../../agents/shared/verifier/AGENTS.md
         SOUL.md: ../../agents/shared/verifier/SOUL.md
         IDENTITY.md: ../../agents/shared/verifier/IDENTITY.md
+    prompt_profile:
+      class: verification
+      subclass: verifier
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: pr
     name: PR Creator
@@ -74,6 +109,10 @@ agents:
         AGENTS.md: ../../agents/shared/pr/AGENTS.md
         SOUL.md: ../../agents/shared/pr/SOUL.md
         IDENTITY.md: ../../agents/shared/pr/IDENTITY.md
+    prompt_profile:
+      class: pr
+      subclass: pr
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
 steps:
   - id: triage

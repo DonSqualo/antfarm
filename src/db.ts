@@ -67,6 +67,24 @@ function migrate(db: DatabaseSync): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS prompt_traces (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES runs(id),
+      step_db_id TEXT NOT NULL REFERENCES steps(id),
+      workflow_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      files_json TEXT NOT NULL,
+      prompt_markdown TEXT NOT NULL,
+      prompt_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_prompt_traces_run_agent
+      ON prompt_traces(run_id, agent_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_prompt_traces_step
+      ON prompt_traces(step_db_id, created_at DESC);
   `);
 
   // Add columns to steps table for backwards compat

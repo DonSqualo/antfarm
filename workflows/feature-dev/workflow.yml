@@ -9,6 +9,21 @@ description: |
   Developer implements each story (with tests) in a fresh session. Verifier checks each story.
   Then integration/E2E testing, PR creation, and code review.
 
+prompt_tree:
+  base: prompts/base/AGENT.md
+  classes:
+    analysis: prompts/classes/analysis.md
+    coding: prompts/classes/coding.md
+    verification: prompts/classes/verification.md
+    testing: prompts/classes/testing.md
+  subclasses:
+    planner: prompts/subclasses/planner.md
+    setup: prompts/subclasses/setup.md
+    developer: prompts/subclasses/developer.md
+    verifier: prompts/subclasses/verifier.md
+    tester: prompts/subclasses/tester.md
+    reviewer: prompts/subclasses/reviewer.md
+
 agents:
   - id: planner
     name: Planner
@@ -20,6 +35,10 @@ agents:
         AGENTS.md: agents/planner/AGENTS.md
         SOUL.md: agents/planner/SOUL.md
         IDENTITY.md: agents/planner/IDENTITY.md
+    prompt_profile:
+      class: analysis
+      subclass: planner
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: setup
     name: Setup
@@ -31,6 +50,10 @@ agents:
         AGENTS.md: ../../agents/shared/setup/AGENTS.md
         SOUL.md: ../../agents/shared/setup/SOUL.md
         IDENTITY.md: ../../agents/shared/setup/IDENTITY.md
+    prompt_profile:
+      class: coding
+      subclass: setup
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: developer
     name: Developer
@@ -43,6 +66,10 @@ agents:
         AGENTS.md: agents/developer/AGENTS.md
         SOUL.md: agents/developer/SOUL.md
         IDENTITY.md: agents/developer/IDENTITY.md
+    prompt_profile:
+      class: coding
+      subclass: developer
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: verifier
     name: Verifier
@@ -54,6 +81,10 @@ agents:
         AGENTS.md: ../../agents/shared/verifier/AGENTS.md
         SOUL.md: ../../agents/shared/verifier/SOUL.md
         IDENTITY.md: ../../agents/shared/verifier/IDENTITY.md
+    prompt_profile:
+      class: verification
+      subclass: verifier
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: tester
     name: Tester
@@ -65,6 +96,10 @@ agents:
         AGENTS.md: agents/tester/AGENTS.md
         SOUL.md: agents/tester/SOUL.md
         IDENTITY.md: agents/tester/IDENTITY.md
+    prompt_profile:
+      class: testing
+      subclass: tester
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: reviewer
     name: Reviewer
@@ -76,6 +111,10 @@ agents:
         AGENTS.md: agents/reviewer/AGENTS.md
         SOUL.md: agents/reviewer/SOUL.md
         IDENTITY.md: agents/reviewer/IDENTITY.md
+    prompt_profile:
+      class: analysis
+      subclass: reviewer
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: pr
     name: PR Creator

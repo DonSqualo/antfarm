@@ -4283,6 +4283,7 @@ function renderAgentStatusList(agents, run){
           ${canRestartAgentStatus(a.status)
             ? `<button class="agent-restart" data-restart-agent="${esc(a.agentId)}" data-restart-run="${esc(run?.id || '')}">restart</button>`
             : ''}
+          <button class="agent-restart" data-agent-prompt-agent="${esc(a.agentId)}" data-agent-prompt-run="${esc(run?.id || '')}" title="Show deterministic prompt source stack">prompt</button>
           ${baseAgentId(a.agentId).toLowerCase().endsWith('/developer') ? `<button class="agent-redo" data-redo-run="${esc(run?.id || '')}" title="Redo developer from failed test feedback (R)">redo</button>` : ''}
         </div>
       </div>`).join('')
@@ -4295,6 +4296,70 @@ function placeFeatureDraftFromPlan(plan, x, y, repo){
   const ok = !!placeFeatureAt(x, y, String(plan?.prompt || ''), String(repo || ''));
   dbg('planDrop:placeFeatureDraftFromPlan:result', { ok });
   return ok;
+}
+
+async function openAgentPromptTraceModal(runId, agentId){
+  const modalId = 'promptTraceModal';
+  let modal = document.getElementById(modalId);
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.className = 'library-modal';
+    modal.innerHTML = `
+      <div class="library-modal-header">
+        <strong>Worker Prompt Trace</strong>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="promptTraceCopyBtn" class="ghost">Copy</button>
+          <button id="promptTraceCloseBtn" class="ghost">Close</button>
+        </div>
+      </div>
+      <div class="library-modal-body" style="grid-template-columns:1fr">
+        <div class="library-preview" style="grid-column:1">
+          <div class="library-preview-head" id="promptTraceHead">Loading...</div>
+          <textarea id="promptTraceText" spellcheck="false" readonly></textarea>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('promptTraceCloseBtn')?.addEventListener('click', () => { modal.hidden = true; });
+    document.getElementById('promptTraceCopyBtn')?.addEventListener('click', async () => {
+      const ta = document.getElementById('promptTraceText');
+      const text = String(ta?.value || '');
+      try { await navigator.clipboard.writeText(text); }
+      catch {}
+    });
+  }
+  modal.hidden = false;
+  const head = document.getElementById('promptTraceHead');
+  const ta = document.getElementById('promptTraceText');
+  if (head) head.textContent = `${agentId} @ ${runId.slice(0, 8)}...`;
+  if (ta) ta.value = 'Loading prompt trace...';
+  try {
+    const res = await json(`/api/rts/agent/prompt-trace?runId=${encodeURIComponent(runId)}&agentId=${encodeURIComponent(agentId)}`);
+    const trace = res?.trace || {};
+    const files = Array.isArray(trace.files) ? trace.files : [];
+    const manifest = files.map((f, idx) => {
+      const layer = String(f.layer || 'unknown');
+      const pth = String(f.absPath || '');
+      const hash = String(f.sha256 || '').slice(0, 16);
+      return `${idx + 1}. [${layer}] ${pth} (${hash}...)`;
+    }).join('\n');
+    const prompt = String(trace.promptMarkdown || '');
+    const block = [
+      `Trace ID: ${String(trace.id || '')}`,
+      `Workflow: ${String(trace.workflowId || '')}`,
+      `Prompt Hash: ${String(trace.promptHash || '')}`,
+      '',
+      'Files:',
+      manifest || '(none)',
+      '',
+      'Prompt:',
+      prompt,
+    ].join('\n');
+    if (ta) ta.value = block;
+  } catch (err) {
+    if (ta) ta.value = `Failed to load prompt trace: ${String(err?.message || err)}`;
+  }
 }
 
 function consumeResearchPlan(repoKey, planId){
@@ -5112,6 +5177,16 @@ function renderRunSetupPanel(targetDraftId){
         } finally {
           btn.disabled = false;
         }
+      });
+    });
+    const promptBtns = panel.querySelectorAll('#assignedAgentList [data-agent-prompt-agent]');
+    promptBtns.forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const runId = String(btn.getAttribute('data-agent-prompt-run') || '');
+        const agentId = String(btn.getAttribute('data-agent-prompt-agent') || '');
+        if (!runId || !agentId) return;
+        await openAgentPromptTraceModal(runId, agentId);
       });
     });
     renderTerminalViewer();

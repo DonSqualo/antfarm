@@ -267,7 +267,12 @@ async function main() {
       if (!result.found) {
         process.stdout.write("NO_WORK\n");
       } else {
-        process.stdout.write(JSON.stringify({ stepId: result.stepId, runId: result.runId, input: result.resolvedInput }) + "\n");
+        process.stdout.write(JSON.stringify({
+          stepId: result.stepId,
+          runId: result.runId,
+          promptTraceId: result.promptTraceId,
+          input: result.resolvedInput,
+        }) + "\n");
       }
       return;
     }
