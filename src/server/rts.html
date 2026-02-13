@@ -76,6 +76,38 @@ body {
   box-shadow:0 10px 28px #02101f99;
 }
 .install-app-cta[hidden] { display:none !important; }
+.connectivity-banner {
+  position:fixed;
+  left:12px;
+  right:calc(var(--dock-w) + 14px);
+  top:10px;
+  z-index:285;
+  padding:7px 10px;
+  border-radius:10px;
+  border:1px solid #5fa5d655;
+  background:#081427de;
+  color:#cfefff;
+  font-size:11px;
+  letter-spacing:.2px;
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(-4px);
+  transition:opacity .2s ease, transform .2s ease;
+}
+.connectivity-banner.is-visible {
+  opacity:1;
+  transform:translateY(0);
+}
+.connectivity-banner[data-state="offline"] {
+  border-color:#ff8aa577;
+  color:#ffd8e1;
+  background:#2a0f18e6;
+}
+.connectivity-banner[data-state="reconnecting"] {
+  border-color:#ffd06b88;
+  color:#ffe8b9;
+  background:#2b2010e6;
+}
 button,select,input,textarea {
   border:1px solid #4f799f;
   background:#0b1b30;
@@ -859,6 +891,12 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     box-shadow:none !important;
     filter:none !important;
   }
+  .connectivity-banner {
+    left:var(--screen-pad);
+    right:var(--screen-pad);
+    top:40px;
+    font-size:10px;
+  }
   .mobile-status-strip {
     position:fixed;
     top:0;
@@ -964,10 +1002,12 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 </head>
 <body>
   <div class="layout">
+    <div id="connectivityBanner" class="connectivity-banner" data-state="online" role="status" aria-live="polite" hidden></div>
     <div id="mobileStatusStrip" class="mobile-status-strip" aria-label="Mobile status strip">
       <span id="mobileStatusRuns">RUNS 0/0</span>
       <span id="mobileStatusSelection">SELECT NONE</span>
       <span id="mobileStatusAgents">AGENTS 0</span>
+      <span id="mobileStatusNet">NET ONLINE</span>
     </div>
     <div id="mobileActionTabs" class="mobile-action-tabs" role="tablist" aria-label="Mobile action dock tabs">
       <button id="mobileTabBuild" type="button" role="tab" aria-selected="true">Build</button>
@@ -1099,7 +1139,9 @@ const state = {
   featureMode: false,
   runStatusOverrides: {},
   libraryBrowser: { role: 'all', tag: 'all', q: '', selectedPath: '' },
-  keyboardSafeViewportBound: false
+  keyboardSafeViewportBound: false,
+  connectivity: { state: (typeof navigator !== 'undefined' && navigator.onLine === false) ? 'offline' : 'online', detail: 'Connected', changedAt: Date.now() },
+  runtimePoll: { timer: null, failures: 0, inFlight: false, baseDelayMs: 2000, maxDelayMs: 20000 }
 };
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
@@ -1152,7 +1194,8 @@ function updateMobileStatusStrip(){
   const runsEl = document.getElementById('mobileStatusRuns');
   const selectionEl = document.getElementById('mobileStatusSelection');
   const agentsEl = document.getElementById('mobileStatusAgents');
-  if (!(runsEl instanceof HTMLElement) || !(selectionEl instanceof HTMLElement) || !(agentsEl instanceof HTMLElement)) return;
+  const netEl = document.getElementById('mobileStatusNet');
+  if (!(runsEl instanceof HTMLElement) || !(selectionEl instanceof HTMLElement) || !(agentsEl instanceof HTMLElement) || !(netEl instanceof HTMLElement)) return;
 
   const runs = Array.isArray(state.runs) ? state.runs : [];
   const activeCount = runs.filter((run) => run && !['done', 'failed', 'cancelled'].includes(String(run.status || '').toLowerCase())).length;
@@ -1161,6 +1204,43 @@ function updateMobileStatusStrip(){
   const selectedType = state.selected?.type ? String(state.selected.type).toUpperCase() : 'NONE';
   selectionEl.textContent = `SELECT ${selectedType}`;
   agentsEl.textContent = `AGENTS ${Number(state.live?.runningAgentCount || 0)}`;
+  netEl.textContent = `NET ${String(state.connectivity?.state || 'online').toUpperCase()}`;
+}
+
+function connectivityLabel(mode){
+  if (mode === 'offline') return 'Offline mode · using cached shell';
+  if (mode === 'reconnecting') return 'Reconnecting · retrying sync';
+  return 'Online · live sync active';
+}
+
+function renderConnectivityNotice(){
+  const banner = document.getElementById('connectivityBanner');
+  if (!(banner instanceof HTMLElement)) return;
+  const mode = String(state.connectivity?.state || 'online');
+  const detail = String(state.connectivity?.detail || connectivityLabel(mode));
+  banner.dataset.state = mode;
+  banner.textContent = detail;
+  const visible = mode !== 'online';
+  banner.hidden = !visible;
+  banner.classList.toggle('is-visible', visible);
+  updateMobileStatusStrip();
+}
+
+function setConnectivityState(mode, detail = ''){
+  const normalized = mode === 'offline' || mode === 'reconnecting' ? mode : 'online';
+  state.connectivity = {
+    state: normalized,
+    detail: detail || connectivityLabel(normalized),
+    changedAt: Date.now()
+  };
+  renderConnectivityNotice();
+}
+
+function boundedRetryDelayMs(failures){
+  const attempt = Math.max(0, Number(failures) || 0);
+  const exp = Math.min(attempt, 4);
+  const delay = state.runtimePoll.baseDelayMs * (2 ** exp);
+  return Math.min(state.runtimePoll.maxDelayMs, delay);
 }
 
 function initMobileLayoutShell(){
@@ -1173,6 +1253,7 @@ function initMobileLayoutShell(){
   window.addEventListener('resize', applyMobilePanelVisibility);
   applyMobilePanelVisibility();
   updateMobileStatusStrip();
+  renderConnectivityNotice();
 }
 
 function renderInstallPromptState(){
@@ -2265,11 +2346,62 @@ async function refreshRuntimeState(throwOnError = false){
     }
     state.live = (liveRes && liveRes.live) ? liveRes.live : state.live;
     state.diag = (diagRes && diagRes.diag) ? diagRes.diag : state.diag;
+    state.runtimePoll.failures = 0;
+    if (state.connectivity?.state !== 'online') {
+      setConnectivityState('online', 'Reconnected · live updates restored');
+    }
     return runsChanged;
   } catch (err) {
     if (throwOnError) throw err;
+    state.runtimePoll.failures = Number(state.runtimePoll.failures || 0) + 1;
+    const retryMs = boundedRetryDelayMs(state.runtimePoll.failures);
+    if (navigator.onLine === false) {
+      setConnectivityState('offline', `Offline mode · retry in ${Math.ceil(retryMs / 1000)}s`);
+    } else {
+      setConnectivityState('reconnecting', `Connection unstable · retry ${state.runtimePoll.failures} in ${Math.ceil(retryMs / 1000)}s`);
+    }
     return false;
   }
+}
+
+function scheduleRuntimePoll(delayMs = state.runtimePoll.baseDelayMs){
+  if (state.runtimePoll.timer) clearTimeout(state.runtimePoll.timer);
+  const nextDelay = Math.max(0, Number(delayMs) || 0);
+  state.runtimePoll.timer = setTimeout(() => {
+    void runRuntimePoll();
+  }, nextDelay);
+}
+
+async function runRuntimePoll(){
+  if (state.runtimePoll.inFlight) return;
+  state.runtimePoll.inFlight = true;
+  const runsChanged = await refreshRuntimeState(false);
+  if (!state.liveStream && navigator.onLine !== false) startLiveStream();
+  if (runsChanged) rebuildScene();
+  else if (Number(state.live?.runningAgentCount || 0) > 0) {
+    ensureMotionLoop();
+    renderUnitsLiveState();
+  } else renderUnitsLiveState();
+  renderLiveConsole();
+  state.runtimePoll.inFlight = false;
+  const delay = state.runtimePoll.failures ? boundedRetryDelayMs(state.runtimePoll.failures) : state.runtimePoll.baseDelayMs;
+  scheduleRuntimePoll(delay);
+}
+
+function initConnectivityMonitoring(){
+  renderConnectivityNotice();
+  window.addEventListener('offline', () => {
+    setConnectivityState('offline', 'Offline mode · using cached shell');
+    if (state.liveStream) {
+      try { state.liveStream.close(); } catch {}
+      state.liveStream = null;
+    }
+  });
+  window.addEventListener('online', () => {
+    setConnectivityState('reconnecting', 'Network restored · syncing now');
+    state.runtimePoll.failures = 0;
+    scheduleRuntimePoll(0);
+  });
 }
 
 function startLiveStream(){
@@ -6080,18 +6212,13 @@ worldEl.addEventListener('click', (e) => {
 registerServiceWorker();
 initInstallPrompt();
 initMobileLayoutShell();
-boot();
+initConnectivityMonitoring();
+boot().then(() => {
+  scheduleRuntimePoll(state.runtimePoll.baseDelayMs);
+}).catch(() => {
+  scheduleRuntimePoll(boundedRetryDelayMs(1));
+});
 updateCameraVisuals();
-setInterval(async () => {
-  const runsChanged = await refreshRuntimeState(false);
-  if (!state.liveStream) startLiveStream();
-  if (runsChanged) rebuildScene();
-  else if (Number(state.live?.runningAgentCount || 0) > 0) {
-    ensureMotionLoop();
-    renderUnitsLiveState();
-  } else renderUnitsLiveState();
-  renderLiveConsole();
-}, 2000);
 
 window.addEventListener('beforeunload', () => {
   if (state.motionTimer) {
@@ -6101,6 +6228,10 @@ window.addEventListener('beforeunload', () => {
   if (state.liveStream) {
     try { state.liveStream.close(); } catch {}
     state.liveStream = null;
+  }
+  if (state.runtimePoll?.timer) {
+    clearTimeout(state.runtimePoll.timer);
+    state.runtimePoll.timer = null;
   }
 });
 </script>
