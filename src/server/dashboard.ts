@@ -742,7 +742,7 @@ export function discoverLocalGitRepos(roots = configuredLocalRepoRoots()): Local
   const seenPaths = new Set<string>();
   const repos: LocalRepoSummary[] = [];
   const skipDirs = new Set([".git", "node_modules", "dist", "build", ".next", "coverage", ".cache"]);
-  const maxDepth = 4;
+  const maxDepth = 6;
 
   for (const root of roots) {
     const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
@@ -764,7 +764,6 @@ export function discoverLocalGitRepos(roots = configuredLocalRepoRoots()): Local
           name: path.basename(realDir) || realDir,
           ...(suggestedPort ? { suggestedPort } : {}),
         });
-        continue;
       }
 
       if (current.depth >= maxDepth) continue;
