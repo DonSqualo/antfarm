@@ -3146,6 +3146,41 @@ function featureStructureClassName(building){
   return '';
 }
 
+function featureRunProgressBarColor(building){
+  const status = normalizeRunStatus(getDisplayRunStatus(building?.run, building?.phase, building?.runId));
+  if (SUCCESS_RUN_STATUSES.has(status)) return 'var(--ok)';
+  if (FAILED_RUN_STATUSES.has(status)) return 'var(--bad)';
+  return 'var(--warn)';
+}
+
+function summarizeRunFailure(run){
+  if (!run || typeof run !== 'object') return '';
+  const direct = [run.failureDetail, run.failureReason, run.errorMessage, run.error, run.lastError, run.message]
+    .map((value) => String(value || '').trim())
+    .find(Boolean);
+  if (direct) return direct;
+  const failedStep = (Array.isArray(run.steps) ? run.steps : []).find((step) => {
+    const status = normalizeRunStatus(step?.status || '');
+    return status === 'failed' || status === 'error';
+  });
+  if (!failedStep) return '';
+  const stepName = prettyStepName(String(failedStep.step_id || failedStep.id || 'step'));
+  const detail = [failedStep.detail, failedStep.errorMessage, failedStep.error, failedStep.message]
+    .map((value) => String(value || '').trim())
+    .find(Boolean);
+  return detail ? `${stepName}: ${detail}` : `${stepName} failed`;
+}
+
+function featureFailureNoteHtml(building, status){
+  const lines = ['ERROR'];
+  const runRef = String(building?.runId || building?.run?.id || '').trim();
+  if (runRef) lines.push(`Run: ${runRef.slice(0, 12)}`);
+  lines.push(`Status: ${prettyStatus(status || 'failed')}`);
+  const detail = summarizeRunFailure(building?.run);
+  if (detail) lines.push(`Reason: ${detail}`);
+  return lines.map((line) => esc(line)).join('<br>');
+}
+
 function canMarkFeatureEmpty(building){
   if (!building) return false;
   const status = normalizeRunStatus(getDisplayRunStatus(building.run, building.phase, building.runId));
@@ -3428,9 +3463,9 @@ function renderWorld(){
       ? (Array.isArray(b.items) ? b.items.length : 0)
       : 0;
     const cronCount = Array.isArray(state.diag?.cron?.jobs) ? state.diag.cron.jobs.length : Number(state.diag?.cron?.matchingCount || 0);
-    const color = (status === 'done')
-      ? 'var(--ok)'
-      : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)');
+    const color = b.kind === 'feature'
+      ? featureRunProgressBarColor(b)
+      : ((status === 'done') ? 'var(--ok)' : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)'));
     const movable = true;
     const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';
     const className = ['building', featureVisualClass, movable ? 'movable' : '', selectedBuildingId === String(b.id) ? 'is-selected' : ''].filter(Boolean).join(' ');
@@ -3556,7 +3591,6 @@ function renderWorld(){
   });
 
   state.buildings.forEach((b) => {
-    const status = String(b.run?.status || '').toLowerCase();
     const timeoutStep = timedOutStepForRun(b.run);
     const pos = worldToScreen(Number(b.x || 0) + 26, Number(b.y || 0) - 42);
     if (timeoutStep) {
@@ -3568,13 +3602,25 @@ function renderWorld(){
       world.appendChild(note);
       return;
     }
-    if (status === 'completed' || status === 'done') {
-      if (!b.prUrl) return;
+    if (b.kind !== 'feature') return;
+    const status = normalizeRunStatus(getDisplayRunStatus(b.run, b.phase, b.runId));
+
+    if (SUCCESS_RUN_STATUSES.has(status) && b.prUrl) {
       const note = document.createElement('div');
       note.className = 'build-note';
       note.style.left = `${pos.x}px`;
       note.style.top = `${pos.y}px`;
       note.innerHTML = `PR READY<br><a href="${esc(b.prUrl)}" target="_blank" rel="noopener">Open pull request</a>`;
+      world.appendChild(note);
+      return;
+    }
+
+    if (FAILED_RUN_STATUSES.has(status)) {
+      const note = document.createElement('div');
+      note.className = 'build-note';
+      note.style.left = `${pos.x}px`;
+      note.style.top = `${pos.y}px`;
+      note.innerHTML = featureFailureNoteHtml(b, status);
       world.appendChild(note);
     }
   });
