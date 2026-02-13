@@ -559,6 +559,55 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   color:#ffd4e2;
 }
 .panel-delete:hover { border-color:#cf7fa2; }
+.panel-card {
+  margin-top:8px;
+  border:1px solid #345671;
+  border-radius:10px;
+  background:#09192b;
+  overflow:hidden;
+}
+.panel-card > summary {
+  list-style:none;
+  cursor:pointer;
+  padding:9px 10px;
+  font-size:11px;
+  font-weight:600;
+  color:#d2eeff;
+  background:#0d2035;
+  border-bottom:1px solid #28455e;
+}
+.panel-card > summary::-webkit-details-marker { display:none; }
+.panel-card .panel-card-body { padding:9px 10px 10px; }
+.panel-card[open] > summary { border-bottom-color:#3d6b8f; }
+.sheet-open-btn { width:100%; margin-top:8px; }
+.mobile-sheet {
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  z-index:1300;
+  border:1px solid #4c7698;
+  border-bottom:0;
+  border-radius:14px 14px 0 0;
+  background:linear-gradient(160deg,#0b1a2e 0%,#071423 100%);
+  box-shadow:0 -18px 36px #00000099;
+  max-height:min(78vh, 620px);
+  display:flex;
+  flex-direction:column;
+}
+.mobile-sheet[hidden] { display:none; }
+.mobile-sheet-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:10px 12px;
+  border-bottom:1px solid #33556f;
+}
+.mobile-sheet-body {
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  overflow:auto;
+}
 .library-modal {
   position:fixed;
   inset:2vh 2vw;
@@ -635,7 +684,12 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   background:#040b14;
 }
 @media (max-width: 900px) {
-  .library-modal { inset:1vh 1vw; }
+  .library-modal {
+    inset:auto 0 0 0;
+    border-radius:14px 14px 0 0;
+    border-bottom:0;
+    max-height:80vh;
+  }
   .library-modal-body { grid-template-columns:1fr; }
 }
 .building-hover {
@@ -1035,7 +1089,8 @@ const state = {
   streamSelectionByRun: {},
   featureMode: false,
   runStatusOverrides: {},
-  libraryBrowser: { role: 'all', tag: 'all', q: '', selectedPath: '' }
+  libraryBrowser: { role: 'all', tag: 'all', q: '', selectedPath: '' },
+  keyboardSafeViewportBound: false
 };
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
@@ -1424,7 +1479,62 @@ function wirePanelDeleteButton(){
   if (!btn) return;
   btn.addEventListener('click', () => deleteSelectedStructure());
 }
+function renderPanelCard({ id, title, body, open = false }){
+  return `<details class="panel-card" ${open ? 'open' : ''} id="${esc(id)}"><summary>${esc(title)}</summary><div class="panel-card-body">${body}</div></details>`;
+}
+function ensureMobileSheet(){
+  let sheet = document.getElementById('mobileDetailSheet');
+  if (sheet) return sheet;
+  sheet = document.createElement('div');
+  sheet.id = 'mobileDetailSheet';
+  sheet.className = 'mobile-sheet';
+  sheet.hidden = true;
+  document.body.appendChild(sheet);
+  return sheet;
+}
+function openMobileSheet({ title, content }){
+  const sheet = ensureMobileSheet();
+  sheet.hidden = false;
+  sheet.innerHTML = `
+    <div class="mobile-sheet-header">
+      <strong>${esc(title || 'Details')}</strong>
+      <button id="mobileSheetCloseBtn" class="ghost">Close</button>
+    </div>
+    <div class="mobile-sheet-body">${content || ''}</div>
+  `;
+  document.getElementById('mobileSheetCloseBtn')?.addEventListener('click', () => closeMobileSheet());
+}
+function closeMobileSheet(){
+  const sheet = document.getElementById('mobileDetailSheet');
+  if (sheet) sheet.hidden = true;
+}
+function wireKeyboardSafeFormControls(scopeEl){
+  if (!(scopeEl instanceof HTMLElement)) return;
+  const focusSelector = 'input, textarea, select';
+  scopeEl.querySelectorAll(focusSelector).forEach((el) => {
+    el.addEventListener('focus', () => {
+      setTimeout(() => {
+        try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+      }, 40);
+    });
+  });
+  if (!isMobileViewport() || !window.visualViewport) return;
+  const panel = document.getElementById('actionPanel');
+  if (!(panel instanceof HTMLElement)) return;
+  const syncInset = () => {
+    const vv = window.visualViewport;
+    const keyboardInset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+    panel.style.paddingBottom = `${Math.max(10, keyboardInset + 10)}px`;
+  };
+  syncInset();
+  if (!state.keyboardSafeViewportBound) {
+    state.keyboardSafeViewportBound = true;
+    window.visualViewport.addEventListener('resize', syncInset, { passive: true });
+    window.visualViewport.addEventListener('scroll', syncInset, { passive: true });
+  }
+}
 function renderDefaultActionPanel(){
+  closeMobileSheet();
   const panel = document.getElementById('actionPanel');
   if (!panel) return;
   const live = state.live || {};
@@ -4603,33 +4713,50 @@ function renderResearchLabPanel(targetLabId){
   }
   panel.innerHTML = `
     ${panelToolbar(isUni ? 'University Console' : 'Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
-    <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
-    <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
-    <button id="runResearchBtn">Research</button>
-    <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>
-    <div class="build-card" style="margin-top:8px">
-      <div class="kv"><strong>Generated Plans</strong></div>
-      <div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
-        <div class="agent-row research-plan" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '' : 'draggable="true"'} data-plan-id="${esc(plan.id)}">
+    ${renderPanelCard({
+      id: 'researchSourceCard',
+      title: 'Source',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
+      <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
+      <button id="runResearchBtn">Research</button>
+      <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'researchPlanCard',
+      title: `Generated Plans (${plans.length})`,
+      open: true,
+      body: `<div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
+        <div class="agent-row research-plan" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '' : 'draggable="true"'} data-plan-id="${esc(plan.id)}" data-plan-title="${esc(plan.title || `Plan ${idx + 1}`)}" data-plan-summary="${esc(plan.summary || '')}">
           <div class="agent-meta">
             <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
             ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '<span class="badge">WONT FIX</span>' : ''}
             <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Plan ${idx + 1}`)}</span>
           </div>
           <div class="agent-actions">
+            <button class="agent-restart" data-plan-open-sheet="${esc(plan.id)}">view</button>
             <button class="agent-restart" data-plan-deploy="${esc(plan.id)}" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? 'disabled' : ''}>deploy</button>
             <button class="agent-restart" data-plan-wont-fix="${esc(plan.id)}" title="Mark WONT FIX">delete</button>
           </div>
         </div>
       `).join('') : '<div class="notice">No plans yet. Press Research.</div>'}</div>
-      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in ${isUni ? 'Library or Warehouse' : 'Warehouse'}.</div>
-    </div>
+      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in ${isUni ? 'Library or Warehouse' : 'Warehouse'}.</div>`
+    })}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
   const notice = document.getElementById('researchNotice');
   const refreshPlanInteractions = () => {
     const list = document.getElementById('researchPlanList');
     if (!list) return;
+    list.querySelectorAll('[data-plan-open-sheet]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.research-plan');
+        const title = String(row?.getAttribute('data-plan-title') || 'Plan details');
+        const summary = String(row?.getAttribute('data-plan-summary') || 'No summary provided.');
+        openMobileSheet({ title, content: `<div class="build-card"><div class="prompt-text">${esc(summary)}</div></div>` });
+      });
+    });
     list.querySelectorAll('[data-plan-deploy]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-plan-deploy');
@@ -4752,24 +4879,32 @@ function renderWarehousePanel(targetWarehouseId){
 
   panel.innerHTML = `
     ${panelToolbar('Warehouse Console', String(repoKey || 'unlinked'))}
-    <div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
-    <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
-    <div class="kv"><strong>Input:</strong> ${esc(nearestLab ? `Research Lab ${nearestLab.id}` : 'none')}</div>
-    <div class="kv"><strong>Output:</strong> ${esc(nearestFeature ? `Feature ${nearestFeature.id}` : 'none')}</div>
-    <div class="notice" id="warehouseNotice">When a feature is marked EMPTY (after PR merge), it pulls the most important stored item.</div>
-    <div class="build-card" style="margin-top:8px">
-      <div class="kv"><strong>Stored Items</strong></div>
-      <div>${items.length ? items.map((plan, idx) => `
+    ${renderPanelCard({
+      id: 'warehouseRouteCard',
+      title: 'Routing',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
+      <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
+      <div class="kv"><strong>Input:</strong> ${esc(nearestLab ? `Research Lab ${nearestLab.id}` : 'none')}</div>
+      <div class="kv"><strong>Output:</strong> ${esc(nearestFeature ? `Feature ${nearestFeature.id}` : 'none')}</div>
+      <div class="notice" id="warehouseNotice">When a feature is marked EMPTY (after PR merge), it pulls the most important stored item.</div>`
+    })}
+    ${renderPanelCard({
+      id: 'warehouseItemsCard',
+      title: `Stored Items (${items.length})`,
+      open: true,
+      body: `<div>${items.length ? items.map((plan, idx) => `
         <div class="agent-row">
           <div class="agent-meta">
             <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
             <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Item ${idx + 1}`)}</span>
           </div>
         </div>
-      `).join('') : '<div class="notice">Warehouse is empty.</div>'}</div>
-    </div>
+      `).join('') : '<div class="notice">Warehouse is empty.</div>'}</div>`
+    })}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
 }
 
 async function renderPowerPlantPanel(targetWarehouseId){
@@ -5077,29 +5212,71 @@ function renderRunSetupPanel(targetDraftId){
 
   panel.innerHTML = `
     ${panelToolbar(isDraft ? 'Feature Draft Setup' : 'Feature Run Console', String(draft.id || ''))}
-    <div class="kv"><strong>Repo:</strong> ${esc(draft.repo)}</div>
-    <div class="kv"><strong>Base scope:</strong> ${esc(base?.id || 'none')}</div>
-    ${allAgentsCompleted ? `<button id="markFeatureEmptyBtn" style="margin:4px 0 8px 0" ${freeReady || draft.empty ? '' : 'disabled'}>${freeLabel}</button>` : ''}
-    <label class="kv">Worktree path
-      <input id="worktreePath" value="${esc(draft.worktreePath)}" />
-    </label>
-    <div class="kv"><strong>Runtime:</strong> ${runtimeLink(draft.port || 3334)}</div>
-    <div class="kv"><strong>Empty:</strong> ${draft.empty ? 'yes' : 'no'}</div>
-    ${isDraft
-      ? `<label class="kv">Feature prompt
-      <textarea id="featurePrompt" rows="8" placeholder="Describe detailed scope, constraints, and acceptance criteria...">${esc(draft.prompt)}</textarea>
-    </label>`
-      : `<div class="kv"><strong>Feature prompt:</strong></div>
-    <div class="build-card" style="margin-top:6px"><div class="prompt-text">${esc(String(draft.prompt || run?.task || ''))}</div></div>`}
-    ${hasRun ? renderAgentStatusList(runAgents, run) : ''}
-    <button id="launchFeatureRunBtn" style="margin-top:8px" ${String(draft.repo || '').trim() ? '' : 'disabled'}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
-    <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
-    <div class="notice" style="margin-top:8px" id="featureMutationNotice">${missingRoles.length ? `Blocked: no idle ${missingRoles.join(', ')} workers in base ${base?.id || 'unknown'}.` : 'Ready to execute backend actions.'}</div>
+    ${renderPanelCard({
+      id: 'featureActionsCard',
+      title: 'Actions',
+      open: true,
+      body: `<button id="launchFeatureRunBtn" ${String(draft.repo || '').trim() ? '' : 'disabled'}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
+      <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
+      ${allAgentsCompleted ? `<button id="markFeatureEmptyBtn" style="margin-top:6px" ${freeReady || draft.empty ? '' : 'disabled'}>${freeLabel}</button>` : ''}
+      <div class="notice" style="margin-top:8px" id="featureMutationNotice">${missingRoles.length ? `Blocked: no idle ${missingRoles.join(', ')} workers in base ${base?.id || 'unknown'}.` : 'Ready to execute backend actions.'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'featureSetupCard',
+      title: 'Setup',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(draft.repo)}</div>
+      <div class="kv"><strong>Base scope:</strong> ${esc(base?.id || 'none')}</div>
+      <label class="kv">Worktree path
+        <input id="worktreePath" value="${esc(draft.worktreePath)}" />
+      </label>
+      <div class="kv"><strong>Runtime:</strong> ${runtimeLink(draft.port || 3334)}</div>
+      <div class="kv"><strong>Empty:</strong> ${draft.empty ? 'yes' : 'no'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'featurePromptCard',
+      title: 'Feature prompt',
+      open: true,
+      body: isDraft
+        ? `<button id="openFeaturePromptSheetBtn" class="sheet-open-btn">Open Prompt Editor</button>
+        <div class="notice">Long-form prompt editing opens in a mobile sheet.</div>`
+        : `<div class="build-card" style="margin-top:6px"><div class="prompt-text">${esc(String(draft.prompt || run?.task || ''))}</div></div>`
+    })}
+    ${hasRun ? renderPanelCard({ id: 'featureAgentsCard', title: `Assigned Agents (${runAgents.length})`, open: true, body: renderAgentStatusList(runAgents, run) }) : ''}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
   panel.scrollTop = 0;
 
   document.getElementById('worktreePath').addEventListener('input', e => { draft.worktreePath = e.target.value; queuePersist(); });
+  document.getElementById('openFeaturePromptSheetBtn')?.addEventListener('click', () => {
+    openMobileSheet({
+      title: 'Feature prompt',
+      content: `<label class="kv">Prompt<textarea id="featurePromptSheetInput" rows="12" placeholder="Describe detailed scope, constraints, and acceptance criteria...">${esc(String(draft.prompt || ''))}</textarea></label>
+      <button id="featurePromptSheetSaveBtn">Save Prompt</button>`
+    });
+    document.getElementById('featurePromptSheetSaveBtn')?.addEventListener('click', () => {
+      const ta = document.getElementById('featurePromptSheetInput');
+      draft.prompt = String(ta?.value || '');
+      void postJson('/api/rts/layout/position', {
+        entityType: 'feature',
+        entityId: draft.id,
+        runId: draft.runId || null,
+        repoPath: draft.repo || null,
+        worktreePath: draft.worktreePath || null,
+        x: Number(draft.x || 0),
+        y: Number(draft.y || 0),
+        payload: {
+          baseId: String(draft.baseId || ''),
+          workerAssignments: draft.workerAssignments || {},
+          prompt: String(draft.prompt || '')
+        }
+      }).catch(() => {});
+      queuePersist();
+      closeMobileSheet();
+      renderRunSetupPanel(draft.id);
+    });
+  });
   const featurePromptInput = document.getElementById('featurePrompt');
   if (featurePromptInput) {
     featurePromptInput.addEventListener('input', e => {
