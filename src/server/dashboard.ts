@@ -805,8 +805,8 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       const y = Number.isFinite(existing?.y) ? Number(existing!.y) : (Number.isFinite(incomingY) ? incomingY : 0);
       upsert.run(id, "run", runId, null, null, x, y, JSON.stringify({ runId, x, y }), now);
     }
-    const baseRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'base'").all() as Array<{ id: string }>;
-    for (const row2 of baseRows) if (!seenBaseIds.has(row2.id)) deleteById.run(row2.id);
+    // Bases are long-lived user structures. Do not prune by omission from
+    // snapshot state; stale/incomplete clients can otherwise wipe them.
     const featureRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'feature'").all() as Array<{ id: string; run_id: string | null }>;
     for (const row2 of featureRows) {
       if (seenFeatureIds.has(row2.id)) continue;
@@ -814,12 +814,9 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       if (row2.run_id && runIdSet.has(row2.run_id)) continue;
       deleteById.run(row2.id);
     }
-    // Research labs are long-lived user structures. Do not prune by omission from
-    // snapshot state; stale/incomplete clients can otherwise wipe them.
-    const warehouseRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'warehouse'").all() as Array<{ id: string }>;
-    for (const row2 of warehouseRows) {
-      if (!seenWarehouseIds.has(row2.id)) deleteById.run(row2.id);
-    }
+    // Research labs and warehouse/library buildings are long-lived user structures.
+    // Do not prune by omission from snapshot state; stale/incomplete clients can
+    // otherwise wipe them.
     const runRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'run'").all() as Array<{ id: string; run_id: string | null }>;
     for (const row2 of runRows) {
       const id = row2.run_id || (String(row2.id || "").startsWith("run:") ? String(row2.id).slice(4) : "");
