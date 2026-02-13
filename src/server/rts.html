@@ -159,6 +159,22 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   text-decoration:none;
   border-bottom:1px solid #95f1ff66;
 }
+.build-note.bad {
+  border-color:#ff7f9dbb;
+  background:#2a0b14f0;
+  color:#ffd5df;
+  box-shadow:0 8px 18px #2d0713cc;
+}
+.build-note.bad .bad-tag {
+  display:inline-block;
+  margin-bottom:4px;
+  padding:1px 6px;
+  border:1px solid #ff7f9dcc;
+  border-radius:999px;
+  color:#ff9db5;
+  font-weight:700;
+  letter-spacing:.4px;
+}
 .panel {
   background:var(--panel);
   border:1px solid var(--panel-edge);
@@ -414,7 +430,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   top:0;
   right:0;
 }
-.base { width:var(--footprint-w,176px); height:var(--footprint-h,132px); }
+.base { width:var(--footprint-w,220px); height:var(--footprint-h,154px); }
 .base .iso-core { width:100%; height:100%; border-radius:0; padding:0; }
 .movable { cursor:move; }
 .base .name { font-size:12px; font-weight:700; color:#baf5ff; }
@@ -518,6 +534,85 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   color:#ffd4e2;
 }
 .panel-delete:hover { border-color:#cf7fa2; }
+.library-modal {
+  position:fixed;
+  inset:2vh 2vw;
+  z-index:1200;
+  border:1px solid #4c7698;
+  border-radius:12px;
+  background:linear-gradient(160deg,#0b1a2e 0%,#071423 100%);
+  box-shadow:0 24px 80px #000000cc;
+  display:flex;
+  flex-direction:column;
+}
+.library-modal[hidden] { display:none; }
+.library-modal-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 12px;
+  border-bottom:1px solid #33556f;
+}
+.library-modal-body {
+  flex:1;
+  min-height:0;
+  display:grid;
+  grid-template-columns:minmax(340px, 36%) 1fr;
+  gap:10px;
+  padding:10px;
+}
+.library-file-list {
+  border:1px solid #375a75;
+  border-radius:10px;
+  padding:8px;
+  background:#091728;
+  overflow:auto;
+}
+.library-file-row {
+  width:100%;
+  text-align:left;
+  border:1px solid #395b77;
+  border-radius:8px;
+  margin-bottom:7px;
+  padding:7px 8px;
+  background:#0f243a;
+}
+.library-file-row.active { border-color:#8de7ff; box-shadow:0 0 0 1px #8de7ff44 inset; }
+.library-file-name { display:block; font-weight:600; color:#d3efff; margin-bottom:2px; }
+.library-file-meta { display:block; font-size:11px; color:#99b8ce; }
+.library-split {
+  margin:8px 0;
+  border-top:1px solid #4e708d;
+  padding-top:8px;
+}
+.library-preview {
+  border:1px solid #375a75;
+  border-radius:10px;
+  background:#06111d;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.library-preview-head { padding:8px 10px; border-bottom:1px solid #2f4d66; font-size:12px; color:#a8d3ea; }
+.library-preview textarea {
+  flex:1;
+  min-height:0;
+  margin:0;
+  border:0;
+  border-radius:0 0 10px 10px;
+  resize:none;
+  padding:12px;
+  font-family:'Geist Mono', monospace;
+  font-size:12px;
+  line-height:1.45;
+  color:#d8ecfb;
+  background:#040b14;
+}
+@media (max-width: 900px) {
+  .library-modal { inset:1vh 1vw; }
+  .library-modal-body { grid-template-columns:1fr; }
+}
 .building-hover {
   position:fixed;
   min-width:180px;
@@ -732,14 +827,14 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
         </div>
         <div class="panel" id="actionPanel">
           <h3>Action Console</h3>
-          <div class="notice">Use build icons to place Base, Feature Forge, Research Lab, Warehouse, University, or Library.</div>
+          <div class="notice">Use build icons to place Base, Feature Forge, Research Lab, Warehouse, University, Library, or Power Plant.</div>
         </div>
       </div>
     </div>
 
     <section class="command-bar">
       <div class="command-grid">
-        <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)" style="--palette-bg:url('/rts-sprites/base-core-ogame-preview-20260212k.webp?v=20260212k');">
+        <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)" style="--palette-bg:url('/rts-sprites/base_preview_3-20260213a.png?v=20260213a');">
           <span class="palette-tooltip" role="tooltip">
             <span class="tooltip-title">Base Core</span>
             <span class="tooltip-copy">Main command hub. Place first to anchor routing and runtime links.</span>
@@ -781,6 +876,13 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
           </span>
           <span class="hotkey">Y</span>
         </button>
+        <button class="palette-card" draggable="true" data-building="power" title="Power Plant (P)" style="--palette-bg:url('/rts-sprites/power_preview-20260212a.webp?v=20260212a');">
+          <span class="palette-tooltip" role="tooltip">
+            <span class="tooltip-title">Power Plant P</span>
+            <span class="tooltip-copy">Cron station. Uses Library placement and shows all active cron jobs.</span>
+          </span>
+          <span class="hotkey">P</span>
+        </button>
       </div>
     </section>
   </div>
@@ -818,6 +920,7 @@ const state = {
   stream: {
     runId: null,
     agentId: null,
+    stepId: null,
     targetLines: [],
     displayedLines: [],
     pollTimer: null,
@@ -828,24 +931,26 @@ const state = {
   streamSelectionByRun: {},
   featureMode: false,
   runStatusOverrides: {},
-  libraryBrowser: { role: 'all', tag: 'all', q: '' }
+  libraryBrowser: { role: 'all', tag: 'all', q: '', selectedPath: '' }
 };
 // Manually bump this when changing Command Console UI so refresh state is obvious.
-const COMMAND_CONSOLE_VERSION = 'v2026.02.12.2';
+const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
 const RTS_SPRITE_URLS = [
   '/rts-sprites/bg-space-tile-20260212b.png?v=20260212b',
-  '/rts-sprites/base_core_sprite.png?v=20260212v',
+  '/rts-sprites/base_sprite-20260212a.png?v=20260212a',
   '/rts-sprites/feature_factory_sprite.png?v=20260212v',
   '/rts-sprites/research_lab_sprite.png?v=20260212v',
   '/rts-sprites/warehouse_sprite.png?v=20260212v',
   '/rts-sprites/university_sprite-20260212a.png?v=20260212a',
   '/rts-sprites/library_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/base-core-ogame-preview-20260212k.webp?v=20260212k',
+  '/rts-sprites/power_sprite-20260212a.png?v=20260212a',
+  '/rts-sprites/base_preview_3-20260213a.png?v=20260213a',
   '/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/university_preview-20260212a.webp?v=20260212a',
   '/rts-sprites/library_preview-20260212a.webp?v=20260212a',
+  '/rts-sprites/power_preview-20260212a.webp?v=20260212a',
   '/rts-sprites/unit-cephalon-test.png?v=20260212b',
   '/rts-sprites/subunit-cephalon-test.png?v=20260212b'
 ];
@@ -865,6 +970,15 @@ function dbg(tag, data){
 }
 function baseAgentId(agentId){
   return String(agentId || '').replace(/@run:[^/]+$/, '');
+}
+function streamSelectionKey(agentId, stepId = ''){
+  return `${String(agentId || '')}::${String(stepId || '')}`;
+}
+function parseStreamSelectionKey(key){
+  const raw = String(key || '');
+  const splitAt = raw.indexOf('::');
+  if (splitAt < 0) return { agentId: raw, stepId: '' };
+  return { agentId: raw.slice(0, splitAt), stepId: raw.slice(splitAt + 2) };
 }
 const WORKER_ROLES = ['planner', 'setup', 'developer', 'verifier', 'tester', 'reviewer'];
 const WORKER_ROLE_LABELS = {
@@ -1088,17 +1202,39 @@ function renderDefaultActionPanel(){
     <div class="kv"><strong>Active runs:</strong> ${Number(live.activeRunCount || 0)}</div>
     <div class="kv"><strong>Pending runs:</strong> ${Number(live.pendingRunCount || 0)}</div>
     <div class="kv"><strong>Running agents:</strong> ${Number(live.runningAgentCount || 0)}</div>
-    <div class="notice">Place Base, Feature, Research, Warehouse, University, or Library structures from the cards below.</div>
+    <div class="notice">Place Base, Feature, Research, Warehouse, University, Library, or Power Plant structures from the cards below.</div>
   `;
   wirePanelDeleteButton();
+}
+function isResearchKind(kind){
+  return kind === 'research' || kind === 'university';
+}
+function isStorageKind(kind){
+  return kind === 'warehouse' || kind === 'library' || kind === 'power';
+}
+function isLibraryLike(building){
+  if (!building || typeof building !== 'object') return false;
+  if (building.kind === 'library') return true;
+  if (building.kind !== 'warehouse') return false;
+  const variant = String(building.variant || '').toLowerCase();
+  const id = String(building.id || '').toLowerCase();
+  return variant === 'library' || id.startsWith('library-');
+}
+function isInventoryStorageKind(kind){
+  return kind === 'warehouse' || kind === 'library';
 }
 function hoverSummaryForBuilding(b){
   if (!b) return '';
   if (b.kind === 'base') return 'Base command hub';
-  if (b.kind === 'feature') return `${prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'draft'))} • ${Math.round(Number(b.progress || 0))}%`;
-  if (b.kind === 'research' && String(b.variant || '') === 'university') return 'University campus';
+  if (b.kind === 'feature') {
+    const timeoutStep = timedOutStepForRun(b.run);
+    if (timeoutStep) return `BAD • timeout on ${prettyStepName(timeoutStep.step_id || 'step')} • ${Math.round(Number(b.progress || 0))}%`;
+    return `${prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'draft'))} • ${Math.round(Number(b.progress || 0))}%`;
+  }
+  if (b.kind === 'university') return 'University campus';
   if (b.kind === 'research') return 'Research lab';
-  if (b.kind === 'warehouse' && String(b.variant || '') === 'library') return `${Array.isArray(b.items) ? b.items.length : 0} archived entries`;
+  if (isLibraryLike(b)) return `${Array.isArray(b.items) ? b.items.length : 0} archived entries`;
+  if (b.kind === 'power') return `${Array.isArray(state.diag?.cron?.jobs) ? state.diag.cron.jobs.length : Number(state.diag?.cron?.matchingCount || 0)} cron jobs`;
   if (b.kind === 'warehouse') return `${Array.isArray(b.items) ? b.items.length : 0} stored items`;
   if (b.kind === 'run') return prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting'));
   return '';
@@ -1106,12 +1242,14 @@ function hoverSummaryForBuilding(b){
 function showBuildingHoverCard(building, clientX, clientY){
   const card = document.getElementById('buildingHoverCard');
   if (!card || !building) return;
-  const researchTitle = String(building.variant || '') === 'university' ? 'University' : 'Research Lab';
-  const warehouseTitle = String(building.variant || '') === 'library' ? 'Library' : 'Warehouse';
-  const title = building.kind === 'feature' ? 'Feature Forge'
-    : (building.kind === 'research' ? researchTitle
-      : (building.kind === 'warehouse' ? warehouseTitle
-        : (building.kind === 'run' ? 'Run Structure' : 'Structure')));
+  let title = 'Structure';
+  if (building.kind === 'feature') title = 'Feature Forge';
+  else if (building.kind === 'university') title = 'University';
+  else if (building.kind === 'research') title = 'Research Lab';
+  else if (isLibraryLike(building)) title = 'Library';
+  else if (building.kind === 'power') title = 'Power Plant P';
+  else if (building.kind === 'warehouse') title = 'Warehouse';
+  else if (building.kind === 'run') title = 'Run Structure';
   card.innerHTML = `<strong>${esc(title)}</strong><span>${esc(hoverSummaryForBuilding(building))}</span>`;
   card.style.display = 'block';
   const pad = 10;
@@ -1131,7 +1269,7 @@ function hideBuildingHoverCard(){
   card.style.display = 'none';
 }
 function isLibraryBuilding(building){
-  return !!building && building.kind === 'warehouse' && String(building.variant || '').toLowerCase() === 'library';
+  return isLibraryLike(building);
 }
 function formatBytes(bytes){
   const n = Number(bytes || 0);
@@ -1141,12 +1279,22 @@ function formatBytes(bytes){
 }
 function renderStoragePanelForBuilding(warehouseId){
   const wh = (state.warehouseBuildings || []).find((it) => String(it.id) === String(warehouseId || ''))
-    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse' ? state.selected.data : null);
+    || (state.selected?.type === 'building' && isStorageKind(state.selected?.data?.kind) ? state.selected.data : null);
+  if (wh && wh.kind === 'power') {
+    closeLibraryModal();
+    void renderPowerPlantPanel(String(wh.id || warehouseId || ''));
+    return;
+  }
   if (wh && isLibraryBuilding(wh)) {
     void renderLibraryPanel(String(wh.id || warehouseId || ''));
     return;
   }
+  closeLibraryModal();
   renderWarehousePanel(warehouseId);
+}
+function closeLibraryModal(){
+  const modal = document.getElementById('libraryModal');
+  if (modal) modal.hidden = true;
 }
 function preloadRtsSprites(){
   if (spritesPreloadPromise) return spritesPreloadPromise;
@@ -1228,9 +1376,21 @@ function resolveDraggedEntityPosition(drag){
     const r = (state.researchBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
     return r ? { x:Number(r.x)||0, y:Number(r.y)||0 } : null;
   }
+  if (drag.type === 'university') {
+    const u = (state.researchBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
+    return u ? { x:Number(u.x)||0, y:Number(u.y)||0 } : null;
+  }
   if (drag.type === 'warehouse') {
     const w = (state.warehouseBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
     return w ? { x:Number(w.x)||0, y:Number(w.y)||0 } : null;
+  }
+  if (drag.type === 'library') {
+    const l = (state.warehouseBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
+    return l ? { x:Number(l.x)||0, y:Number(l.y)||0 } : null;
+  }
+  if (drag.type === 'power') {
+    const p = (state.warehouseBuildings || []).find((x) => x.id === drag.id) || (state.buildings || []).find((x) => x.id === drag.id);
+    return p ? { x:Number(p.x)||0, y:Number(p.y)||0 } : null;
   }
   if (drag.type === 'run') {
     const p = state.runLayoutOverrides?.[drag.runId || drag.id];
@@ -1246,7 +1406,9 @@ async function persistDraggedEntityPosition(drag){
   if (!pos) return;
   const entityType = drag.type === 'base'
     ? 'base'
-    : (drag.type === 'feature' ? 'feature' : (drag.type === 'research' ? 'research' : (drag.type === 'warehouse' ? 'warehouse' : 'run')));
+    : (drag.type === 'feature' ? 'feature'
+      : (drag.type === 'research' || drag.type === 'university' ? 'research'
+        : (drag.type === 'warehouse' || drag.type === 'library' || drag.type === 'power' ? 'warehouse' : 'run')));
   await postJson('/api/rts/layout/position', {
     entityType,
     entityId: drag.id,
@@ -1302,8 +1464,7 @@ async function hydratePersistedState(){
   }
   if (Array.isArray(persisted.warehouseBuildings)) {
     state.warehouseBuildings = persisted.warehouseBuildings
-      .map(normalizeWarehouseBuilding)
-      .filter((wb) => !!wb.repo);
+      .map(normalizeWarehouseBuilding);
   }
   if (persisted.runLayoutOverrides && typeof persisted.runLayoutOverrides === 'object') state.runLayoutOverrides = persisted.runLayoutOverrides;
   if (persisted.hiddenBelts && typeof persisted.hiddenBelts === 'object') state.hiddenBelts = persisted.hiddenBelts;
@@ -1323,9 +1484,19 @@ async function hydratePersistedState(){
 function parseContext(run){ try { return JSON.parse(run.context || '{}'); } catch { return {}; } }
 function extractPrUrl(run){
   if (!run || typeof run !== 'object') return null;
-  const candidates = [run.task, run.context, ...(run.steps||[]).map(s=>s.output||'')].join('\n');
-  const m = candidates.match(/https?:\/\/[^\s)]+\/pull\/[0-9]+/i);
-  return m ? m[0] : null;
+  const candidates = [
+    run.task,
+    run.context,
+    ...(run.steps || []).map((s) => `${String(s?.step_id || '')}\n${String(s?.output || '')}`)
+  ].join('\n');
+  const re = /https?:\/\/[^\s)]+\/pull\/[0-9]+/ig;
+  let last = null;
+  let m = re.exec(candidates);
+  while (m) {
+    last = m[0];
+    m = re.exec(candidates);
+  }
+  return last || null;
 }
 function runProgress(run){
   const steps = run.steps || [];
@@ -1413,6 +1584,31 @@ function setPortForPath(pathValue, portValue){
     [key]: Math.floor(port),
   };
 }
+function nextSpreadPort(startPort){
+  const start = Number(startPort);
+  let candidate = Number.isFinite(start) && start > 0 ? Math.floor(start) : 3334;
+  if (candidate < 1024) candidate = 3334;
+  const used = new Set();
+  Object.values(state.portByPath || {}).forEach((p) => {
+    const n = Number(p);
+    if (Number.isFinite(n) && n > 0) used.add(Math.floor(n));
+  });
+  (state.featureBuildings || []).forEach((fb) => {
+    const n = Number(fb?.port || 0);
+    if (Number.isFinite(n) && n > 0) used.add(Math.floor(n));
+  });
+  const stride = 10;
+  let loops = 0;
+  while (used.has(candidate) && candidate <= 65535 && loops < 7000) {
+    candidate += stride;
+    loops += 1;
+  }
+  if (candidate > 65535) {
+    candidate = 3334;
+    while (used.has(candidate) && candidate <= 65535) candidate += 1;
+  }
+  return candidate > 65535 ? 3334 : candidate;
+}
 function pathLabel(pathValue){
   const key = normalizePathKey(pathValue);
   if (!key) return 'base';
@@ -1441,17 +1637,18 @@ function inferUnitModel(agentId, run){
 
 const GRID_SIZE = 22;
 const FOOTPRINTS = {
-  base: { cols: 8, rows: 6, spriteW: 206, spriteH: 132 },
+  base: { cols: 10, rows: 7, spriteW: 264, spriteH: 168 },
   feature: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
   research: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
   warehouse: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
   university: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
   library: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
+  power: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 },
   run: { cols: 6, rows: 4, spriteW: 186, spriteH: 98 }
 };
 
 function buildingFootprint(kind){
-  const key = (kind === 'base' || kind === 'feature' || kind === 'research' || kind === 'warehouse' || kind === 'university' || kind === 'library' || kind === 'run') ? kind : 'run';
+  const key = (kind === 'base' || kind === 'feature' || kind === 'research' || kind === 'warehouse' || kind === 'university' || kind === 'library' || kind === 'power' || kind === 'run') ? kind : 'run';
   const fp = FOOTPRINTS[key];
   return {
     cols: fp.cols,
@@ -1472,9 +1669,14 @@ function worldDepth(y, bias = 100000){
   return Math.max(1, bias + Math.floor(Number(y) || 0));
 }
 
-function getLiveAgentEntry(runId, agentId){
+function getLiveAgentEntry(runId, agentId, stepId = ''){
   const list = state.live?.activeAgents || [];
-  return list.find((a) => a.runId === runId && a.agentId === agentId) || null;
+  const step = String(stepId || '').trim();
+  return list.find((a) => {
+    if (a.runId !== runId || a.agentId !== agentId) return false;
+    if (!step) return true;
+    return String(a.stepId || '') === step;
+  }) || null;
 }
 
 function runTargetCenterMap(){
@@ -1482,7 +1684,9 @@ function runTargetCenterMap(){
   (state.buildings || []).forEach((b) => {
     const rid = b.run?.id || b.runId || (b.kind === 'run' ? b.id : '');
     if (!rid) return;
-    const kind = b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : 'run');
+    const kind = b.kind === 'feature'
+      ? 'feature'
+      : (b.kind === 'university' ? 'university' : (b.kind === 'research' ? 'research' : 'run'));
     const centerRaw = centerPointFor(kind, b.x, b.y);
     const center = { x: centerRaw.x, y: centerRaw.y, kind: b.kind };
     const current = targets.get(rid);
@@ -1513,6 +1717,7 @@ function renderLiveConsole(){
   const runtimeLine = state.runtime?.cwd ? `${state.runtime.cwd} @ :${state.runtime.port || 3333}` : '';
   const deployWaiting = Number(live.pendingRunCount || 0);
   const deployDisabled = state.liveDeployInFlight || deployWaiting <= 0;
+  const runGlobalCronDisabled = state.liveDeployInFlight || deployWaiting <= 0;
   const lines = agents.length
     ? agents.slice(0, 120).map((a) => {
       const age = typeof a.ageSec === 'number' ? String(a.ageSec).padStart(3, ' ') : ' --';
@@ -1528,7 +1733,7 @@ function renderLiveConsole(){
       <h3>Live Agent TTY</h3>
       <div class="cli-panel">
         <div class="cli-head">
-          <span>RUN ${live.activeRunCount || 0} | WAIT ${live.pendingRunCount || 0} | AGENT ${live.runningAgentCount || 0} | WORKERS ${workerTotal}</span>
+          <span>RUN ${live.activeRunCount || 0} | <button id="runGlobalCronBtn" class="agent-restart" ${runGlobalCronDisabled ? 'disabled' : ''} style="padding:0 6px;line-height:1.5">WAIT ${live.pendingRunCount || 0}</button> | AGENT ${live.runningAgentCount || 0} | WORKERS ${workerTotal}</span>
           <button id="deployWaitingBtn" class="agent-restart" ${deployDisabled ? 'disabled' : ''}>deploy</button>
           <span>${esc(stamp)}</span>
         </div>
@@ -1540,6 +1745,7 @@ function renderLiveConsole(){
   }
   if (!state.selected) renderDefaultActionPanel();
   const deployBtn = document.getElementById('deployWaitingBtn');
+  const runGlobalCronBtn = document.getElementById('runGlobalCronBtn');
   deployBtn?.addEventListener('click', async () => {
     if (state.liveDeployInFlight) return;
     state.liveDeployInFlight = true;
@@ -1555,6 +1761,28 @@ function renderLiveConsole(){
       renderSelection();
     } catch (err) {
       state.liveDeployNotice = `Deploy failed: ${err.message || err}`;
+    } finally {
+      state.liveDeployInFlight = false;
+      renderLiveConsole();
+    }
+  });
+  runGlobalCronBtn?.addEventListener('click', async () => {
+    if (state.liveDeployInFlight) return;
+    state.liveDeployInFlight = true;
+    state.liveDeployNotice = 'Queued clicked. Triggering global cron tick...';
+    renderLiveConsole();
+    try {
+      const result = await postJson('/api/rts/cron/run-global', {});
+      const attempted = Number(result?.attempted || 0);
+      const nudged = Number(result?.nudged || 0);
+      state.liveDeployNotice = nudged > 0
+        ? `Global cron tick queued for ${nudged}/${attempted} antfarm job(s).`
+        : 'No enabled antfarm cron jobs found.';
+      await refreshRuntimeState();
+      rebuildScene();
+      renderSelection();
+    } catch (err) {
+      state.liveDeployNotice = `Global cron tick failed: ${err.message || err}`;
     } finally {
       state.liveDeployInFlight = false;
       renderLiveConsole();
@@ -1805,8 +2033,9 @@ function rebuildScene(){
     });
   });
   (state.researchBuildings || []).forEach((rb) => {
+    const rbKind = rb.kind === 'university' ? 'university' : 'research';
     const repoPath = baseRepoKey(String(rb.repo || ''));
-    const researchCenter = centerPointFor('research', Number(rb.x || 0), Number(rb.y || 0));
+    const researchCenter = centerPointFor(rbKind, Number(rb.x || 0), Number(rb.y || 0));
     const linkedBase = (mergedBases || []).reduce((best, base) => {
       const c = centerPointFor('base', Number(base.x || 0), Number(base.y || 0));
       const d = Math.hypot(c.x - researchCenter.x, c.y - researchCenter.y);
@@ -1815,7 +2044,7 @@ function rebuildScene(){
     }, null)?.base || null;
     buildings.push({
       ...rb,
-      kind: 'research',
+      kind: rbKind,
       repo: repoPath,
       run: null,
       runId: null,
@@ -1845,10 +2074,11 @@ function rebuildScene(){
   });
 
   (state.warehouseBuildings || []).forEach((wb) => {
+    const wbKind = wb.kind === 'library' ? 'library' : (wb.kind === 'power' ? 'power' : 'warehouse');
     const repoPath = baseRepoKey(String(wb.repo || ''));
     buildings.push({
       ...wb,
-      kind: 'warehouse',
+      kind: wbKind,
       repo: repoPath,
       run: null,
       runId: null,
@@ -1937,7 +2167,8 @@ function rebuildScene(){
   if (state.selected?.type === 'building' && !isEditingActionPanel()) {
     if (state.selected.data?.kind === 'feature') renderRunSetupPanel(state.selected.data.id);
     else if (state.selected.data?.kind === 'research') renderResearchLabPanel(state.selected.data.id);
-    else if (state.selected.data?.kind === 'warehouse') renderStoragePanelForBuilding(state.selected.data.id);
+    else if (state.selected.data?.kind === 'university') renderUniversityPanel(state.selected.data.id);
+    else if (isStorageKind(state.selected.data?.kind)) renderStoragePanelForBuilding(state.selected.data.id);
   }
 }
 
@@ -1993,6 +2224,7 @@ function setPlacement(mode){
     else if (mode === 'base') notice.textContent = 'BASE';
     else if (mode === 'university') notice.textContent = 'UNIVERSITY';
     else if (mode === 'library') notice.textContent = 'LIBRARY';
+    else if (mode === 'power') notice.textContent = 'POWER';
     else if (mode === 'research') notice.textContent = 'LAB';
     else if (mode === 'warehouse') notice.textContent = 'WAREHOUSE';
     else notice.textContent = 'FORGE';
@@ -2048,12 +2280,24 @@ function nearWarehouse(x,y){
 function nearResearch(x,y){
   let best = null;
   (state.researchBuildings || []).forEach((r) => {
+    if (r.kind !== 'research') return;
     const center = centerPointFor('research', Number(r.x || 0), Number(r.y || 0));
     const d = Math.hypot(center.x - x, center.y - y);
     if (d > 240) return;
     if (!best || d < best.dist) best = { research: r, dist: d };
   });
   return best?.research || null;
+}
+function nearUniversity(x,y){
+  let best = null;
+  (state.researchBuildings || []).forEach((u) => {
+    if (u.kind !== 'university') return;
+    const center = centerPointFor('university', Number(u.x || 0), Number(u.y || 0));
+    const d = Math.hypot(center.x - x, center.y - y);
+    if (d > 240) return;
+    if (!best || d < best.dist) best = { university: u, dist: d };
+  });
+  return best?.university || null;
 }
 
 function nearFeatureBuilding(x,y){
@@ -2130,7 +2374,7 @@ function placeFeatureAt(x,y,prefillPrompt = '', forcedRepoPath = ''){
     x, y,
     repo: repoPath,
     worktreePath: getWorktreeDefault(repoPath || 'repo', featureId),
-    port: Number(basePort || 3333) + 1,
+    port: nextSpreadPort(Number(basePort || 3333) + 1),
     prompt: String(prefillPrompt || ''),
     workerAssignments: {},
     empty: false
@@ -2172,20 +2416,19 @@ function placeFeatureAt(x,y,prefillPrompt = '', forcedRepoPath = ''){
   return featureBuilding;
 }
 
-function placeResearchAt(x,y,variant = 'research'){
-  const normalizedVariant = String(variant || '').toLowerCase() === 'university' ? 'university' : 'research';
+function placeResearchAt(x,y,kind = 'research'){
+  const normalizedKind = String(kind || '').toLowerCase() === 'university' ? 'university' : 'research';
   const center = centerPointFor('research', x, y);
   const base = nearBase(center.x, center.y);
   if (!base) {
-    alert(normalizedVariant === 'university'
+    alert(normalizedKind === 'university'
       ? 'Universities must be placed near a Base.'
       : 'Research Labs must be placed near a Base.');
     return;
   }
   const researchBuilding = {
-    id: `${normalizedVariant}-${Date.now()}`,
-    kind:'research',
-    variant: normalizedVariant,
+    id: `${normalizedKind}-${Date.now()}`,
+    kind: normalizedKind,
     x, y,
     repo: base.repo || 'unlinked-repo',
     worktreePath: base.repo || 'unlinked-repo',
@@ -2201,39 +2444,43 @@ function placeResearchAt(x,y,variant = 'research'){
     worktreePath: researchBuilding.worktreePath || null,
     x: researchBuilding.x,
     y: researchBuilding.y,
-    allowCreate: true
+    allowCreate: true,
+    payload: { kind: normalizedKind }
   }).catch(() => {});
   state.selected = { type:'building', data:researchBuilding };
   queuePersist();
   rebuildScene();
   renderSelection();
-  renderResearchLabPanel(researchBuilding.id);
+  if (normalizedKind === 'university') renderUniversityPanel(researchBuilding.id);
+  else renderResearchLabPanel(researchBuilding.id);
 }
 
 function placeUniversityAt(x,y){
   placeResearchAt(x, y, 'university');
 }
 
-function placeWarehouseAt(x,y,variant = 'warehouse'){
-  const normalizedVariant = String(variant || '').toLowerCase() === 'library' ? 'library' : 'warehouse';
+function placeWarehouseAt(x,y,kind = 'warehouse'){
+  const rawKind = String(kind || '').toLowerCase();
+  const normalizedKind = rawKind === 'library' ? 'library' : (rawKind === 'power' ? 'power' : 'warehouse');
   const center = centerPointFor('warehouse', x, y);
-  const research = nearResearch(center.x, center.y);
-  if (!research) {
-    alert(normalizedVariant === 'library'
-      ? 'Libraries must be placed near a Research Lab or University.'
-      : 'Warehouses must be placed near a Research Lab.');
+  const anchor = (normalizedKind === 'library' || normalizedKind === 'power')
+    ? nearUniversity(center.x, center.y)
+    : nearResearch(center.x, center.y);
+  if (!anchor) {
+    if (normalizedKind === 'library') alert('Libraries must be placed near a University.');
+    else if (normalizedKind === 'power') alert('Power Plants must be placed near a University.');
+    else alert('Warehouses must be placed near a Research Lab.');
     return;
   }
-  const repoPath = String(research.repo || 'unlinked-repo');
+  const repoPath = String(anchor.repo || 'unlinked-repo');
   const warehouseBuilding = {
-    id: `${normalizedVariant}-${Date.now()}`,
-    kind:'warehouse',
-    variant: normalizedVariant,
+    id: `${normalizedKind}-${Date.now()}`,
+    kind: normalizedKind,
     x, y,
     repo: repoPath,
-    worktreePath: String(research.worktreePath || repoPath),
+    worktreePath: String(anchor.worktreePath || repoPath),
     items: [],
-    baseId: String(research.baseId || '')
+    baseId: String(anchor.baseId || '')
   };
   state.warehouseBuildings.push(warehouseBuilding);
   void postJson('/api/rts/layout/position', {
@@ -2244,22 +2491,28 @@ function placeWarehouseAt(x,y,variant = 'warehouse'){
     worktreePath: warehouseBuilding.worktreePath || null,
     x: warehouseBuilding.x,
     y: warehouseBuilding.y,
-    allowCreate: true
+    allowCreate: true,
+    payload: { kind: normalizedKind }
   }).catch(() => {});
   state.selected = { type:'building', data:warehouseBuilding };
   queuePersist();
   rebuildScene();
   renderSelection();
-  renderStoragePanelForBuilding(warehouseBuilding.id);
+  if (normalizedKind === 'library') void renderLibraryPanel(warehouseBuilding.id);
+  else if (normalizedKind === 'power') void renderPowerPlantPanel(warehouseBuilding.id);
+  else renderWarehousePanel(warehouseBuilding.id);
 }
 
 function placeLibraryAt(x,y){
   placeWarehouseAt(x, y, 'library');
 }
+function placePowerAt(x,y){
+  placeWarehouseAt(x, y, 'power');
+}
 
 function structureMarkup(kind, variant = ''){
   if (kind === 'base') {
-    return `<img class="building-sprite" src="/rts-sprites/base_core_sprite.png?v=20260212v" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/base_sprite-20260212a.png?v=20260212a" alt="" />`;
   }
   if (kind === 'feature') {
     return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.png?v=20260212v" alt="" />`;
@@ -2272,6 +2525,9 @@ function structureMarkup(kind, variant = ''){
   }
   if (kind === 'library' || (kind === 'warehouse' && String(variant || '') === 'library')) {
     return `<img class="building-sprite" src="/rts-sprites/library_sprite-20260212a.png?v=20260212a" alt="" />`;
+  }
+  if (kind === 'power' || (kind === 'warehouse' && String(variant || '') === 'power')) {
+    return `<img class="building-sprite" src="/rts-sprites/power_sprite-20260212a.png?v=20260212a" alt="" />`;
   }
   if (kind === 'warehouse') {
     return `<img class="building-sprite" src="/rts-sprites/warehouse_sprite.png?v=20260212v" alt="" />`;
@@ -2324,7 +2580,9 @@ function showPlacementGhost(kind, worldX, worldY){
     ? !resolveFeaturePlacementAnchor(center.x, center.y)
     : ((kind === 'research' || kind === 'university')
       ? !nearBase(center.x, center.y)
-      : ((kind === 'warehouse' || kind === 'library') ? !nearResearch(center.x, center.y) : false));
+      : (kind === 'warehouse'
+        ? !nearResearch(center.x, center.y)
+        : (kind === 'library' || kind === 'power' ? !nearUniversity(center.x, center.y) : false)));
   const className = kind === 'base' ? 'base' : 'building';
   const fp = buildingFootprint(kind);
   placementLayerEl.innerHTML = `
@@ -2398,11 +2656,20 @@ function updateResearchPosition(id, x, y){
   if (i < 0) return;
   state.researchBuildings[i] = { ...state.researchBuildings[i], x, y };
 }
+function updateUniversityPosition(id, x, y){
+  updateResearchPosition(id, x, y);
+}
 
 function updateWarehousePosition(id, x, y){
   const i = state.warehouseBuildings.findIndex((b) => b.id === id);
   if (i < 0) return;
   state.warehouseBuildings[i] = { ...state.warehouseBuildings[i], x, y };
+}
+function updateLibraryPosition(id, x, y){
+  updateWarehousePosition(id, x, y);
+}
+function updatePowerPosition(id, x, y){
+  updateWarehousePosition(id, x, y);
 }
 
 function updateRunBuildingPosition(id, x, y){
@@ -2512,7 +2779,7 @@ async function deleteSelectedStructure(){
     renderRunSetupPanel(null);
     return;
   }
-  if (s.type === 'building' && s.data?.kind === 'research') {
+  if (s.type === 'building' && isResearchKind(s.data?.kind)) {
     try {
       await postJson('/api/rts/layout/delete', { entityType: 'research', entityId: s.data.id });
     } catch (err) {
@@ -2527,7 +2794,7 @@ async function deleteSelectedStructure(){
     renderRunSetupPanel(null);
     return;
   }
-  if (s.type === 'building' && s.data?.kind === 'warehouse') {
+  if (s.type === 'building' && isStorageKind(s.data?.kind)) {
     try {
       await postJson('/api/rts/layout/delete', { entityType: 'warehouse', entityId: s.data.id });
     } catch (err) {
@@ -2652,6 +2919,22 @@ function normalizeRunStatus(status){
   return String(status || '').trim().toLowerCase();
 }
 
+function timedOutStepForRun(run){
+  if (!run || !Array.isArray(run.steps)) return null;
+  const rs = normalizeRunStatus(run.status || '');
+  if (FAILED_RUN_STATUSES.has(rs)) return null;
+  const candidates = run.steps
+    .filter((step) => Number(step?.retry_count || 0) > 0)
+    .sort((a, b) => {
+      const at = Date.parse(String(a?.updated_at || ''));
+      const bt = Date.parse(String(b?.updated_at || ''));
+      const av = Number.isFinite(at) ? at : 0;
+      const bv = Number.isFinite(bt) ? bt : 0;
+      return bv - av;
+    });
+  return candidates[0] || null;
+}
+
 function normalizeFeatureDraft(raw){
   const src = raw && typeof raw === 'object' ? raw : {};
   const id = String(src.id || `feature-draft-${Date.now()}`);
@@ -2683,13 +2966,12 @@ function normalizeFeatureDraft(raw){
 function normalizeResearchBuilding(raw){
   const src = raw && typeof raw === 'object' ? raw : {};
   const repo = baseRepoKey(String(src.repo || ''));
-  const variantRaw = String(src.variant || 'research').toLowerCase();
-  const variant = variantRaw === 'university' ? 'university' : 'research';
+  const kindRaw = String(src.kind || src.variant || 'research').toLowerCase();
+  const kind = kindRaw === 'university' ? 'university' : 'research';
   return {
     ...src,
-    id: String(src.id || `research-${Date.now()}`),
-    kind: 'research',
-    variant,
+    id: String(src.id || `${kind}-${Date.now()}`),
+    kind,
     repo,
     worktreePath: String(src.worktreePath || repo),
     plans: (Array.isArray(src.plans) ? src.plans : []).map((p, idx) => normalizeResearchPlan(p, `lab-plan-${idx + 1}`)),
@@ -2702,13 +2984,12 @@ function normalizeResearchBuilding(raw){
 function normalizeWarehouseBuilding(raw){
   const src = raw && typeof raw === 'object' ? raw : {};
   const repo = baseRepoKey(String(src.repo || ''));
-  const variantRaw = String(src.variant || 'warehouse').toLowerCase();
-  const variant = variantRaw === 'library' ? 'library' : 'warehouse';
+  const kindRaw = String(src.kind || src.variant || 'warehouse').toLowerCase();
+  const kind = kindRaw === 'library' ? 'library' : (kindRaw === 'power' ? 'power' : 'warehouse');
   return {
     ...src,
-    id: String(src.id || `warehouse-${Date.now()}`),
-    kind: 'warehouse',
-    variant,
+    id: String(src.id || `${kind}-${Date.now()}`),
+    kind,
     repo,
     worktreePath: String(src.worktreePath || repo),
     items: (Array.isArray(src.items) ? src.items : []).map((p, idx) => normalizeResearchPlan(p, `wh-item-${idx + 1}`)),
@@ -2773,6 +3054,7 @@ function primaryResearchLabForRepo(repoKey){
 function primaryWarehouseForRepo(repoKey){
   const key = baseRepoKey(String(repoKey || ''));
   const warehouses = (state.warehouseBuildings || [])
+    .filter((wb) => wb.kind !== 'power')
     .filter((wb) => baseRepoKey(String(wb.repo || '')) === key)
     .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
   return warehouses[0] || null;
@@ -2849,6 +3131,7 @@ function featureStructureVisualState(building){
   if (!building) return 'draft';
   if (building.empty) return 'draft';
   if (!building.committed || !building.runId) return 'draft';
+  if (timedOutStepForRun(building.run)) return 'failed';
   const status = normalizeRunStatus(getDisplayRunStatus(building.run, building.phase, building.runId));
   if (SUCCESS_RUN_STATUSES.has(status)) return 'done';
   if (FAILED_RUN_STATUSES.has(status)) return 'failed';
@@ -2873,7 +3156,9 @@ function nearestWarehouseForFeature(feature){
   if (!feature) return null;
   const repoKey = baseRepoKey(String(feature.repo || ''));
   const featureCenter = centerPointFor('feature', Number(feature.x || 0), Number(feature.y || 0));
-  const candidates = (state.warehouseBuildings || []).filter((wb) => baseRepoKey(String(wb.repo || '')) === repoKey);
+  const candidates = (state.warehouseBuildings || [])
+    .filter((wb) => wb.kind === 'warehouse')
+    .filter((wb) => baseRepoKey(String(wb.repo || '')) === repoKey);
   if (!candidates.length) return null;
   const nearest = candidates.reduce((best, wb) => {
     const c = centerPointFor('warehouse', Number(wb.x || 0), Number(wb.y || 0));
@@ -2970,7 +3255,7 @@ function renderWorld(){
         if (renderBelt(pathLayer, belt)) beltIds.add(belt.id);
       });
     });
-    (state.buildings || []).filter((b) => b.kind === 'research').forEach((research) => {
+    (state.buildings || []).filter((b) => isResearchKind(b.kind)).forEach((research) => {
       const target = centerPointFor('research', Number(research.x || 0), Number(research.y || 0));
       const nearest = (state.bases || []).reduce((best, base) => {
         const from = centerPointFor('base', Number(base.x || 0), Number(base.y || 0));
@@ -2992,7 +3277,7 @@ function renderWorld(){
       const warehouseCenter = centerPointFor('warehouse', Number(warehouse.x || 0), Number(warehouse.y || 0));
       const repoKey = baseRepoKey(String(warehouse.repo || ''));
       const nearestResearch = (state.buildings || [])
-        .filter((b) => b.kind === 'research' && baseRepoKey(String(b.repo || '')) === repoKey)
+        .filter((b) => isResearchKind(b.kind) && baseRepoKey(String(b.repo || '')) === repoKey)
         .reduce((best, research) => {
           const from = centerPointFor('research', Number(research.x || 0), Number(research.y || 0));
           const d = Math.hypot(from.x - warehouseCenter.x, from.y - warehouseCenter.y);
@@ -3031,6 +3316,27 @@ function renderWorld(){
         };
         if (renderBelt(pathLayer, belt)) beltIds.add(belt.id);
       });
+    });
+    (state.buildings || []).filter((b) => b.kind === 'library').forEach((library) => {
+      const libraryCenter = centerPointFor('library', Number(library.x || 0), Number(library.y || 0));
+      const repoKey = baseRepoKey(String(library.repo || ''));
+      const nearestUniversity = (state.buildings || [])
+        .filter((b) => b.kind === 'university' && baseRepoKey(String(b.repo || '')) === repoKey)
+        .reduce((best, university) => {
+          const from = centerPointFor('university', Number(university.x || 0), Number(university.y || 0));
+          const d = Math.hypot(from.x - libraryCenter.x, from.y - libraryCenter.y);
+          if (!best || d < best.dist) return { university, from, dist: d };
+          return best;
+        }, null);
+      if (!nearestUniversity || nearestUniversity.dist < 1) return;
+      const belt = {
+        id: `belt:university:${String(nearestUniversity.university?.id || 'university')}->library:${String(library.id || 'library')}`,
+        label: `University ${String(nearestUniversity.university?.id || '')} -> Library ${String(library.id || '')}`,
+        from: { x: Number(nearestUniversity.from?.x || 0), y: Number(nearestUniversity.from?.y || 0) },
+        to: { x: Number(libraryCenter.x || 0), y: Number(libraryCenter.y || 0) },
+        active: true
+      };
+      if (renderBelt(pathLayer, belt)) beltIds.add(belt.id);
     });
     if (state.selected?.type === 'belt') {
       const selectedBeltId = String(state.selected?.data?.id || '');
@@ -3109,16 +3415,22 @@ function renderWorld(){
   });
 
   state.buildings.forEach(b => {
-    const status = b.kind === 'research'
+    const storageIsLibrary = isLibraryLike(b);
+    const renderKind = storageIsLibrary ? 'library' : b.kind;
+    const timeoutStep = timedOutStepForRun(b.run);
+    const status = (b.kind === 'research' || b.kind === 'university')
       ? 'idle'
-      : (b.kind === 'warehouse'
+      : ((b.kind === 'warehouse' || b.kind === 'library' || b.kind === 'power')
         ? 'stored'
-        : prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting')));
+        : (timeoutStep ? 'bad' : prettyStatus(getDisplayRunStatus(b.run, b.phase, b.runId || b.id || 'waiting'))));
     const warehouseRepo = baseRepoKey(String(b.repo || ''));
-    const warehouseCount = b.kind === 'warehouse'
+    const warehouseCount = (b.kind === 'warehouse' || b.kind === 'library')
       ? (Array.isArray(b.items) ? b.items.length : 0)
       : 0;
-    const color = status === 'done' ? 'var(--ok)' : status === 'failed' ? 'var(--bad)' : 'var(--warn)';
+    const cronCount = Array.isArray(state.diag?.cron?.jobs) ? state.diag.cron.jobs.length : Number(state.diag?.cron?.matchingCount || 0);
+    const color = (status === 'done')
+      ? 'var(--ok)'
+      : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)');
     const movable = true;
     const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';
     const className = ['building', featureVisualClass, movable ? 'movable' : '', selectedBuildingId === String(b.id) ? 'is-selected' : ''].filter(Boolean).join(' ');
@@ -3128,17 +3440,23 @@ function renderWorld(){
     activeEntityKeys.add(entityKey);
     const el = upsertIsoEntity({
       className,
-      kind: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : (b.kind === 'warehouse' ? 'warehouse' : 'run')),
+      kind: renderKind === 'feature'
+        ? 'feature'
+        : (renderKind === 'university' ? 'university' : (renderKind === 'research' ? 'research' : (renderKind === 'library' ? 'library' : (renderKind === 'power' ? 'power' : (renderKind === 'warehouse' ? 'warehouse' : 'run'))))),
       entityKey,
       x:b.x,
       y:b.y,
       innerHtml:`
-        ${structureMarkup(b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : (b.kind === 'warehouse' ? 'warehouse' : 'run')), b.variant)}
+        ${structureMarkup(renderKind === 'feature'
+          ? 'feature'
+          : (renderKind === 'university' ? 'university' : (renderKind === 'research' ? 'research' : (renderKind === 'library' ? 'library' : (renderKind === 'power' ? 'power' : (renderKind === 'warehouse' ? 'warehouse' : 'run'))))), b.variant)}
         <div class="port-chip">${esc(buildLabel)} :${buildPort}</div>
-        ${b.kind === 'research'
+        ${(b.kind === 'research' || b.kind === 'university')
           ? '<div class="notice" style="position:absolute;left:12px;right:12px;bottom:8px">Research queue ready</div>'
-          : b.kind === 'warehouse'
-            ? `<div class="notice" style="position:absolute;left:12px;right:12px;bottom:8px">Stored items: ${warehouseCount}</div>`
+          : (b.kind === 'power')
+            ? `<div class="notice" style="position:absolute;left:12px;right:12px;bottom:8px">Cron jobs: ${cronCount}</div>`
+          : (b.kind === 'warehouse' || b.kind === 'library')
+            ? `<div class="notice" style="position:absolute;left:12px;right:12px;bottom:8px">${storageIsLibrary ? 'Archived entries' : 'Stored items'}: ${warehouseCount}</div>`
           : `<div class="progress" style="position:absolute;left:12px;right:12px;bottom:8px"><div class="bar" style="width:${b.progress || 0}%;background:${color}"></div></div>`}
       `,
       onClick:() => {
@@ -3146,7 +3464,8 @@ function renderWorld(){
         renderSelection();
         if (b.kind === 'feature') renderRunSetupPanel(b.id);
         if (b.kind === 'research') renderResearchLabPanel(b.id);
-        if (b.kind === 'warehouse') renderStoragePanelForBuilding(b.id);
+        if (b.kind === 'university') renderUniversityPanel(b.id);
+        if (isStorageKind(b.kind)) renderStoragePanelForBuilding(b.id);
         refreshSelectionVisuals();
       }
     });
@@ -3160,7 +3479,9 @@ function renderWorld(){
         e.stopPropagation();
         const point = screenToWorld(e.clientX, e.clientY);
         state.draggingEntity = {
-          type: b.kind === 'feature' ? 'feature' : (b.kind === 'research' ? 'research' : (b.kind === 'warehouse' ? 'warehouse' : 'run')),
+          type: b.kind === 'feature'
+            ? 'feature'
+            : (b.kind === 'university' ? 'university' : (b.kind === 'research' ? 'research' : (storageIsLibrary ? 'library' : (b.kind === 'power' ? 'power' : (b.kind === 'warehouse' ? 'warehouse' : 'run'))))),
           id: b.id,
           runId: b.runId || b.run?.id || (b.kind === 'run' ? b.id : ''),
           repoPath: b.repo || '',
@@ -3236,15 +3557,26 @@ function renderWorld(){
 
   state.buildings.forEach((b) => {
     const status = String(b.run?.status || '').toLowerCase();
-    if (!(status === 'completed' || status === 'done')) return;
-    if (!b.prUrl) return;
+    const timeoutStep = timedOutStepForRun(b.run);
     const pos = worldToScreen(Number(b.x || 0) + 26, Number(b.y || 0) - 42);
-    const note = document.createElement('div');
-    note.className = 'build-note';
-    note.style.left = `${pos.x}px`;
-    note.style.top = `${pos.y}px`;
-    note.innerHTML = `PR READY<br><a href="${esc(b.prUrl)}" target="_blank" rel="noopener">Open pull request</a>`;
-    world.appendChild(note);
+    if (timeoutStep) {
+      const note = document.createElement('div');
+      note.className = 'build-note bad';
+      note.style.left = `${pos.x}px`;
+      note.style.top = `${pos.y}px`;
+      note.innerHTML = `<span class="bad-tag">BAD</span><br>Timeout on ${esc(prettyStepName(timeoutStep.step_id || 'step'))}<br>Retry ${Number(timeoutStep.retry_count || 0)}`;
+      world.appendChild(note);
+      return;
+    }
+    if (status === 'completed' || status === 'done') {
+      if (!b.prUrl) return;
+      const note = document.createElement('div');
+      note.className = 'build-note';
+      note.style.left = `${pos.x}px`;
+      note.style.top = `${pos.y}px`;
+      note.innerHTML = `PR READY<br><a href="${esc(b.prUrl)}" target="_blank" rel="noopener">Open pull request</a>`;
+      world.appendChild(note);
+    }
   });
 }
 
@@ -3291,9 +3623,10 @@ function renderRunAgentsConsole(run, selectedAgentId){
     row.addEventListener('click', () => {
       const runId = row.getAttribute('data-run');
       const agentId = row.getAttribute('data-agent');
+      const stepId = row.getAttribute('data-step') || '';
       if (!runId || !agentId) return;
-      state.streamSelectionByRun[runId] = agentId;
-      startAgentStream(runId, agentId);
+      state.streamSelectionByRun[runId] = streamSelectionKey(agentId, stepId);
+      startAgentStream(runId, agentId, stepId);
       panel.querySelectorAll('#assignedAgentList .agent-row').forEach(r => r.classList.remove('active'));
       row.classList.add('active');
     });
@@ -3361,10 +3694,15 @@ function renderRunAgentsConsole(run, selectedAgentId){
     });
   });
   renderTerminalViewer();
-  const preferredAgent = selectedAgentId || state.streamSelectionByRun[run.id] || (state.stream.runId === run.id ? state.stream.agentId : null);
-  if (preferredAgent) {
-    const row = panel.querySelector(`#assignedAgentList .agent-row[data-agent="${CSS.escape(preferredAgent)}"]`);
-    if (row && !(state.stream.runId === run.id && state.stream.agentId === preferredAgent)) row.click();
+  const selectedStepId = String(state.stream.runId === run.id ? (state.stream.stepId || '') : '');
+  const preferredSelectionRaw = selectedAgentId || state.streamSelectionByRun[run.id] || (state.stream.runId === run.id ? streamSelectionKey(state.stream.agentId, selectedStepId) : '');
+  const preferredSelection = parseStreamSelectionKey(preferredSelectionRaw);
+  if (preferredSelection.agentId) {
+    const selector = preferredSelection.stepId
+      ? `#assignedAgentList .agent-row[data-agent="${CSS.escape(preferredSelection.agentId)}"][data-step="${CSS.escape(preferredSelection.stepId)}"]`
+      : `#assignedAgentList .agent-row[data-agent="${CSS.escape(preferredSelection.agentId)}"]`;
+    const row = panel.querySelector(selector);
+    if (row && !(state.stream.runId === run.id && state.stream.agentId === preferredSelection.agentId && String(state.stream.stepId || '') === String(preferredSelection.stepId || ''))) row.click();
   }
 }
 
@@ -3374,9 +3712,12 @@ function renderSelection(){
   if (!panel) return;
   const s = state.selected;
   if (!s) {
+    closeLibraryModal();
     renderDefaultActionPanel();
     return;
   }
+  const keepLibraryModal = s.type === 'building' && isLibraryBuilding(s.data);
+  if (!keepLibraryModal) closeLibraryModal();
 
   if (s.type === 'base') {
     setFeatureMode(false);
@@ -3446,7 +3787,12 @@ function renderSelection(){
       if (!isEditingActionPanel()) renderResearchLabPanel(b.id);
       return;
     }
-    if (b.kind === 'warehouse') {
+    if (b.kind === 'university') {
+      setFeatureMode(false);
+      if (!isEditingActionPanel()) renderUniversityPanel(b.id);
+      return;
+    }
+    if (isStorageKind(b.kind)) {
       setFeatureMode(false);
       if (!isEditingActionPanel()) renderStoragePanelForBuilding(b.id);
       return;
@@ -3630,10 +3976,11 @@ function deriveRunAgents(run){
   const workflow = (state.workflows || []).find((wf) => String(wf?.id || '') === String(run?.workflow_id || ''));
   if (workflow?.steps?.length) {
     return workflow.steps.map((wfStep, idx) => {
-      const stepRows = (run?.steps || []).filter((step) => String(step.step_id || '') === String(wfStep.id || ''));
+      const wfStepId = String(wfStep.id || '');
+      const stepRows = (run?.steps || []).filter((step) => String(step.step_id || '') === wfStepId);
       const agentId = String(stepRows[0]?.agent_id || `${workflow.id}/${wfStep.agent}@run:${run?.id || ''}`);
       const statuses = stepRows.map((s) => String(s.status || 'pending'));
-      const live = getLiveAgentEntry(run?.id, agentId);
+      const live = getLiveAgentEntry(run?.id, agentId, wfStepId);
       let status = 'waiting';
       if (live && !live.stale) status = 'running';
       else if (live && live.stale) status = 'stale';
@@ -3644,7 +3991,7 @@ function deriveRunAgents(run){
       const base = baseAgentId(agentId);
       return {
         slotId: `${wfStep.id}:${idx + 1}`,
-        stepId: String(wfStep.id || ''),
+        stepId: wfStepId,
         agentId,
         status,
         displayName: `${prettyStepName(String(wfStep.id || 'step'))} • ${base.split('/').pop() || base}`
@@ -3787,10 +4134,10 @@ function formatActivityDesc(evt, stepLabel = '') {
   }
 }
 
-async function startAgentStream(runId, agentId){
-  if (state.stream.runId === runId && state.stream.agentId === agentId) return;
+async function startAgentStream(runId, agentId, stepId = ''){
+  if (state.stream.runId === runId && state.stream.agentId === agentId && String(state.stream.stepId || '') === String(stepId || '')) return;
   stopAgentStream();
-  state.stream = { ...state.stream, runId, agentId, targetLines: [], displayedLines: [], stepStatus:'idle', loading:true };
+  state.stream = { ...state.stream, runId, agentId, stepId: String(stepId || ''), targetLines: [], displayedLines: [], stepStatus:'idle', loading:true };
   renderTerminalViewer();
 
   const poll = async () => {
@@ -3807,7 +4154,12 @@ async function startAgentStream(runId, agentId){
         const agentShort = evt.agentId ? String(evt.agentId).split('/').pop() : '--';
         return `[${time}] ${agentShort} ${formatActivityDesc(evt, stepLabel)}`;
       });
-      const agentSteps = (run.steps || []).filter(step => step.agent_id === state.stream.agentId);
+      const streamStepId = String(state.stream.stepId || '');
+      const agentSteps = (run.steps || []).filter((step) => {
+        if (step.agent_id !== state.stream.agentId) return false;
+        if (!streamStepId) return true;
+        return String(step.step_id || '') === streamStepId;
+      });
       const agentStepIdSet = new Set(agentSteps.map((s) => s.id));
       const agentEvents = (events || [])
         .filter((evt) => {
@@ -3841,7 +4193,11 @@ async function startAgentStream(runId, agentId){
       const prStatusLines = buildPrStatusLines(run, events);
       const unique = [...new Set([...agentEvents, ...stepOutputs, ...fallback, ...prStatusLines])];
       state.stream.targetLines = unique;
-      state.stream.stepStatus = deriveRunAgents(run).find(a => a.agentId === state.stream.agentId)?.status || 'idle';
+      state.stream.stepStatus = deriveRunAgents(run).find((a) => {
+        if (a.agentId !== state.stream.agentId) return false;
+        if (!streamStepId) return true;
+        return String(a.stepId || '') === streamStepId;
+      })?.status || 'idle';
       state.stream.loading = false;
       renderTerminalViewer();
     } catch {
@@ -3920,7 +4276,7 @@ function renderTerminalViewer(){
 function renderAgentStatusList(agents, run){
   const rows = agents.length
     ? agents.map(a => `
-      <div class="agent-row ${state.stream.agentId === a.agentId && state.stream.runId === run?.id ? 'active' : ''}" data-agent="${esc(a.agentId)}" data-step="${esc(a.stepId || '')}" data-run="${esc(run?.id || '')}">
+      <div class="agent-row ${(state.stream.agentId === a.agentId && state.stream.runId === run?.id && String(state.stream.stepId || '') === String(a.stepId || '')) ? 'active' : ''}" data-agent="${esc(a.agentId)}" data-step="${esc(a.stepId || '')}" data-run="${esc(run?.id || '')}">
         <div class="agent-meta"><span class="status-dot" style="background:${statusTone(a.status)}"></span><span class="agent-name" title="${esc(a.agentId)}">${esc(a.displayName || baseAgentId(a.agentId))}</span></div>
         <div class="agent-actions">
           <span class="badge">${esc(prettyStatus(a.status))}</span>
@@ -3983,17 +4339,22 @@ function consumeResearchPlanAny(planId, preferredRepoKey = ''){
   return null;
 }
 
+function renderUniversityPanel(targetId){
+  renderResearchLabPanel(targetId);
+}
+
 function renderResearchLabPanel(targetLabId){
   const panel = document.getElementById('actionPanel');
   panel.dataset.mode = 'research';
   panel.dataset.featureId = '';
   const lab = (state.researchBuildings || []).find((it) => String(it.id) === String(targetLabId || ''))
-    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'research' ? state.selected.data : null);
+    || (state.selected?.type === 'building' && isResearchKind(state.selected?.data?.kind) ? state.selected.data : null);
   if (!lab) {
     panel.innerHTML = `${panelToolbar('Research Console')}<div class="notice">Select a Research Lab to generate plans.</div>`;
     wirePanelDeleteButton();
     return;
   }
+  const isUni = lab.kind === 'university';
   const requestedRepo = baseRepoKey(String(lab.repo || ''));
   const runtimeRepo = normalizePathKey(String(state.runtime?.cwd || ''));
   const effectiveRepo = (requestedRepo && requestedRepo !== 'workspace-repo') ? requestedRepo : runtimeRepo;
@@ -4005,11 +4366,11 @@ function renderResearchLabPanel(targetLabId){
     queuePersist();
   }
   panel.innerHTML = `
-    ${panelToolbar('Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
+    ${panelToolbar(isUni ? 'University Console' : 'Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
     <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
     <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
     <button id="runResearchBtn">Research</button>
-    <div class="notice" style="margin-top:8px" id="researchNotice">Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.</div>
+    <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>
     <div class="build-card" style="margin-top:8px">
       <div class="kv"><strong>Generated Plans</strong></div>
       <div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
@@ -4025,7 +4386,7 @@ function renderResearchLabPanel(targetLabId){
           </div>
         </div>
       `).join('') : '<div class="notice">No plans yet. Press Research.</div>'}</div>
-      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in Warehouse.</div>
+      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in ${isUni ? 'Library or Warehouse' : 'Warehouse'}.</div>
     </div>
   `;
   wirePanelDeleteButton();
@@ -4049,7 +4410,7 @@ function renderResearchLabPanel(targetLabId){
         if (notice) notice.textContent = `Stored in warehouse: ${String(plan.title || plan.id)}. Items in queue: ${queue.length}.`;
         dbg('planDeploy:done', { id, stored: queue.length > 0, size: queue.length });
         rebuildScene();
-        if (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse') {
+        if (state.selected?.type === 'building' && isStorageKind(state.selected?.data?.kind)) {
           renderStoragePanelForBuilding(state.selected.data.id);
         }
         renderResearchLabPanel(lab.id);
@@ -4135,7 +4496,7 @@ function renderWarehousePanel(targetWarehouseId){
   const items = (Array.isArray(warehouse.items) ? warehouse.items : [])
     .map((plan, idx) => normalizeResearchPlan(plan, `warehouse-plan-${idx + 1}`));
   const nearestLab = (state.researchBuildings || [])
-    .filter((rb) => baseRepoKey(String(rb.repo || '')) === repoKey)
+    .filter((rb) => rb.kind === 'research' && baseRepoKey(String(rb.repo || '')) === repoKey)
     .reduce((best, rb) => {
       const a = centerPointFor('warehouse', Number(warehouse.x || 0), Number(warehouse.y || 0));
       const b = centerPointFor('research', Number(rb.x || 0), Number(rb.y || 0));
@@ -4175,23 +4536,104 @@ function renderWarehousePanel(targetWarehouseId){
   wirePanelDeleteButton();
 }
 
+async function renderPowerPlantPanel(targetWarehouseId){
+  const panel = document.getElementById('actionPanel');
+  panel.dataset.mode = 'power';
+  panel.dataset.featureId = '';
+  const plant = (state.warehouseBuildings || []).find((it) => String(it.id) === String(targetWarehouseId || ''))
+    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'power' ? state.selected.data : null);
+  if (!plant) {
+    panel.innerHTML = `${panelToolbar('Power Plant Console')}<div class="notice">Select a Power Plant.</div>`;
+    wirePanelDeleteButton();
+    return;
+  }
+  await refreshRuntimeState(false);
+  const repoKey = baseRepoKey(String(plant.repo || ''));
+  const jobsRaw = Array.isArray(state.diag?.cron?.jobs) ? state.diag.cron.jobs : [];
+  const jobs = jobsRaw.map((job) => ({
+    name: String(job?.name || ''),
+    schedule: String(job?.schedule || ''),
+    enabled: job?.enabled !== false,
+    nextRunAtMs: Number(job?.nextRunAtMs || 0) || 0,
+    lastRunAtMs: Number(job?.lastRunAtMs || 0) || 0,
+    lastStatus: String(job?.lastStatus || '')
+  }));
+  const fmt = (tsMs) => {
+    const n = Number(tsMs || 0);
+    return n > 0 ? new Date(n).toLocaleString() : 'n/a';
+  };
+  panel.innerHTML = `
+    ${panelToolbar('Power Plant Console', String(repoKey || 'unlinked'))}
+    <div class="notice">Opening full-screen power plant console...</div>
+  `;
+  wirePanelDeleteButton();
+  let modal = document.getElementById('powerModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'powerModal';
+    modal.className = 'library-modal';
+    document.body.appendChild(modal);
+  }
+  modal.hidden = false;
+  modal.innerHTML = `
+    <div class="library-modal-header">
+      <div>
+        <strong>Power Plant Console</strong>
+        <div class="notice">${esc(repoKey || 'unlinked')} • ${jobs.length} cron jobs</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="powerRefreshBtn">Refresh Jobs</button>
+        <button id="powerCloseBtn" class="ghost">Close</button>
+      </div>
+    </div>
+    <div class="library-modal-body" style="grid-template-columns:1fr">
+      <div class="library-preview" style="grid-column:1">
+        <div class="library-preview-head">Cron Jobs</div>
+        <div style="display:grid;gap:8px;padding:6px 0;max-height:64vh;overflow:auto">
+          ${jobs.length ? jobs.map((job) => `
+            <div class="build-card">
+              <div class="agent-row">
+                <div class="agent-meta">
+                  <span class="badge">${job.enabled ? 'ENABLED' : 'DISABLED'}</span>
+                  <span class="agent-name" title="${esc(job.schedule || 'no schedule')}">${esc(job.name || '(unnamed)')}</span>
+                </div>
+                <div class="agent-actions">
+                  <span class="badge">${esc(job.lastStatus || 'idle')}</span>
+                </div>
+              </div>
+              <div class="kv"><strong>Schedule:</strong> ${esc(job.schedule || 'n/a')}</div>
+              <div class="kv"><strong>Last run:</strong> ${esc(fmt(job.lastRunAtMs))}</div>
+              <div class="kv"><strong>Next run:</strong> ${esc(fmt(job.nextRunAtMs))}</div>
+            </div>
+          `).join('') : '<div class="notice">No cron jobs found.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('powerRefreshBtn')?.addEventListener('click', () => {
+    void renderPowerPlantPanel(plant.id);
+  });
+  document.getElementById('powerCloseBtn')?.addEventListener('click', () => {
+    modal.hidden = true;
+  });
+}
+
 async function renderLibraryPanel(targetWarehouseId){
   const panel = document.getElementById('actionPanel');
   panel.dataset.mode = 'library';
   panel.dataset.featureId = '';
   const warehouse = (state.warehouseBuildings || []).find((it) => String(it.id) === String(targetWarehouseId || ''))
-    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'warehouse' ? state.selected.data : null);
+    || (state.selected?.type === 'building' && state.selected?.data?.kind === 'library' ? state.selected.data : null);
   if (!warehouse) {
     panel.innerHTML = `${panelToolbar('Library Console')}<div class="notice">Select a Library.</div>`;
     wirePanelDeleteButton();
     return;
   }
   const repoKey = baseRepoKey(String(warehouse.repo || ''));
-  const view = state.libraryBrowser || { role: 'all', tag: 'all', q: '' };
+  const view = state.libraryBrowser || { role: 'all', tag: 'all', q: '', selectedPath: '' };
   panel.innerHTML = `
     ${panelToolbar('Library Console', String(repoKey || 'unlinked'))}
-    <div class="kv"><strong>Role View:</strong> ${esc(String(view.role || 'all'))}</div>
-    <div class="notice">Scanning markdown files and agent instructions...</div>
+    <div class="notice">Opening full-screen library browser...</div>
   `;
   wirePanelDeleteButton();
   try {
@@ -4205,59 +4647,106 @@ async function renderLibraryPanel(targetWarehouseId){
     params.set('max', '5000');
     const res = await json(`/api/rts/library/files?${params.toString()}`);
     const tags = Array.isArray(res?.tags) ? res.tags.map((x) => String(x || '')).filter(Boolean) : [];
-    const roots = Array.isArray(res?.roots) ? res.roots.map((x) => String(x || '')).filter(Boolean) : [];
     const files = Array.isArray(res?.files) ? res.files : [];
     const roleOptions = ['all', 'planner', 'setup', 'developer', 'verifier', 'tester', 'reviewer'];
-    const shown = files.slice(0, 300);
-    panel.innerHTML = `
-      ${panelToolbar('Library Console', String(repoKey || 'unlinked'))}
-      <div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
-      <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
-      <div class="kv"><strong>Indexed roots:</strong> ${roots.length}</div>
-      <div class="kv"><strong>Matches:</strong> ${Number(files.length || 0)}${files.length > shown.length ? ` (showing first ${shown.length})` : ''}</div>
-      <div class="build-card" style="margin-top:8px">
-        <label class="kv">Worker role
-          <select id="libraryRoleFilter">${roleOptions.map((r) => `<option value="${esc(r)}"${r === role ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select>
-        </label>
-        <label class="kv">Tag
-          <select id="libraryTagFilter"><option value="all">all</option>${tags.map((t) => `<option value="${esc(t)}"${t === tag ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
-        </label>
-        <label class="kv">Search path/tags
-          <input id="librarySearchInput" value="${esc(q)}" placeholder="e.g. AGENTS, memory, verifier" />
-        </label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
+    const shown = files.slice(0, 800);
+    const selectedRole = role;
+    const prioritized = selectedRole === 'all'
+      ? shown
+      : shown.filter((f) => Array.isArray(f?.roles) && f.roles.map((x) => String(x || '')).includes(selectedRole));
+    const rest = selectedRole === 'all'
+      ? []
+      : shown.filter((f) => !(Array.isArray(f?.roles) && f.roles.map((x) => String(x || '')).includes(selectedRole)));
+    const selectedPath = String(view.selectedPath || (prioritized[0]?.absPath || shown[0]?.absPath || ''));
+
+    let modal = document.getElementById('libraryModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'libraryModal';
+      modal.className = 'library-modal';
+      document.body.appendChild(modal);
+    }
+    modal.hidden = false;
+    modal.innerHTML = `
+      <div class="library-modal-header">
+        <div>
+          <strong>Library Console</strong>
+          <div class="notice">${esc(repoKey || 'unlinked')} • ${shown.length} files</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label class="kv">Role
+            <select id="libraryRoleFilter">${roleOptions.map((r) => `<option value="${esc(r)}"${r === role ? ' selected' : ''}>${esc(r)}</option>`).join('')}</select>
+          </label>
+          <label class="kv">Tag
+            <select id="libraryTagFilter"><option value="all">all</option>${tags.map((t) => `<option value="${esc(t)}"${t === tag ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
+          </label>
+          <label class="kv">Search
+            <input id="librarySearchInput" value="${esc(q)}" placeholder="AGENTS, memory, verifier" />
+          </label>
           <button id="libraryApplyBtn">Apply</button>
           <button id="libraryResetBtn" class="ghost">Reset</button>
+          <button id="libraryCloseBtn" class="ghost">Close</button>
         </div>
       </div>
-      <div class="build-card" style="margin-top:8px">
-        <div class="kv"><strong>Markdown File Browser</strong></div>
-        <div>${shown.length ? shown.map((f) => {
-          const p = String(f?.path || '');
-          const absPath = String(f?.absPath || '');
-          const fileTags = Array.isArray(f?.tags) ? f.tags.map((x) => String(x || '')).filter(Boolean) : [];
-          const fileRoles = Array.isArray(f?.roles) ? f.roles.map((x) => String(x || '')).filter(Boolean) : [];
-          return `
-            <div class="agent-row">
-              <div class="agent-meta">
-                <span class="agent-name" title="${esc(absPath)}">${esc(p || absPath || 'unknown')}</span>
-                <span class="notice">${esc(formatBytes(Number(f?.size || 0)))} • ${esc(fileRoles.join(', ') || 'all roles')}</span>
-                <span class="badge">${esc(fileTags.join(' • ') || 'md')}</span>
-              </div>
-            </div>
-          `;
-        }).join('') : '<div class="notice">No markdown files matched this filter.</div>'}</div>
+      <div class="library-modal-body">
+        <div class="library-file-list" id="libraryFileList">
+          ${prioritized.length ? prioritized.map((f) => {
+            const p = String(f?.path || '');
+            const absPath = String(f?.absPath || '');
+            const fileTags = Array.isArray(f?.tags) ? f.tags.map((x) => String(x || '')).filter(Boolean) : [];
+            const fileRoles = Array.isArray(f?.roles) ? f.roles.map((x) => String(x || '')).filter(Boolean) : [];
+            return `<button class="library-file-row ${absPath === selectedPath ? 'active' : ''}" data-library-path="${esc(absPath)}"><span class="library-file-name">${esc(p || absPath || 'unknown')}</span><span class="library-file-meta">${esc(formatBytes(Number(f?.size || 0)))} • ${esc(fileRoles.join(', ') || 'all roles')} • ${esc(fileTags.join(' • ') || 'md')}</span></button>`;
+          }).join('') : '<div class="notice">No worker-priority files for this role.</div>'}
+          ${rest.length ? `<div class="library-split"><div class="notice">Other visible files</div></div>${rest.map((f) => {
+            const p = String(f?.path || '');
+            const absPath = String(f?.absPath || '');
+            const fileTags = Array.isArray(f?.tags) ? f.tags.map((x) => String(x || '')).filter(Boolean) : [];
+            const fileRoles = Array.isArray(f?.roles) ? f.roles.map((x) => String(x || '')).filter(Boolean) : [];
+            return `<button class="library-file-row ${absPath === selectedPath ? 'active' : ''}" data-library-path="${esc(absPath)}"><span class="library-file-name">${esc(p || absPath || 'unknown')}</span><span class="library-file-meta">${esc(formatBytes(Number(f?.size || 0)))} • ${esc(fileRoles.join(', ') || 'all roles')} • ${esc(fileTags.join(' • ') || 'md')}</span></button>`;
+          }).join('')}` : ''}
+        </div>
+        <div class="library-preview">
+          <div class="library-preview-head" id="libraryPreviewHead">${esc(selectedPath || 'Select a file')}</div>
+          <textarea id="libraryPreviewText" spellcheck="false" placeholder="Select a markdown file from the list."></textarea>
+        </div>
       </div>
     `;
-    wirePanelDeleteButton();
+
+    const loadFile = async (absPath) => {
+      const pth = String(absPath || '').trim();
+      if (!pth) return;
+      state.libraryBrowser = { ...state.libraryBrowser, selectedPath: pth };
+      const head = document.getElementById('libraryPreviewHead');
+      const ta = document.getElementById('libraryPreviewText');
+      if (head) head.textContent = pth;
+      if (ta) ta.value = 'Loading...';
+      try {
+        const fileRes = await json(`/api/rts/library/file?path=${encodeURIComponent(pth)}`);
+        if (head) head.textContent = String(fileRes?.path || pth);
+        if (ta) ta.value = String(fileRes?.content || '');
+      } catch (err) {
+        if (ta) ta.value = `Failed to load file:\n${String(err?.message || err || 'unknown error')}`;
+      }
+      modal.querySelectorAll('.library-file-row').forEach((row) => {
+        row.classList.toggle('active', String(row.getAttribute('data-library-path') || '') === pth);
+      });
+    };
+
     const apply = () => {
       state.libraryBrowser = {
         role: String(document.getElementById('libraryRoleFilter')?.value || 'all'),
         tag: String(document.getElementById('libraryTagFilter')?.value || 'all'),
         q: String(document.getElementById('librarySearchInput')?.value || '').trim(),
+        selectedPath: String(state.libraryBrowser?.selectedPath || ''),
       };
       void renderLibraryPanel(warehouse.id);
     };
+    modal.querySelectorAll('.library-file-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const pth = String(row.getAttribute('data-library-path') || '');
+        void loadFile(pth);
+      });
+    });
     document.getElementById('libraryApplyBtn')?.addEventListener('click', apply);
     document.getElementById('libraryRoleFilter')?.addEventListener('change', apply);
     document.getElementById('libraryTagFilter')?.addEventListener('change', apply);
@@ -4268,9 +4757,11 @@ async function renderLibraryPanel(targetWarehouseId){
       }
     });
     document.getElementById('libraryResetBtn')?.addEventListener('click', () => {
-      state.libraryBrowser = { role: 'all', tag: 'all', q: '' };
+      state.libraryBrowser = { role: 'all', tag: 'all', q: '', selectedPath: '' };
       void renderLibraryPanel(warehouse.id);
     });
+    document.getElementById('libraryCloseBtn')?.addEventListener('click', () => { modal.hidden = true; });
+    if (selectedPath) void loadFile(selectedPath);
   } catch (err) {
     panel.innerHTML = `
       ${panelToolbar('Library Console', String(repoKey || 'unlinked'))}
@@ -4303,7 +4794,7 @@ function renderRunSetupPanel(targetDraftId){
         repo: inferred.repo || '',
         baseId: String(inferred.baseId || ''),
         worktreePath: inferred.worktreePath || '',
-        port: Number(inferred.port) || getPortForPath(inferred.worktreePath || inferred.repo || '') || 3334,
+        port: Number(inferred.port) || getPortForPath(inferred.worktreePath || inferred.repo || '') || nextSpreadPort(3334),
         prompt: inferred.run?.task || '',
         workerAssignments: (inferred.workerAssignments && typeof inferred.workerAssignments === 'object') ? inferred.workerAssignments : {},
         empty: !!inferred.empty,
@@ -4316,7 +4807,7 @@ function renderRunSetupPanel(targetDraftId){
     panel.dataset.mode = 'default';
     panel.dataset.featureId = '';
     setFeatureMode(false);
-    panel.innerHTML = `${panelToolbar(`Command Console ${COMMAND_CONSOLE_VERSION}`, state.placementMode ? `Placement: ${state.placementMode}` : 'Idle')}<div class="notice">Use command cards to place Base, Feature Request, Research Lab, Warehouse, University, or Library structures.</div>`;
+    panel.innerHTML = `${panelToolbar(`Command Console ${COMMAND_CONSOLE_VERSION}`, state.placementMode ? `Placement: ${state.placementMode}` : 'Idle')}<div class="notice">Use command cards to place Base, Feature Request, Research Lab, Warehouse, University, Library, or Power Plant structures.</div>`;
     wirePanelDeleteButton();
     panel.scrollTop = 0;
     stopAgentStream();
@@ -4345,7 +4836,7 @@ function renderRunSetupPanel(targetDraftId){
   const freeReady = canMarkFeatureEmpty({ ...draft, run, prUrl: extractPrUrl(run) || draft.prUrl });
   const freeLabel = draft.empty ? 'Set Filled' : (freeReady ? 'Set Free (PR ready)' : 'Set Free (PR pending)');
   if (!draft.port) {
-    draft.port = getPortForPath(draft.worktreePath || '') || getPortForPath(draft.repo || '') || 3334;
+    draft.port = getPortForPath(draft.worktreePath || '') || getPortForPath(draft.repo || '') || nextSpreadPort(3334);
   }
 
   panel.innerHTML = `
@@ -4400,18 +4891,9 @@ function renderRunSetupPanel(targetDraftId){
   const reserveFreshWorktreeAndPort = () => {
     const nowToken = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const repoKey = String(draft.repo || 'repo');
-    const usedPorts = new Set();
-    Object.values(state.portByPath || {}).forEach((p) => {
-      const n = Number(p);
-      if (Number.isFinite(n) && n > 0) usedPorts.add(n);
-    });
-    (state.featureBuildings || []).forEach((fb) => {
-      const n = Number(fb?.port || 0);
-      if (Number.isFinite(n) && n > 0) usedPorts.add(n);
-    });
     draft.worktreePath = getWorktreeDefault(repoKey, `${draft.id || 'feature'}:${nowToken}`);
-    let nextPort = Number(getPortForPath(draft.worktreePath || '')) || 3334;
-    while (usedPorts.has(nextPort) && nextPort < 65535) nextPort += 1;
+    let nextPort = Number(getPortForPath(draft.worktreePath || '')) || nextSpreadPort(3334);
+    nextPort = nextSpreadPort(nextPort);
     draft.port = nextPort;
     setPortForPath(draft.worktreePath, nextPort);
   };
@@ -4471,7 +4953,7 @@ function renderRunSetupPanel(targetDraftId){
         if (matchedRun?.id) launchedRunId = String(matchedRun.id);
       }
       draft.worktreePath = runResult.worktreePath || draft.worktreePath;
-      draft.port = Number(draft.port) || getPortForPath(draft.worktreePath || '') || 3334;
+      draft.port = Number(draft.port) || getPortForPath(draft.worktreePath || '') || nextSpreadPort(3334);
       setPortForPath(draft.worktreePath, draft.port);
       draft.runId = launchedRunId || draft.runId;
       draft.phase = 'running';
@@ -4567,9 +5049,10 @@ function renderRunSetupPanel(targetDraftId){
       row.addEventListener('click', () => {
         const runId = row.getAttribute('data-run');
         const agentId = row.getAttribute('data-agent');
+        const stepId = row.getAttribute('data-step') || '';
         if (!runId || !agentId) return;
-        state.streamSelectionByRun[runId] = agentId;
-        startAgentStream(runId, agentId);
+        state.streamSelectionByRun[runId] = streamSelectionKey(agentId, stepId);
+        startAgentStream(runId, agentId, stepId);
         panel.querySelectorAll('#assignedAgentList .agent-row').forEach(r => r.classList.remove('active'));
         row.classList.add('active');
       });
@@ -4634,13 +5117,23 @@ function renderRunSetupPanel(targetDraftId){
     renderTerminalViewer();
     const activeRow = panel.querySelector('#assignedAgentList .agent-row .badge')?.closest('.agent-row');
     const runningRow = [...agentRows].find((row) => (row.textContent || '').toLowerCase().includes('running'));
-    const pinnedAgent = state.streamSelectionByRun[run.id] || (state.stream.runId === run.id ? state.stream.agentId : null);
-    const pinnedRow = pinnedAgent ? panel.querySelector(`#assignedAgentList .agent-row[data-agent="${CSS.escape(pinnedAgent)}"]`) : null;
+    const currentSelection = state.stream.runId === run.id
+      ? streamSelectionKey(state.stream.agentId, state.stream.stepId || '')
+      : '';
+    const pinnedSelection = parseStreamSelectionKey(state.streamSelectionByRun[run.id] || currentSelection);
+    const pinnedRow = pinnedSelection.agentId
+      ? panel.querySelector(
+        pinnedSelection.stepId
+          ? `#assignedAgentList .agent-row[data-agent="${CSS.escape(pinnedSelection.agentId)}"][data-step="${CSS.escape(pinnedSelection.stepId)}"]`
+          : `#assignedAgentList .agent-row[data-agent="${CSS.escape(pinnedSelection.agentId)}"]`
+      )
+      : null;
     const preferred = pinnedRow || runningRow || activeRow || agentRows[0];
     if (preferred) {
       const runId = preferred.getAttribute('data-run');
       const agentId = preferred.getAttribute('data-agent');
-      if (!(runId && agentId && state.stream.runId === runId && state.stream.agentId === agentId)) preferred.click();
+      const stepId = preferred.getAttribute('data-step') || '';
+      if (!(runId && agentId && state.stream.runId === runId && state.stream.agentId === agentId && String(state.stream.stepId || '') === String(stepId || ''))) preferred.click();
     }
   } else {
     stopAgentStream();
@@ -4686,8 +5179,9 @@ function commitResearchDropFromPayload(researchDrop, snapped){
     return false;
   }
   researchDropHandled = true;
-  if (state.selected?.type === 'building' && state.selected?.data?.kind === 'research') {
-    renderResearchLabPanel(state.selected.data.id);
+  if (state.selected?.type === 'building' && isResearchKind(state.selected?.data?.kind)) {
+    if (state.selected.data.kind === 'university') renderUniversityPanel(state.selected.data.id);
+    else renderResearchLabPanel(state.selected.data.id);
   }
   return true;
 }
@@ -4710,8 +5204,9 @@ function commitQueuedResearchPlan(snapped){
     queuePersist();
     return false;
   }
-  if (state.selected?.type === 'building' && state.selected?.data?.kind === 'research') {
-    renderResearchLabPanel(state.selected.data.id);
+  if (state.selected?.type === 'building' && isResearchKind(state.selected?.data?.kind)) {
+    if (state.selected.data.kind === 'university') renderUniversityPanel(state.selected.data.id);
+    else renderResearchLabPanel(state.selected.data.id);
   }
   return true;
 }
@@ -4732,6 +5227,7 @@ worldWrapEl.addEventListener('mousedown', (e) => {
   if (state.placementMode === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
   if (state.placementMode === 'university') placeUniversityAt(snapped.x, snapped.y);
   if (state.placementMode === 'library') placeLibraryAt(snapped.x, snapped.y);
+  if (state.placementMode === 'power') placePowerAt(snapped.x, snapped.y);
   // Prevent the trailing click from immediately clearing fresh selection/panels.
   state.suppressWorldClick = true;
   setPlacement(null);
@@ -4802,7 +5298,7 @@ worldWrapEl.addEventListener('drop', (e) => {
     const plain = String(e.dataTransfer?.getData('text/plain') || '');
     const m = plain.match(/^research-plan:(.+)$/);
     if (m) {
-      const selectedLab = (state.selected?.type === 'building' && state.selected?.data?.kind === 'research') ? state.selected.data : null;
+      const selectedLab = (state.selected?.type === 'building' && isResearchKind(state.selected?.data?.kind)) ? state.selected.data : null;
       const repoPath = selectedLab ? baseRepoKey(String(selectedLab.repo || '')) : '';
       const repoKey = repoPath || 'workspace-repo';
       researchDrop = { id: m[1], repoKey, repoPath };
@@ -4824,6 +5320,7 @@ worldWrapEl.addEventListener('drop', (e) => {
     if (dragBuildingType === 'warehouse') { placeWarehouseAt(snapped.x, snapped.y); placed = true; }
     if (dragBuildingType === 'university') { placeUniversityAt(snapped.x, snapped.y); placed = true; }
     if (dragBuildingType === 'library') { placeLibraryAt(snapped.x, snapped.y); placed = true; }
+    if (dragBuildingType === 'power') { placePowerAt(snapped.x, snapped.y); placed = true; }
     if (placed) state.suppressWorldClick = true;
   }
   dbg('planDrop:drop:end', { dragBuildingType, dragResearchPlan });
@@ -4855,6 +5352,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   if (e.key === 'Escape') {
+    closeLibraryModal();
     clearSelectedEntity();
     setPlacement(null);
     return;
@@ -4880,6 +5378,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'w' || e.key === 'W') setPlacement('warehouse');
   if (e.key === 'u' || e.key === 'U') setPlacement('university');
   if (e.key === 'y' || e.key === 'Y') setPlacement('library');
+  if (e.key === 'p' || e.key === 'P') setPlacement('power');
   if (e.key === 'Delete' || e.key === 'Backspace') deleteSelectedStructure();
 });
 
@@ -4898,15 +5397,22 @@ const handlePointerMove = (e) => {
   if (state.draggingEntity) {
     const autoPanned = edgeAutoPan(e.clientX, e.clientY);
     const point = localPointInWorld(e);
-    const kind = (state.draggingEntity.type === 'base' || state.draggingEntity.type === 'baseDraft')
-      ? 'base'
-      : (state.draggingEntity.type === 'research' ? 'research' : (state.draggingEntity.type === 'warehouse' ? 'warehouse' : 'feature'));
+    let kind = 'feature';
+    if (state.draggingEntity.type === 'base' || state.draggingEntity.type === 'baseDraft') kind = 'base';
+    else if (state.draggingEntity.type === 'university') kind = 'university';
+    else if (state.draggingEntity.type === 'research') kind = 'research';
+    else if (state.draggingEntity.type === 'library') kind = 'library';
+    else if (state.draggingEntity.type === 'power') kind = 'power';
+    else if (state.draggingEntity.type === 'warehouse') kind = 'warehouse';
     const snapped = snapPlacement(kind, point.x - state.draggingEntity.offsetX + (buildingFootprint(kind).w / 2), point.y - state.draggingEntity.offsetY + (buildingFootprint(kind).h / 2));
     state.draggingMoved = true;
     if (state.draggingEntity.type === 'base') updateCustomBasePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'baseDraft') updateBaseDraftPosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'feature') updateFeaturePosition(state.draggingEntity.id, snapped.x, snapped.y);
+    else if (state.draggingEntity.type === 'university') updateUniversityPosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'research') updateResearchPosition(state.draggingEntity.id, snapped.x, snapped.y);
+    else if (state.draggingEntity.type === 'library') updateLibraryPosition(state.draggingEntity.id, snapped.x, snapped.y);
+    else if (state.draggingEntity.type === 'power') updatePowerPosition(state.draggingEntity.id, snapped.x, snapped.y);
     else if (state.draggingEntity.type === 'warehouse') updateWarehousePosition(state.draggingEntity.id, snapped.x, snapped.y);
     else updateRunBuildingPosition(state.draggingEntity.id, snapped.x, snapped.y);
     moveEntityVisual(state.draggingEntity.type, state.draggingEntity.id, snapped.x, snapped.y);
@@ -4964,6 +5470,7 @@ worldEl.addEventListener('click', (e) => {
     if (state.placementMode === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
     if (state.placementMode === 'university') placeUniversityAt(snapped.x, snapped.y);
     if (state.placementMode === 'library') placeLibraryAt(snapped.x, snapped.y);
+    if (state.placementMode === 'power') placePowerAt(snapped.x, snapped.y);
     state.suppressWorldClick = false;
     setPlacement(null);
     return;

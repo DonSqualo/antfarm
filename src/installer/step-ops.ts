@@ -215,7 +215,34 @@ function parseAndInsertStories(output: string, runId: string): void {
 
 // ── Abandoned Step Cleanup ──────────────────────────────────────────
 
-const ABANDONED_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+const ABANDONED_THRESHOLD_DEFAULT_MS = 45 * 60 * 1000; // 45 minutes
+const ABANDONED_THRESHOLD_STORY_MS = 90 * 60 * 1000; // 90 minutes
+const ABANDONED_THRESHOLD_BY_STEP_ID: Record<string, number> = {
+  implement: 90 * 60 * 1000,
+  fix: 90 * 60 * 1000,
+  setup: 45 * 60 * 1000,
+  verify: 45 * 60 * 1000,
+  test: 45 * 60 * 1000,
+  review: 45 * 60 * 1000,
+  pr: 45 * 60 * 1000,
+  plan: 45 * 60 * 1000,
+  scan: 45 * 60 * 1000,
+  prioritize: 45 * 60 * 1000,
+  investigate: 45 * 60 * 1000,
+  triage: 45 * 60 * 1000,
+};
+
+function elapsedMsFromTimestamp(updatedAt: string | null | undefined): number {
+  if (!updatedAt) return Number.POSITIVE_INFINITY;
+  const parsed = Date.parse(updatedAt);
+  if (!Number.isFinite(parsed)) return Number.POSITIVE_INFINITY;
+  return Date.now() - parsed;
+}
+
+function abandonedThresholdMsForStep(stepId: string | null | undefined): number {
+  const key = String(stepId || "").trim().toLowerCase();
+  return ABANDONED_THRESHOLD_BY_STEP_ID[key] ?? ABANDONED_THRESHOLD_DEFAULT_MS;
+}
 
 /**
  * Find steps that have been "running" for too long and reset them to pending.
@@ -223,15 +250,18 @@ const ABANDONED_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
  */
 function cleanupAbandonedSteps(): void {
   const db = getDb();
-  // Use numeric comparison so mixed timestamp formats don't break ordering.
-  const thresholdMs = ABANDONED_THRESHOLD_MS;
 
-  // Find running steps that haven't been updated recently
+  // Find running steps, then apply per-step timeout policy in JS so we can
+  // support different thresholds for long-running implement/fix work.
   const abandonedSteps = db.prepare(
-    "SELECT id, step_id, run_id, retry_count, max_retries, type, current_story_id FROM steps WHERE status = 'running' AND (julianday('now') - julianday(updated_at)) * 86400000 > ?"
-  ).all(thresholdMs) as { id: string; step_id: string; run_id: string; retry_count: number; max_retries: number; type: string; current_story_id: string | null }[];
+    "SELECT id, step_id, run_id, retry_count, max_retries, type, current_story_id, updated_at FROM steps WHERE status = 'running'"
+  ).all() as { id: string; step_id: string; run_id: string; retry_count: number; max_retries: number; type: string; current_story_id: string | null; updated_at: string }[];
 
   for (const step of abandonedSteps) {
+    const elapsedMs = elapsedMsFromTimestamp(step.updated_at);
+    const thresholdMs = abandonedThresholdMsForStep(step.step_id);
+    if (elapsedMs <= thresholdMs) continue;
+
     // Loop steps: apply per-story retry, not per-step retry (#35)
     if (step.type === "loop" && step.current_story_id) {
       const story = db.prepare(
@@ -289,10 +319,12 @@ function cleanupAbandonedSteps(): void {
 
   // Also reset any running stories that are abandoned
   const abandonedStories = db.prepare(
-    "SELECT id, retry_count, max_retries, run_id FROM stories WHERE status = 'running' AND (julianday('now') - julianday(updated_at)) * 86400000 > ?"
-  ).all(thresholdMs) as { id: string; retry_count: number; max_retries: number; run_id: string }[];
+    "SELECT id, retry_count, max_retries, run_id, updated_at FROM stories WHERE status = 'running'"
+  ).all() as { id: string; retry_count: number; max_retries: number; run_id: string; updated_at: string }[];
 
   for (const story of abandonedStories) {
+    const elapsedMs = elapsedMsFromTimestamp(story.updated_at);
+    if (elapsedMs <= ABANDONED_THRESHOLD_STORY_MS) continue;
     const newRetry = story.retry_count + 1;
     if (newRetry >= story.max_retries) {
       db.prepare("UPDATE stories SET status = 'failed', retry_count = ?, updated_at = datetime('now') WHERE id = ?").run(newRetry, story.id);
@@ -464,10 +496,15 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
   const db = getDb();
 
   const step = db.prepare(
-    "SELECT id, run_id, step_id, step_index, type, loop_config, current_story_id FROM steps WHERE id = ?"
-  ).get(stepId) as { id: string; run_id: string; step_id: string; step_index: number; type: string; loop_config: string | null; current_story_id: string | null } | undefined;
+    "SELECT id, run_id, step_id, step_index, status, type, loop_config, current_story_id FROM steps WHERE id = ?"
+  ).get(stepId) as { id: string; run_id: string; step_id: string; step_index: number; status: string; type: string; loop_config: string | null; current_story_id: string | null } | undefined;
 
   if (!step) throw new Error(`Step not found: ${stepId}`);
+  if (step.status !== "running") {
+    // Ignore duplicate/late completion callbacks once the step has already
+    // transitioned away from running.
+    return { advanced: false, runCompleted: false };
+  }
 
   // Merge KEY: value lines into run context
   const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(step.run_id) as { context: string };
@@ -745,10 +782,14 @@ export function failStep(stepId: string, error: string): { retrying: boolean; ru
   const db = getDb();
 
   const step = db.prepare(
-    "SELECT run_id, retry_count, max_retries, type, current_story_id FROM steps WHERE id = ?"
-  ).get(stepId) as { run_id: string; retry_count: number; max_retries: number; type: string; current_story_id: string | null } | undefined;
+    "SELECT run_id, status, retry_count, max_retries, type, current_story_id FROM steps WHERE id = ?"
+  ).get(stepId) as { run_id: string; status: string; retry_count: number; max_retries: number; type: string; current_story_id: string | null } | undefined;
 
   if (!step) throw new Error(`Step not found: ${stepId}`);
+  if (step.status !== "running") {
+    // Ignore duplicate/late failure callbacks once the step has already moved.
+    return { retrying: false, runFailed: false };
+  }
 
   // T9: Loop step failure — per-story retry
   if (step.type === "loop" && step.current_story_id) {
