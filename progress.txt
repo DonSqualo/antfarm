@@ -12,6 +12,7 @@ Started: 2026-02-11 05:47 ET
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS HTTP endpoints are in `src/server/dashboard.ts`; prefer extracting exported pure helper functions there for API response shaping + focused node:test coverage
+- For RTS layout/state changes, mutate via `getRtsState()` + `saveRtsState()` so persistence writes through `rts_layout_entities` and preserves payload linkage fields (e.g., `baseId`)
 
 ---
 
@@ -70,4 +71,12 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-mobile-tree-api.test.ts` for hierarchical grouping, metadata contract, unique base grouping behavior, and no-data empty array behavior
 - Files changed: `src/server/dashboard.ts`, `tests/rts-mobile-tree-api.test.ts`, `progress.txt`
 - **Learnings:** RTS API behavior is implemented in `src/server/dashboard.ts`; reusable data transforms should be factored into exported pure helpers for low-friction node:test coverage.
+---
+## 2026-02-13 01:05 - US-002: Add backend creation endpoint for base-scoped factory creation
+- Added exported helper `createBaseScopedFactory()` to validate `baseId/kind`, create a feature factory draft, and persist deterministic `baseId` linkage in the building payload
+- Added `POST /api/rts/factory/create` endpoint that validates input, creates a base-scoped factory via helper, saves RTS state, and returns `{ ok, buildingId, baseId, kind }`
+- Kept existing desktop placement and `/api/rts/feature/run` flow unchanged to preserve drag/placement behavior
+- Added regression coverage in `tests/rts-base-scoped-factory-create.test.ts` for 4xx-style validation errors and successful base-linked creation visibility in mobile tree responses
+- Files changed: `src/server/dashboard.ts`, `tests/rts-base-scoped-factory-create.test.ts`, `progress.txt`
+- **Learnings:** Base-scoped mobile creation should write through canonical RTS state persistence to keep `payload_json.baseId` available for deterministic mobile hierarchy grouping.
 ---

@@ -288,6 +288,63 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
   };
 }
 
+interface CreateBaseScopedFactoryInput {
+  baseId: string;
+  kind: string;
+}
+
+interface CreateBaseScopedFactoryResult {
+  state: Record<string, unknown>;
+  buildingId: string;
+  baseId: string;
+  kind: "feature";
+}
+
+export function createBaseScopedFactory(
+  state: Record<string, unknown>,
+  input: CreateBaseScopedFactoryInput,
+): CreateBaseScopedFactoryResult {
+  const baseId = String(input.baseId || "").trim();
+  const requestedKind = String(input.kind || "").trim().toLowerCase();
+  if (!baseId) throw new Error("baseId is required");
+  if (requestedKind !== "feature" && requestedKind !== "factory") {
+    throw new Error("kind must be one of: feature|factory");
+  }
+
+  const customBases = Array.isArray(state.customBases) ? state.customBases as Array<Record<string, unknown>> : [];
+  const base = customBases.find((candidate) => String(candidate?.id || "").trim() === baseId);
+  if (!base) throw new Error(`baseId not found: ${baseId}`);
+
+  const featureBuildings = Array.isArray(state.featureBuildings)
+    ? [...state.featureBuildings as Array<Record<string, unknown>>]
+    : [];
+  const id = `feature-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const x = Number(base.x ?? 0) + 120;
+  const y = Number(base.y ?? 0) + 80;
+  featureBuildings.push({
+    id,
+    kind: "feature",
+    label: "Factory",
+    repo: String(base.repo ?? ""),
+    baseId,
+    x,
+    y,
+    committed: false,
+    phase: "draft",
+    createdAt: new Date().toISOString(),
+  });
+
+  return {
+    state: {
+      ...state,
+      featureBuildings,
+    },
+    buildingId: id,
+    baseId,
+    kind: "feature",
+  };
+}
+
 function getRtsState(): Record<string, unknown> {
   // RTS consistency invariant:
   // UI state must reflect authoritative Antfarm runtime state on this machine.
@@ -1591,6 +1648,27 @@ export function startDashboard(port = 3333): http.Server {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return json(res, { ok: false, error: message, bases: [] }, 500);
+      }
+    }
+
+    if (p === "/api/rts/factory/create" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { baseId?: string; kind?: string };
+        const created = createBaseScopedFactory(getRtsState(), {
+          baseId: String(body?.baseId || ""),
+          kind: String(body?.kind || ""),
+        });
+        saveRtsState(created.state);
+        return json(res, {
+          ok: true,
+          buildingId: created.buildingId,
+          baseId: created.baseId,
+          kind: created.kind,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const status = /required|must be|not found/i.test(message) ? 400 : 500;
+        return json(res, { ok: false, error: message }, status);
       }
     }
 
