@@ -22,6 +22,7 @@ Started: 2026-02-11 05:47 ET
 - RTS multi-panel API responses should use `createPanelUpdateEnvelope` + `PANEL_TARGETS` (`src/server/panel-update-contract.ts`) so panel targets stay typed and centrally validated.
 - RTS client panel swaps should flow through target registries (`panelPatchRenderers`, `buildingSelectionRenderers`) so new panel targets/kinds can be added without changing click handlers.
 - Building selection flows should emit one `createBuildingSelectionPanelUpdate(...)` envelope containing both bottom-bar and right-sidebar patches, then dispatch via `applyPanelUpdateRouter(...)`.
+- When replacing command-bar markup dynamically, keep a snapshot of default HTML and re-bind `.palette-card` handlers after restore so placement click/drag affordances remain intact.
 
 ---
 
@@ -203,4 +204,11 @@ Started: 2026-02-11 05:47 ET
 - Added regression suite `tests/rts-offline-reconnect-handling.test.ts` (src/dist parity + service worker behavior) and wired it into `npm run test:e2e:rts`.
 - Files changed: `src/server/rts.html`, `src/server/service-worker.v1.js`, `tests/rts-offline-reconnect-handling.test.ts`, `package.json`, `dist/server/rts.html`, `dist/server/service-worker.v1.js`, `progress.txt`.
 - **Learnings:** RTS runtime refresh now follows a self-scheduling timeout loop (not `setInterval`) so reconnect/backoff policy can be centralized with connectivity state UX.
+## 2026-02-13 22:47 - US-004: Implement building-specific bottom bar replacement views
+- Added bottom command-bar view builders grouped by selection type: base, feature, research/university, and warehouse/library/power.
+- Updated panel routing so building selection patches now include `buildingId`, and default-route now restores both right sidebar and bottom palette.
+- Added command-bar restore/render helpers that snapshot the default palette markup and re-bind palette click/drag handlers after default restoration.
+- Added regression coverage in `tests/rts-bottom-panel-replacement-views.test.ts` for builder presence, router swap behavior, and default restore wiring in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-bottom-panel-replacement-views.test.ts`, `progress.txt`
+- **Learnings:** Bottom-bar view swaps should pass through panel patch renderer helpers rather than direct DOM mutations in selection handlers, so default/selected transitions stay reversible and typed.
 ---

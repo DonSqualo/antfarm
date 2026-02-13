@@ -1818,7 +1818,7 @@ function createBuildingSelectionPanelUpdate(building){
       {
         target: PANEL_TARGET_IDS.bottomCommandBar,
         mode: 'replace',
-        payload: { active: selectedKind, selectedKind }
+        payload: { active: selectedKind, selectedKind, buildingId: building?.id || null }
       },
       {
         target: PANEL_TARGET_IDS.rightActionSidebar,
@@ -1827,6 +1827,81 @@ function createBuildingSelectionPanelUpdate(building){
       }
     ]
   };
+}
+
+
+const defaultBottomCommandBarMarkup = (() => {
+  const commandBar = document.querySelector('.command-bar');
+  return commandBar ? commandBar.innerHTML : '';
+})();
+
+function escapePanelText(value){
+  return esc(String(value || ''));
+}
+
+function buildBottomPanelHeader(title, subtitle){
+  return `<div class="bottom-panel-head"><strong>${escapePanelText(title)}</strong><span>${escapePanelText(subtitle)}</span></div>`;
+}
+
+function buildBottomPanelView(selectedKind, payload = {}){
+  const kind = String(selectedKind || '').toLowerCase();
+  const buildingId = String(payload?.buildingId || '').trim();
+  const idRow = buildingId ? `<div class="bottom-panel-meta">ID: ${escapePanelText(buildingId)}</div>` : '';
+  if (kind === 'base') {
+    return `${buildBottomPanelHeader('Base Command', 'Hub controls and logistics')}<div class="bottom-panel-body"><button class="build-card" data-building="base">Place Base (B)</button><div class="notice">Base selected. Place additional cores or clear selection to restore full palette.</div>${idRow}</div>`;
+  }
+  if (kind === 'feature') {
+    return `${buildBottomPanelHeader('Feature Forge', 'Run and story operations')}<div class="bottom-panel-body"><button class="build-card" data-building="feature">Place Feature Forge (F)</button><div class="notice">Feature selected. Use the right panel to configure and launch work.</div>${idRow}</div>`;
+  }
+  if (kind === 'research' || kind === 'university') {
+    const label = kind === 'university' ? 'University' : 'Research Lab';
+    const key = kind === 'university' ? 'U' : 'L';
+    return `${buildBottomPanelHeader(label, 'Planning and agenda operations')}<div class="bottom-panel-body"><button class="build-card" data-building="${escapePanelText(kind)}">Place ${escapePanelText(label)} (${key})</button><div class="notice">${escapePanelText(label)} selected. Queue plans and keep agenda synced from the right panel.</div>${idRow}</div>`;
+  }
+  if (kind === 'warehouse' || kind === 'library' || kind === 'power') {
+    const label = kind === 'library' ? 'Library' : (kind === 'power' ? 'Power Plant' : 'Warehouse');
+    const key = kind === 'library' ? 'Y' : (kind === 'power' ? 'P' : 'W');
+    return `${buildBottomPanelHeader(label, 'Storage and infrastructure operations')}<div class="bottom-panel-body"><button class="build-card" data-building="${escapePanelText(kind)}">Place ${escapePanelText(label)} (${key})</button><div class="notice">${escapePanelText(label)} selected. Manage inventory/jobs from the right panel.</div>${idRow}</div>`;
+  }
+  return '';
+}
+
+function bindPaletteCardHandlers(root = document){
+  root.querySelectorAll('.palette-card[data-building]').forEach((card) => {
+    card.addEventListener('click', () => setPlacement(card.getAttribute('data-building')));
+    card.addEventListener('dragstart', (e) => {
+      const kind = card.getAttribute('data-building');
+      dragBuildingType = kind;
+      setPlacement(kind);
+      e.dataTransfer?.setData('text/plain', kind || '');
+      worldWrapEl.classList.add('drop-armed');
+    });
+    card.addEventListener('dragend', () => {
+      dragBuildingType = null;
+      worldWrapEl.classList.remove('drop-armed');
+      hidePlacementGhost();
+    });
+  });
+}
+
+function renderDefaultBottomCommandBar(){
+  const commandBar = document.querySelector('.command-bar');
+  if (!commandBar || !defaultBottomCommandBarMarkup) return;
+  commandBar.innerHTML = defaultBottomCommandBarMarkup;
+  delete commandBar.dataset.activeMode;
+  bindPaletteCardHandlers(commandBar);
+}
+
+function renderBottomBuildingView(selectedKind, payload = {}){
+  const commandBar = document.querySelector('.command-bar');
+  if (!commandBar) return;
+  const view = buildBottomPanelView(selectedKind, payload);
+  if (!view) {
+    renderDefaultBottomCommandBar();
+    return;
+  }
+  commandBar.dataset.activeMode = String(selectedKind || '').toLowerCase();
+  commandBar.innerHTML = `<div class="command-grid command-grid--selection">${view}</div>`;
 }
 
 function renderDefaultActionPanel(){
@@ -1846,11 +1921,12 @@ function renderDefaultActionPanel(){
   wirePanelDeleteButton();
 }
 registerPanelPatchRenderer(PANEL_TARGET_IDS.bottomCommandBar, ({ payload }) => {
-  const commandBar = document.querySelector('.command-bar');
-  if (!commandBar) return;
   const active = String(payload?.active || '').trim().toLowerCase();
-  if (active) commandBar.dataset.activeMode = active;
-  else delete commandBar.dataset.activeMode;
+  if (!active || active === 'default') {
+    renderDefaultBottomCommandBar();
+    return;
+  }
+  renderBottomBuildingView(active, payload || {});
 });
 
 registerPanelPatchRenderer(PANEL_TARGET_IDS.leftMediaPanel, ({ payload }) => {
@@ -1891,10 +1967,19 @@ registerPanelPatchRenderer(PANEL_TARGET_IDS.rightActionSidebar, ({ payload }, co
 });
 
 function routeDefaultActionConsole(context = {}){
-  applyPanelPatch({
-    target: PANEL_TARGET_IDS.rightActionSidebar,
-    mode: 'replace',
-    payload: { mode: 'default' }
+  applyPanelUpdateRouter({
+    patches: [
+      {
+        target: PANEL_TARGET_IDS.bottomCommandBar,
+        mode: 'replace',
+        payload: { active: 'default' }
+      },
+      {
+        target: PANEL_TARGET_IDS.rightActionSidebar,
+        mode: 'replace',
+        payload: { mode: 'default' }
+      }
+    ]
   }, context);
 }
 
@@ -6597,21 +6682,7 @@ worldWrapEl.addEventListener('mousedown', (e) => {
   setPlacement(null);
 }, true);
 
-document.querySelectorAll('.palette-card[data-building]').forEach((card) => {
-  card.addEventListener('click', () => setPlacement(card.getAttribute('data-building')));
-  card.addEventListener('dragstart', (e) => {
-    const kind = card.getAttribute('data-building');
-    dragBuildingType = kind;
-    setPlacement(kind);
-    e.dataTransfer?.setData('text/plain', kind || '');
-    worldWrapEl.classList.add('drop-armed');
-  });
-  card.addEventListener('dragend', () => {
-    dragBuildingType = null;
-    worldWrapEl.classList.remove('drop-armed');
-    hidePlacementGhost();
-  });
-});
+bindPaletteCardHandlers(document);
 
 worldWrapEl.addEventListener('dragover', (e) => {
   if (!dragBuildingType && !dragResearchPlan && !queuedResearchPlan && !hasResearchPlanMime(e)) return;
