@@ -10,7 +10,7 @@ import { runWorkflow } from "../installer/run.js";
 import { teardownWorkflowCronsIfIdle } from "../installer/agent-cron.js";
 import { emitEvent } from "../installer/events.js";
 import { createImmediateHandoffHandler } from "../installer/immediate-handoff.js";
-import { isRunning as isDashboardRunning, startDaemon, stopDaemon } from "./daemonctl.js";
+import { mittensFactoryRuntimeManager } from "./mittens-runtime.js";
 import YAML from "yaml";
 
 import type { RunInfo, StepInfo } from "../installer/status.js";
@@ -220,33 +220,34 @@ function isValidPortValue(portValue: unknown): number | null {
   return port;
 }
 
-function factoryRuntimeKey(port: number): string {
-  return `factory-${port}`;
-}
-
-function ensureFactoryRuntime(worktreePathRaw: string, portValue: unknown): { ok: boolean; port?: number; key?: string; message?: string } {
-  const port = isValidPortValue(portValue);
-  if (!port) return { ok: false, message: "invalid_port" };
-  const worktreePath = normalizePathKey(worktreePathRaw);
-  if (!worktreePath) return { ok: false, message: "missing_worktree" };
-  if (!fs.existsSync(worktreePath)) return { ok: false, message: "worktree_not_found" };
-  const key = factoryRuntimeKey(port);
-  try {
-    // Always restart this per-port runtime so it follows the latest worktree path.
-    if (isDashboardRunning(key).running) stopDaemon(key);
-    startDaemon(port, { cwd: worktreePath, daemonKey: key }).catch(() => {});
-    return { ok: true, port, key };
-  } catch (err) {
-    return { ok: false, port, key, message: err instanceof Error ? err.message : String(err) };
+async function ensureFactoryRuntime(worktreePathRaw: string, portValue: unknown): Promise<{ ok: boolean; port?: number; key?: string; message?: string; code?: string }> {
+  const started = await mittensFactoryRuntimeManager.startByPort(worktreePathRaw, portValue);
+  if (!started.ok) {
+    const port = isValidPortValue(portValue) ?? undefined;
+    return {
+      ok: false,
+      port,
+      key: port ? `factory-${port}` : undefined,
+      code: started.code,
+      message: started.message,
+    };
   }
+  return { ok: true, port: started.value.basePort, key: started.value.key };
 }
 
-function stopFactoryRuntimeByPort(portValue: unknown): { ok: boolean; stopped: boolean; port?: number } {
-  const port = isValidPortValue(portValue);
-  if (!port) return { ok: false, stopped: false };
-  const key = factoryRuntimeKey(port);
-  const stopped = stopDaemon(key);
-  return { ok: true, stopped, port };
+function stopFactoryRuntimeByPort(portValue: unknown): { ok: boolean; stopped: boolean; port?: number; code?: string; message?: string } {
+  const stopped = mittensFactoryRuntimeManager.stopByPort(portValue);
+  if (!stopped.ok) {
+    return {
+      ok: false,
+      stopped: false,
+      port: isValidPortValue(portValue) ?? undefined,
+      code: stopped.code,
+      message: stopped.message,
+    };
+  }
+  const port = isValidPortValue(portValue) ?? undefined;
+  return { ok: true, stopped: stopped.value.stopped, port };
 }
 
 function resolveResearchRepoPath(rawRepoPath: string): string {
@@ -2195,7 +2196,7 @@ export function startDashboard(port = 3333): http.Server {
             "DELETE FROM rts_layout_entities WHERE entity_type = 'feature' AND id <> ? AND (run_id = ? OR worktree_path = ?)"
           ).run(layout.id, run.id, worktreePath);
         } catch {}
-        const runtimeStart = ensureFactoryRuntime(worktreePath, Number.isFinite(draftPort) && draftPort > 0 ? draftPort : null);
+        const runtimeStart = await ensureFactoryRuntime(worktreePath, Number.isFinite(draftPort) && draftPort > 0 ? draftPort : null);
         if (firstStep?.id) {
           const evt = { ts: new Date().toISOString(), event: "step.pending" as const, runId: run.id, workflowId, stepId: firstStep.id };
           emitEvent(evt);

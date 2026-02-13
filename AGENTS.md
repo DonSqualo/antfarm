@@ -48,6 +48,7 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - RTS dashboard source is in `src/server/rts.html`.
 - RTS sprite assets are in `src/server/rts-sprites/`.
 - `npm run build` copies `src/server/index.html`, `src/server/rts.html`, and `src/server/rts-sprites/*` into `dist/server/`.
+- Factory Mittens runtime orchestration lives in `src/server/mittens-runtime.ts` and should be consumed from dashboard routes rather than duplicating process-launch logic inline.
 - Building sprite policy: refuse building create/update work when `OPENAI_API_KEY` is not set; building sprites must be produced via OpenAI image generation as PNG assets (no SVG/vector fallback pipeline for buildings).
 - RTS building perspective policy: enforce a fixed camera lock for all building sprites (2.5D isometric 3/4 view, yaw ~45deg, pitch ~35deg, same angle across base/feature/research/warehouse). Refuse delivery when perspective does not match.
 - RTS sprite versioning policy: do not replace existing building sprite files; add new versioned PNG filenames and update `src/server/rts.html` references.
@@ -57,6 +58,7 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - Adds workflow agents to `openclaw.json` (your main agent stays default).
 - Creates workflow workspaces under `~/.openclaw/workspaces/workflows`.
 - Stores workflow definitions and run state under `~/.openclaw/antfarm`.
+- Installs bundled OpenClaw skills from `skills/` into `~/.openclaw/skills` via `src/installer/skill-install.ts` (`BUNDLED_SKILLS`).
 - Inserts an Antfarm guidance block into the main agent's `AGENTS.md` and `TOOLS.md`.
 
 ## Uninstalling
