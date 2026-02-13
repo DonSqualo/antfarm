@@ -14,6 +14,7 @@ Started: 2026-02-11 05:47 ET
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS HTTP endpoints are in `src/server/dashboard.ts`; prefer extracting exported pure helper functions there for API response shaping + focused node:test coverage
 - For RTS layout/state changes, mutate via `getRtsState()` + `saveRtsState()` so persistence writes through `rts_layout_entities` and preserves payload linkage fields (e.g., `baseId`)
+- Mobile list interactions should use delegated click handling on `#mobileListPanel` so re-renders from `panel.innerHTML` don’t break action wiring
 
 ---
 
@@ -89,4 +90,13 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-mobile-list-mode.test.ts` to verify mobile list wiring and pan-disable guards in both `src/server/rts.html` and built `dist/server/rts.html`
 - Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-mobile-list-mode.test.ts`, `progress.txt`
 - **Learnings:** Mobile interaction mode changes in RTS should guard both handler entry points (mousedown/pointer move/edge pan) and draggable entity setup to avoid accidental camera or structure movement.
+---
+## 2026-02-13 01:23 - US-004: Add per-base plus button in mobile list to create factories
+- Added per-base `+` action in mobile hierarchy rows with dedicated mobile list header/button styling
+- Wired delegated mobile panel click handler to `createFactoryForMobileBase(baseId)` that calls `POST /api/rts/factory/create` with base-scoped payload
+- Added deterministic per-base error state (`Create failed: ...`) and in-flight button disable handling so failed requests do not mutate local tree state
+- Refreshed mobile tree after successful creation so new factory appears under the same base immediately in list mode
+- Added regression test `tests/rts-mobile-base-plus-create.test.ts` to validate plus-control wiring, API call contract, and error-state handling in both `src` and `dist` RTS HTML
+- Files changed: `src/server/rts.html`, `tests/rts-mobile-base-plus-create.test.ts`, `progress.txt`
+- **Learnings:** For re-rendered mobile list UIs, keep actions resilient by delegating click handlers on a stable parent element.
 ---

@@ -687,6 +687,32 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   padding:10px;
   margin-bottom:10px;
 }
+.mobile-tree-base-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.mobile-base-add-btn {
+  border:1px solid #4f799f;
+  background:#0b1b30;
+  color:var(--corpus-teal);
+  border-radius:999px;
+  width:28px;
+  height:28px;
+  font-size:18px;
+  line-height:1;
+  cursor:pointer;
+}
+.mobile-base-add-btn:disabled {
+  opacity:.6;
+  cursor:progress;
+}
+.mobile-base-error {
+  margin-top:6px;
+  font-size:11px;
+  color:#ff8b8b;
+}
 .mobile-tree-base > ul {
   margin-top:8px;
   list-style:none;
@@ -863,6 +889,7 @@ const state = {
   cameraDrag: { active:false, startX:0, startY:0, originX:0, originY:0 },
   mobileListMode: false,
   mobileTree: { bases: [] },
+  mobileFactoryCreate: { inFlightBaseId: '', errorByBase: {} },
   mobileMediaQuery: null,
   draggingEntity: null,
   draggingMoved: false,
@@ -1673,17 +1700,48 @@ function renderMobileListMode(){
     panel.innerHTML = `<h3>Mobile Ops List</h3><div class="notice">No bases yet. Switch to desktop view to place your first base.</div>`;
     return;
   }
+  const inFlightBaseId = String(state.mobileFactoryCreate?.inFlightBaseId || '');
+  const errorByBase = (state.mobileFactoryCreate && typeof state.mobileFactoryCreate.errorByBase === 'object') ? state.mobileFactoryCreate.errorByBase : {};
   const baseMarkup = bases.map((base) => {
+    const baseId = String(base?.id || '');
+    const isCreating = inFlightBaseId === baseId;
+    const baseError = String(errorByBase[baseId] || '');
     const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
     const buildingRows = buildings.length
       ? buildings.map((building) => `<li><button class="mobile-tree-item" data-mobile-building-id="${esc(String(building?.id || ''))}">${esc(String(building?.label || building?.kind || 'Building'))}</button></li>`).join('')
       : '<li><span class="notice">No buildings</span></li>';
-    return `<article class="mobile-tree-base"><h3>${esc(String(base?.label || 'Base'))}</h3><ul>${buildingRows}</ul></article>`;
+    return `<article class="mobile-tree-base"><div class="mobile-tree-base-head"><h3>${esc(String(base?.label || 'Base'))}</h3><button class="mobile-base-add-btn" data-mobile-base-create="${esc(baseId)}" aria-label="Create factory under ${esc(String(base?.label || 'Base'))}" title="Create factory" ${isCreating ? 'disabled' : ''}>+</button></div>${baseError ? `<div class="mobile-base-error" role="status">${esc(baseError)}</div>` : ''}<ul>${buildingRows}</ul></article>`;
   }).join('');
   panel.innerHTML = `<h3>Mobile Ops List</h3>${baseMarkup}`;
 }
 
+async function createFactoryForMobileBase(baseId){
+  const safeBaseId = String(baseId || '').trim();
+  if (!safeBaseId) return;
+  if (String(state.mobileFactoryCreate?.inFlightBaseId || '')) return;
+  if (!state.mobileFactoryCreate || typeof state.mobileFactoryCreate !== 'object') {
+    state.mobileFactoryCreate = { inFlightBaseId: '', errorByBase: {} };
+  }
+  if (!state.mobileFactoryCreate.errorByBase || typeof state.mobileFactoryCreate.errorByBase !== 'object') {
+    state.mobileFactoryCreate.errorByBase = {};
+  }
+  state.mobileFactoryCreate.inFlightBaseId = safeBaseId;
+  delete state.mobileFactoryCreate.errorByBase[safeBaseId];
+  renderMobileListMode();
+  try {
+    await postJson('/api/rts/factory/create', { baseId: safeBaseId, kind: 'factory' });
+    await refreshMobileTree();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err || 'request_failed');
+    state.mobileFactoryCreate.errorByBase[safeBaseId] = `Create failed: ${message}`;
+  } finally {
+    state.mobileFactoryCreate.inFlightBaseId = '';
+    renderMobileListMode();
+  }
+}
+
 async function setMobileListMode(active){
+
   const enabled = !!active;
   if (state.mobileListMode === enabled) return;
   state.mobileListMode = enabled;
@@ -1719,6 +1777,16 @@ async function boot(){
   rebuildScene();
   renderLiveConsole();
   startLiveStream();
+  const mobileListPanel = document.getElementById('mobileListPanel');
+  mobileListPanel?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const createBtn = target?.closest('[data-mobile-base-create]');
+    if (!createBtn) return;
+    event.preventDefault();
+    const baseId = String(createBtn.getAttribute('data-mobile-base-create') || '').trim();
+    if (!baseId) return;
+    void createFactoryForMobileBase(baseId);
+  });
   syncMobileListMode();
   queuePersist();
 }
