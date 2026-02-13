@@ -13,6 +13,7 @@ Started: 2026-02-11 05:47 ET
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
 - Bundled OpenClaw skills are managed centrally in `src/installer/skill-install.ts` via `BUNDLED_SKILLS`; install/uninstall flows should call shared bundled-skill helpers
+- Runtime manager modules under `src/server/` should expose dependency-injected helpers (command runner + port checker) so process orchestration logic is unit-testable without spawning real binaries
 
 ---
 
@@ -116,4 +117,13 @@ Started: 2026-02-11 05:47 ET
 - Added regression tests in `src/installer/skill-install.test.ts` covering bundled install, bundled uninstall, and backward-compatible antfarm-only wrappers
 - Files changed: `skills/mittens/SKILL.md`, `src/installer/skill-install.ts`, `src/installer/install.ts`, `src/installer/uninstall.ts`, `src/installer/skill-install.test.ts`, `progress.txt`
 - **Learnings:** Skill lifecycle for Antfarm install/uninstall should be centralized through bundled-skill helpers so adding new built-in skills does not require flow-level logic changes.
+---
+## 2026-02-13 16:04 - US-002: Implement a Mittens factory runtime manager that launches renderer and server on paired ports
+- Added `src/server/mittens-runtime.ts` with a dedicated `MittensFactoryRuntimeManager` exposing `startByPort`, `stopByPort`, and `statusByPort` helpers keyed by factory base port.
+- Enforced deterministic factory port pairing (`renderer=PORT`, `server=PORT+1`), strict port validation (`1..65534`), worktree existence checks, and structured runtime errors (`invalid_port`, `worktree_not_found`, `port_in_use`, `start_failed`, `stop_failed`).
+- Implemented idempotent runtime identity handling by key (`factory-<port>`), including safe no-op re-start for same worktree and no-op stop when already stopped.
+- Wired dashboard runtime startup/teardown to the new manager (`ensureFactoryRuntime`/`stopFactoryRuntimeByPort`) so factory launches invoke Mittens CLI commands from the factory worktree.
+- Added unit tests in `src/server/mittens-runtime.test.ts` validating paired command invocations, validation errors, occupied-port handling, cleanup on partial start failure, and idempotent stop behavior.
+- Files changed: `src/server/mittens-runtime.ts`, `src/server/mittens-runtime.test.ts`, `src/server/dashboard.ts`, `progress.txt`
+- **Learnings:** Factory runtime orchestration should be abstracted behind testable runtime-manager helpers rather than embedding process control directly in dashboard route handlers.
 ---
