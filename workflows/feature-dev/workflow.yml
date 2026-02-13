@@ -77,6 +77,17 @@ agents:
         SOUL.md: agents/reviewer/SOUL.md
         IDENTITY.md: agents/reviewer/IDENTITY.md
 
+  - id: pr
+    name: PR Creator
+    role: pr
+    description: Rebases/squashes branch and creates the pull request.
+    workspace:
+      baseDir: agents/pr
+      files:
+        AGENTS.md: ../../agents/shared/pr/AGENTS.md
+        SOUL.md: ../../agents/shared/pr/SOUL.md
+        IDENTITY.md: ../../agents/shared/pr/IDENTITY.md
+
 steps:
   - id: plan
     agent: planner
@@ -276,7 +287,7 @@ steps:
         escalate_to: human
 
   - id: pr
-    agent: developer
+    agent: pr
     input: |
       Create a pull request for your changes.
 
@@ -295,6 +306,8 @@ steps:
       - Clear title summarizing the change
       - Description explaining what and why
       - Reference to what was tested
+      - Rebased on latest origin default branch
+      - Squashed to one clean commit before PR creation
 
       Use: gh pr create
 

@@ -276,6 +276,7 @@ steps:
       ```
 
       Use: gh pr create
+      Before PR creation: rebase on latest origin default branch and squash to one clean commit.
 
       Reply with:
       STATUS: done

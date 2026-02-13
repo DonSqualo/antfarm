@@ -10,6 +10,7 @@ import { runWorkflow } from "../installer/run.js";
 import { teardownWorkflowCronsIfIdle } from "../installer/agent-cron.js";
 import { emitEvent } from "../installer/events.js";
 import { createImmediateHandoffHandler } from "../installer/immediate-handoff.js";
+import { isRunning as isDashboardRunning, startDaemon, stopDaemon } from "./daemonctl.js";
 import YAML from "yaml";
 
 import type { RunInfo, StepInfo } from "../installer/status.js";
@@ -100,6 +101,154 @@ function normalizePathKey(raw: string): string {
   return String(raw || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+function normalizeRepoPath(rawPath: string): string {
+  const trimmed = String(rawPath || "").trim();
+  if (!trimmed) return "";
+  return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(process.cwd(), trimmed);
+}
+
+function isGitRepoPath(repoPathRaw: string): boolean {
+  const repoPath = normalizeRepoPath(repoPathRaw);
+  if (!repoPath) return false;
+  try {
+    if (!fs.existsSync(repoPath)) return false;
+    const gitMeta = path.join(repoPath, ".git");
+    if (!fs.existsSync(gitMeta)) return false;
+    const st = fs.lstatSync(gitMeta);
+    return st.isDirectory() || st.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function inferSuggestedPortForRepo(repoPathRaw: string): number | null {
+  const key = normalizePathKey(repoPathRaw);
+  if (!key) return null;
+  if (/\/antfarm$/i.test(key)) return 3333;
+  const featureMatch = key.match(/antfarm-feature-(\d+)/i);
+  if (featureMatch) {
+    const n = Number(featureMatch[1] || 0);
+    if (Number.isFinite(n)) return 3400 + (n % 400);
+  }
+  const featureName = path.basename(key);
+  if (/^antfarm-feature-/i.test(featureName)) {
+    let hash = 2166136261;
+    for (let i = 0; i < featureName.length; i++) {
+      hash ^= featureName.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return 3500 + ((hash >>> 0) % 500);
+  }
+  return null;
+}
+
+function listLocalGitRepos(): Array<{ path: string; name: string; suggestedPort?: number }> {
+  const envRoots = String(process.env.ANTFARM_LOCAL_REPO_ROOTS || "")
+    .split(/[,:;]/)
+    .map((v) => normalizeRepoPath(v))
+    .filter(Boolean);
+  const roots = [
+    ...envRoots,
+    normalizeRepoPath(process.cwd()),
+    normalizeRepoPath(path.resolve(process.cwd(), "..")),
+    normalizeRepoPath(path.join(os.homedir(), ".openclaw", "workspace")),
+  ].filter(Boolean);
+  const seenRoots = new Set<string>();
+  const queue: Array<{ dir: string; depth: number }> = [];
+  for (const root of roots) {
+    if (!root || seenRoots.has(root)) continue;
+    seenRoots.add(root);
+    queue.push({ dir: root, depth: 0 });
+  }
+
+  const skipDirs = new Set([".git", "node_modules", "dist", "build", ".next", "target", ".turbo", ".cache", "coverage"]);
+  const skipDirPatterns: RegExp[] = [/^mittens-projects$/i, /^branch-cleanup-backups$/i];
+  const maxDepth = 3;
+  const maxRepos = 200;
+  const seenRepos = new Set<string>();
+  const repos: Array<{ path: string; name: string; suggestedPort?: number; mtimeMs: number }> = [];
+
+  while (queue.length && repos.length < maxRepos) {
+    const current = queue.shift() as { dir: string; depth: number };
+    const dir = current.dir;
+    if (!dir) continue;
+    if (isGitRepoPath(dir)) {
+      const repoPath = normalizePathKey(dir);
+      if (!seenRepos.has(repoPath)) {
+        seenRepos.add(repoPath);
+        let mtimeMs = 0;
+        try {
+          mtimeMs = Number(fs.statSync(repoPath).mtimeMs || 0);
+        } catch {}
+        const suggested = inferSuggestedPortForRepo(repoPath);
+        repos.push({
+          path: repoPath,
+          name: path.basename(repoPath) || repoPath,
+          ...(suggested ? { suggestedPort: suggested } : {}),
+          mtimeMs,
+        });
+      }
+    }
+    if (current.depth >= maxDepth) continue;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      if (skipDirs.has(ent.name)) continue;
+      if (skipDirPatterns.some((re) => re.test(ent.name))) continue;
+      const full = path.join(dir, ent.name);
+      queue.push({ dir: full, depth: current.depth + 1 });
+    }
+  }
+
+  const chosen = repos.sort((a, b) =>
+    Number(b.mtimeMs || 0) - Number(a.mtimeMs || 0) ||
+    a.path.localeCompare(b.path)
+  );
+  return chosen.map((r) => ({ path: r.path, name: r.name, ...(r.suggestedPort ? { suggestedPort: r.suggestedPort } : {}) }));
+}
+
+function isValidPortValue(portValue: unknown): number | null {
+  const n = Number(portValue);
+  if (!Number.isFinite(n)) return null;
+  const port = Math.floor(n);
+  if (port < 1 || port > 65535) return null;
+  return port;
+}
+
+function factoryRuntimeKey(port: number): string {
+  return `factory-${port}`;
+}
+
+function ensureFactoryRuntime(worktreePathRaw: string, portValue: unknown): { ok: boolean; port?: number; key?: string; message?: string } {
+  const port = isValidPortValue(portValue);
+  if (!port) return { ok: false, message: "invalid_port" };
+  const worktreePath = normalizePathKey(worktreePathRaw);
+  if (!worktreePath) return { ok: false, message: "missing_worktree" };
+  if (!fs.existsSync(worktreePath)) return { ok: false, message: "worktree_not_found" };
+  const key = factoryRuntimeKey(port);
+  try {
+    // Always restart this per-port runtime so it follows the latest worktree path.
+    if (isDashboardRunning(key).running) stopDaemon(key);
+    startDaemon(port, { cwd: worktreePath, daemonKey: key }).catch(() => {});
+    return { ok: true, port, key };
+  } catch (err) {
+    return { ok: false, port, key, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function stopFactoryRuntimeByPort(portValue: unknown): { ok: boolean; stopped: boolean; port?: number } {
+  const port = isValidPortValue(portValue);
+  if (!port) return { ok: false, stopped: false };
+  const key = factoryRuntimeKey(port);
+  const stopped = stopDaemon(key);
+  return { ok: true, stopped, port };
+}
+
 function resolveResearchRepoPath(rawRepoPath: string): string {
   const candidates = [
     normalizePathKey(rawRepoPath),
@@ -132,6 +281,218 @@ function absolutizePath(pathValue: string, repoPath: string): string {
     stack.push(part);
   }
   return stack.join("/");
+}
+
+const LIBRARY_WORKER_ROLES = ["planner", "setup", "developer", "verifier", "tester", "reviewer"] as const;
+type LibraryWorkerRole = typeof LIBRARY_WORKER_ROLES[number];
+
+function isAntfarmRoot(dir: string): boolean {
+  try {
+    if (!fs.existsSync(path.join(dir, "workflows"))) return false;
+    if (!fs.existsSync(path.join(dir, "src", "server", "rts.html"))) return false;
+    const pkgPath = path.join(dir, "package.json");
+    if (!fs.existsSync(pkgPath)) return false;
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { name?: string };
+    return String(pkg.name || "").trim() === "antfarm";
+  } catch {
+    return false;
+  }
+}
+
+function findAntfarmRootFromCwd(): string {
+  let cur = normalizePathKey(process.cwd());
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    if (isAntfarmRoot(cur)) return cur;
+    const parent = normalizePathKey(path.dirname(cur));
+    if (!parent || parent === cur) break;
+    cur = parent;
+  }
+  const cwd = normalizePathKey(process.cwd());
+  const directChild = normalizePathKey(path.join(cwd, "antfarm"));
+  if (directChild && isAntfarmRoot(directChild)) return directChild;
+  return cwd;
+}
+
+function listLibraryRoots(): string[] {
+  const home = os.homedir();
+  const primary = findAntfarmRootFromCwd();
+  const roots = [
+    primary,
+    normalizePathKey(path.join(home, ".openclaw", "antfarm")),
+    normalizePathKey(path.join(home, ".openclaw", "workspaces", "workflows")),
+  ].filter(Boolean);
+  const uniq = new Set<string>();
+  const resolved: string[] = [];
+  for (const root of roots) {
+    if (uniq.has(root)) continue;
+    uniq.add(root);
+    try {
+      if (!fs.existsSync(root)) continue;
+      resolved.push(root);
+    } catch {}
+  }
+  return resolved;
+}
+
+function pathTagsForLibrary(relPathRaw: string): string[] {
+  const relPath = String(relPathRaw || "").replace(/\\/g, "/");
+  const lower = relPath.toLowerCase();
+  const tags = new Set<string>();
+  tags.add("md");
+  if (/(^|\/)agents\//.test(lower)) tags.add("agents");
+  if (/(^|\/)workflows\//.test(lower)) tags.add("workflows");
+  if (/(^|\/)docs\//.test(lower) || /readme\.md$/.test(lower)) tags.add("docs");
+  if (/agents\.md$/.test(lower)) tags.add("instructions");
+  if (/skill\.md$/.test(lower)) tags.add("skills");
+  if (/memory\.md$/.test(lower)) tags.add("memory");
+  if (/security/.test(lower)) tags.add("security");
+  if (/design|plan|roadmap|spec/.test(lower)) tags.add("planning");
+  if (/setup|install|provision/.test(lower)) tags.add("setup");
+  if (/review|pr\b/.test(lower)) tags.add("review");
+  if (/verif|audit|lint|qa/.test(lower)) tags.add("verification");
+  if (/test/.test(lower)) tags.add("testing");
+  if (/research/.test(lower)) tags.add("research");
+  return [...tags].sort();
+}
+
+function rolesForLibraryPath(relPathRaw: string, tags: string[]): LibraryWorkerRole[] {
+  const relPath = String(relPathRaw || "").replace(/\\/g, "/");
+  const lower = relPath.toLowerCase();
+  const roleMatchers: Array<{ role: LibraryWorkerRole; re: RegExp }> = [
+    { role: "planner", re: /(^|\/)(planner)(\/|$)/ },
+    { role: "setup", re: /(^|\/)(setup)(\/|$)/ },
+    { role: "developer", re: /(^|\/)(developer)(\/|$)/ },
+    { role: "verifier", re: /(^|\/)(verifier)(\/|$)/ },
+    { role: "tester", re: /(^|\/)(tester)(\/|$)/ },
+    { role: "reviewer", re: /(^|\/)(reviewer|pr)(\/|$)/ },
+  ];
+
+  for (const { role, re } of roleMatchers) {
+    if (re.test(lower)) return [role];
+  }
+  return [];
+}
+
+function relativeLibraryPath(filePath: string, roots: string[]): string {
+  const full = normalizePathKey(filePath);
+  for (const root of roots) {
+    if (full === root) return path.basename(full) || full;
+    if (full.startsWith(`${root}/`)) return full.slice(root.length + 1);
+  }
+  return full;
+}
+
+function listLibraryMarkdownFiles(input: { role?: string; tag?: string; q?: string; max?: number }): {
+  role: string;
+  tag: string;
+  q: string;
+  roots: string[];
+  tags: string[];
+  files: Array<{
+    path: string;
+    absPath: string;
+    root: string;
+    size: number;
+    mtimeMs: number;
+    tags: string[];
+    roles: string[];
+  }>;
+} {
+  const role = String(input.role || "all").trim().toLowerCase();
+  const tag = String(input.tag || "all").trim().toLowerCase();
+  const q = String(input.q || "").trim().toLowerCase();
+  const max = Number.isFinite(Number(input.max)) ? Math.max(50, Math.min(12000, Math.floor(Number(input.max)))) : 5000;
+  const roots = listLibraryRoots();
+  const skipDirs = new Set([".git", "node_modules", "dist", "build", ".next", "target", ".turbo", ".cache", "coverage"]);
+  const skipDirPatterns: RegExp[] = [
+    /^antfarm-feature-/i,
+    /^branch-cleanup-backups$/i,
+  ];
+  const stack = [...roots];
+  const files: Array<{
+    path: string;
+    absPath: string;
+    root: string;
+    size: number;
+    mtimeMs: number;
+    tags: string[];
+    roles: string[];
+  }> = [];
+  const tagSet = new Set<string>();
+  while (stack.length && files.length < max) {
+    const dir = stack.pop() as string;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (skipDirs.has(ent.name)) continue;
+        if (skipDirPatterns.some((re) => re.test(ent.name))) continue;
+        stack.push(full);
+        continue;
+      }
+      if (!ent.isFile()) continue;
+      if (!/\.md$/i.test(ent.name)) continue;
+      const root = roots.find((r) => full === r || full.startsWith(`${r}${path.sep}`)) || roots[0] || "";
+      const relPath = relativeLibraryPath(full, roots);
+      const tags = pathTagsForLibrary(relPath);
+      const roles = rolesForLibraryPath(relPath, tags);
+      if (role !== "all" && !roles.includes(role as LibraryWorkerRole)) continue;
+      if (tag !== "all" && !tags.includes(tag)) continue;
+      if (q) {
+        const hay = `${relPath}\n${tags.join(" ")}\n${roles.join(" ")}`.toLowerCase();
+        if (!hay.includes(q)) continue;
+      }
+      let size = 0;
+      let mtimeMs = 0;
+      try {
+        const st = fs.statSync(full);
+        size = Number(st.size || 0);
+        mtimeMs = Number(st.mtimeMs || 0);
+      } catch {}
+      tags.forEach((t) => tagSet.add(t));
+      files.push({
+        path: relPath,
+        absPath: normalizePathKey(full),
+        root: normalizePathKey(root),
+        size,
+        mtimeMs,
+        tags,
+        roles,
+      });
+      if (files.length >= max) break;
+    }
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: "base" }));
+  return {
+    role,
+    tag,
+    q,
+    roots,
+    tags: [...tagSet].sort(),
+    files,
+  };
+}
+
+function readLibraryMarkdownFile(absPathRaw: string): { path: string; content: string; size: number; mtimeMs: number } {
+  const absPath = normalizePathKey(absPathRaw);
+  if (!absPath) throw new Error("path is required");
+  if (!/\.md$/i.test(absPath)) throw new Error("only .md files are allowed");
+  const roots = listLibraryRoots();
+  const insideRoot = roots.some((root) => absPath === root || absPath.startsWith(`${root}/`));
+  if (!insideRoot) throw new Error("path is outside library roots");
+  if (!fs.existsSync(absPath)) throw new Error("file not found");
+  const st = fs.statSync(absPath);
+  if (!st.isFile()) throw new Error("not a file");
+  if (st.size > 2_000_000) throw new Error("file too large");
+  const content = fs.readFileSync(absPath, "utf-8");
+  return { path: absPath, content, size: Number(st.size || 0), mtimeMs: Number(st.mtimeMs || 0) };
 }
 
 function getRtsState(): Record<string, unknown> {
@@ -252,10 +613,12 @@ function getRtsState(): Record<string, unknown> {
     if (r.entity_type === "research") {
       const repoPath = String(r.repo_path ?? payload.repo ?? "");
       const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath) || repoPath;
+      const rawKind = String(payload.kind || payload.variant || (String(r.id || "").startsWith("university-") ? "university" : "research")).toLowerCase();
+      const kind = rawKind === "university" ? "university" : "research";
       researchBuildings.push({
         ...payload,
         id: payload.id ?? r.id,
-        kind: "research",
+        kind,
         x: Number(r.x),
         y: Number(r.y),
         repo: repoPath,
@@ -266,10 +629,12 @@ function getRtsState(): Record<string, unknown> {
     if (r.entity_type === "warehouse") {
       const repoPath = String(r.repo_path ?? payload.repo ?? "");
       const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath) || repoPath;
+      const rawKind = String(payload.kind || payload.variant || (String(r.id || "").startsWith("library-") ? "library" : "warehouse")).toLowerCase();
+      const kind = rawKind === "library" ? "library" : (rawKind === "power" ? "power" : "warehouse");
       warehouseBuildings.push({
         ...payload,
         id: payload.id ?? r.id,
-        kind: "warehouse",
+        kind,
         x: Number(r.x),
         y: Number(r.y),
         repo: repoPath,
@@ -422,7 +787,9 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       const x = Number.isFinite(existing?.x) ? Number(existing!.x) : (Number.isFinite(incomingX) ? incomingX : 0);
       const y = Number.isFinite(existing?.y) ? Number(existing!.y) : (Number.isFinite(incomingY) ? incomingY : 0);
       const worktreePath = absolutizePath(String(warehouse?.worktreePath ?? ""), repoPath) || repoPath || null;
-      const payload = { ...warehouse, kind: "warehouse", repo: repoPath, worktreePath, x, y };
+      const rawKind = String(warehouse?.kind ?? warehouse?.variant ?? "warehouse").toLowerCase();
+      const kind = rawKind === "library" ? "library" : (rawKind === "power" ? "power" : "warehouse");
+      const payload = { ...warehouse, kind, repo: repoPath, worktreePath, x, y };
       upsert.run(id, "warehouse", null, repoPath || null, worktreePath, x, y, JSON.stringify(payload), now);
     }
     for (const [runId, pos] of Object.entries(runLayoutOverrides)) {
@@ -556,6 +923,28 @@ function getRtsLiveStatus(): Record<string, unknown> {
   };
 }
 
+function listCronJobsSummary(): Array<Record<string, unknown>> {
+  try {
+    const jobsPath = path.join(os.homedir(), ".openclaw", "cron", "jobs.json");
+    if (!fs.existsSync(jobsPath)) return [];
+    const raw = JSON.parse(fs.readFileSync(jobsPath, "utf-8")) as { jobs?: Array<Record<string, unknown>> };
+    const jobs = Array.isArray(raw.jobs) ? raw.jobs : [];
+    return jobs.map((job) => {
+      const state = (job.state && typeof job.state === "object") ? job.state as Record<string, unknown> : {};
+      return {
+        name: String(job.name || ""),
+        schedule: String(job.schedule || ""),
+        enabled: job.enabled !== false,
+        nextRunAtMs: Number(state.nextRunAtMs || 0) || null,
+        lastRunAtMs: Number(state.lastRunAtMs || 0) || null,
+        lastStatus: String(state.lastStatus || ""),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 function nudgeWorkflowCronSchedules(workflowIds: string[]): void {
   if (!workflowIds.length) return;
   try {
@@ -579,6 +968,35 @@ function nudgeWorkflowCronSchedules(workflowIds: string[]): void {
     fs.writeFileSync(jobsPath, JSON.stringify({ ...(raw || {}), jobs }, null, 2), "utf-8");
   } catch {
     // best-effort fallback only
+  }
+}
+
+function nudgeAllAntfarmCronSchedules(): { attempted: number; nudged: number } {
+  try {
+    const jobsPath = path.join(os.homedir(), ".openclaw", "cron", "jobs.json");
+    if (!fs.existsSync(jobsPath)) return { attempted: 0, nudged: 0 };
+    const raw = JSON.parse(fs.readFileSync(jobsPath, "utf-8")) as { jobs?: Array<Record<string, unknown>> };
+    const jobs = Array.isArray(raw.jobs) ? raw.jobs : [];
+    const nowMs = Date.now();
+    let attempted = 0;
+    let nudged = 0;
+    for (const job of jobs) {
+      const name = String(job?.name || "");
+      if (!name.startsWith("antfarm/")) continue;
+      if (job?.enabled === false) continue;
+      attempted += 1;
+      const state = (job.state && typeof job.state === "object") ? job.state as Record<string, unknown> : {};
+      state.nextRunAtMs = nowMs;
+      job.state = state;
+      job.updatedAtMs = nowMs;
+      nudged += 1;
+    }
+    if (nudged > 0) {
+      fs.writeFileSync(jobsPath, JSON.stringify({ ...(raw || {}), jobs }, null, 2), "utf-8");
+    }
+    return { attempted, nudged };
+  } catch {
+    return { attempted: 0, nudged: 0 };
   }
 }
 
@@ -673,117 +1091,10 @@ function parseRunContext(raw: string): Record<string, unknown> {
   }
 }
 
-function normalizeRepoPath(rawPath: string): string {
-  const trimmed = rawPath.trim();
-  return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(process.cwd(), trimmed);
-}
-
 function resolveWorktreePath(baseRepoPath: string, worktreePath: string): string {
   const trimmed = worktreePath.trim();
   if (!trimmed) return path.resolve(path.dirname(baseRepoPath), `${path.basename(baseRepoPath)}-feature-${Date.now().toString().slice(-4)}`);
   return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(baseRepoPath, trimmed);
-}
-
-function inferPortFromPath(pathValue: string): number | null {
-  const key = normalizePathKey(pathValue);
-  if (!key) return null;
-  if (/\/antfarm$/i.test(key)) return 3333;
-  const featureMatch = key.match(/antfarm-feature-(\d+)/i);
-  if (featureMatch) {
-    const n = Number(featureMatch[1] || 0);
-    if (Number.isFinite(n)) return 3400 + (n % 400);
-  }
-  return null;
-}
-
-function parseConfiguredRepoRoots(rawRoots: string): string[] {
-  return String(rawRoots || "")
-    .split(/[\n,;]/)
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
-function configuredLocalRepoRoots(): string[] {
-  const configured = [
-    ...parseConfiguredRepoRoots(process.env.ANTFARM_LOCAL_REPO_ROOTS || ""),
-    ...parseConfiguredRepoRoots(process.env.OPENCLAW_LOCAL_REPO_ROOTS || ""),
-  ];
-  const defaults = [
-    process.cwd(),
-    path.resolve(process.cwd(), ".."),
-    path.join(os.homedir(), ".openclaw", "workspace"),
-  ];
-  const deduped = new Set<string>();
-  for (const candidate of [...configured, ...defaults]) {
-    try {
-      const absolute = path.resolve(candidate);
-      deduped.add(path.normalize(fs.realpathSync(absolute)));
-    } catch {
-      // skip missing paths
-    }
-  }
-  return [...deduped];
-}
-
-function isGitRepoDirectory(repoPath: string): boolean {
-  try {
-    const gitPath = path.join(repoPath, ".git");
-    if (!fs.existsSync(gitPath)) return false;
-    const stat = fs.statSync(gitPath);
-    return stat.isDirectory() || stat.isFile();
-  } catch {
-    return false;
-  }
-}
-
-export type LocalRepoSummary = { path: string; name: string; suggestedPort?: number };
-
-export function discoverLocalGitRepos(roots = configuredLocalRepoRoots()): LocalRepoSummary[] {
-  const seenPaths = new Set<string>();
-  const repos: LocalRepoSummary[] = [];
-  const skipDirs = new Set([".git", "node_modules", "dist", "build", ".next", "coverage", ".cache"]);
-  const maxDepth = 6;
-
-  for (const root of roots) {
-    const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
-    while (queue.length) {
-      const current = queue.shift() as { dir: string; depth: number };
-      let realDir = "";
-      try {
-        realDir = path.normalize(fs.realpathSync(current.dir));
-      } catch {
-        continue;
-      }
-      if (seenPaths.has(realDir)) continue;
-      seenPaths.add(realDir);
-
-      if (isGitRepoDirectory(realDir)) {
-        const suggestedPort = inferPortFromPath(realDir);
-        repos.push({
-          path: realDir,
-          name: path.basename(realDir) || realDir,
-          ...(suggestedPort ? { suggestedPort } : {}),
-        });
-      }
-
-      if (current.depth >= maxDepth) continue;
-      let entries: fs.Dirent[] = [];
-      try {
-        entries = fs.readdirSync(realDir, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (skipDirs.has(entry.name)) continue;
-        queue.push({ dir: path.join(realDir, entry.name), depth: current.depth + 1 });
-      }
-    }
-  }
-
-  return repos
-    .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
-    .filter((repo, index, arr) => index === 0 || repo.path !== arr[index - 1].path);
 }
 
 function branchExists(baseRepoPath: string, branchName: string): boolean {
@@ -958,9 +1269,16 @@ function pruneRunEvents(runId: string): void {
 }
 
 function removeRunWorktree(context: Record<string, unknown>): { removed: boolean; path?: string } {
-  const wtRaw = String(context.worktreePath ?? "").trim();
+  return removeWorktreeByPaths(
+    String(context.worktreePath ?? "").trim(),
+    String(context.baseRepoPath ?? context.repoPath ?? "").trim()
+  );
+}
+
+function removeWorktreeByPaths(worktreePathRaw: string, baseRepoPathRaw: string): { removed: boolean; path?: string } {
+  const wtRaw = String(worktreePathRaw || "").trim();
   if (!wtRaw) return { removed: false };
-  const baseRaw = String(context.baseRepoPath ?? context.repoPath ?? "").trim();
+  const baseRaw = String(baseRepoPathRaw || "").trim();
   const worktreePath = path.isAbsolute(wtRaw) ? path.normalize(wtRaw) : path.resolve(process.cwd(), wtRaw);
   const baseRepoPath = baseRaw ? (path.isAbsolute(baseRaw) ? path.normalize(baseRaw) : path.resolve(process.cwd(), baseRaw)) : "";
   if (baseRepoPath && worktreePath === baseRepoPath) return { removed: false, path: worktreePath };
@@ -1028,6 +1346,17 @@ function deleteRunWithArtifacts(runIdOrPrefix: string): { deleted: boolean; stat
   const runId = run.id;
   let context: Record<string, unknown> = {};
   try { context = JSON.parse(run.context || "{}") as Record<string, unknown>; } catch { context = {}; }
+  const runtimePortFromContext = isValidPortValue((context as Record<string, unknown>).runtimePort);
+  let runtimePortFromLayout: number | null = null;
+  try {
+    const db2 = getDb();
+    const layout = db2.prepare(
+      "SELECT payload_json FROM rts_layout_entities WHERE entity_type = 'feature' AND run_id = ? ORDER BY updated_at DESC LIMIT 1"
+    ).get(runId) as { payload_json: string } | undefined;
+    const payload = JSON.parse(layout?.payload_json || "{}") as Record<string, unknown>;
+    runtimePortFromLayout = isValidPortValue(payload.port);
+  } catch {}
+  const runtimePort = runtimePortFromContext ?? runtimePortFromLayout;
 
   db.exec("BEGIN");
   try {
@@ -1060,6 +1389,7 @@ function deleteRunWithArtifacts(runIdOrPrefix: string): { deleted: boolean; stat
     db.exec("COMMIT");
     pruneRunEvents(runId);
     const wt = removeRunWorktree(context);
+    if (runtimePort) stopFactoryRuntimeByPort(runtimePort);
     teardownWorkflowCronsIfIdle(run.workflow_id).catch(() => {});
     return { deleted: true, status: run.status, runId, worktreeRemoved: wt.removed, worktreePath: wt.path };
   } catch (err) {
@@ -1526,30 +1856,47 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/local-repos") {
-      return json(res, discoverLocalGitRepos());
+      return json(res, listLocalGitRepos());
     }
 
     if (p === "/api/rts/base/clone" && method === "POST") {
       try {
-        const body = JSON.parse(await readBody(req)) as { useExistingRepoPath?: string; repoUrl?: string; targetPath?: string };
-        const existingRepoPath = normalizeRepoPath(String(body?.useExistingRepoPath || ""));
-        if (existingRepoPath) {
-          if (!fs.existsSync(existingRepoPath)) {
-            return json(res, { ok: false, error: `Existing repo path not found: ${existingRepoPath}` }, 400);
+        const body = JSON.parse(await readBody(req)) as {
+          useExistingRepoPath?: string;
+          repoUrl?: string;
+          targetPath?: string;
+          placement?: { x?: number; y?: number };
+        };
+        const useExistingRepoPath = String(body?.useExistingRepoPath || "").trim();
+        if (useExistingRepoPath) {
+          const repoPath = normalizeRepoPath(useExistingRepoPath);
+          if (!repoPath || !fs.existsSync(repoPath)) {
+            return json(res, { ok: false, error: `Repo path not found: ${repoPath || "(empty)"}` }, 400);
           }
-          if (!isGitRepoDirectory(existingRepoPath)) {
-            return json(res, { ok: false, error: `Not a git repo: ${existingRepoPath}` }, 400);
+          if (!isGitRepoPath(repoPath)) {
+            return json(res, { ok: false, error: `Not a git repo: ${repoPath}` }, 400);
           }
-          return json(res, { ok: true, mode: "existing", repoPath: existingRepoPath });
+          return json(res, { ok: true, mode: "existing", repoPath });
         }
 
-        return json(res, {
-          ok: false,
-          error: "Clone-mode base creation is not supported in this flow. Select an existing local git repo.",
-        }, 400);
+        const repoUrl = String(body?.repoUrl || "").trim();
+        const targetPath = String(body?.targetPath || "").trim();
+        if (!repoUrl || !targetPath) {
+          return json(res, { ok: false, error: "repoUrl and targetPath are required when not using an existing repo" }, 400);
+        }
+        const repoPath = normalizeRepoPath(targetPath);
+        if (!repoPath) return json(res, { ok: false, error: "targetPath resolved to empty path" }, 400);
+        if (!fs.existsSync(repoPath)) {
+          fs.mkdirSync(path.dirname(repoPath), { recursive: true });
+          execFileSync("git", ["clone", repoUrl, repoPath], { stdio: "pipe" });
+        }
+        if (!isGitRepoPath(repoPath)) {
+          return json(res, { ok: false, error: `Clone target is not a git repo: ${repoPath}` }, 400);
+        }
+        return json(res, { ok: true, mode: "clone", repoPath });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return json(res, { ok: false, error: message }, 400);
+        return json(res, { ok: false, error: message }, 500);
       }
     }
 
@@ -1596,11 +1943,15 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/rts/diag" && method === "GET") {
+      const cronJobs = listCronJobsSummary();
       return json(res, {
         ok: true,
         diag: {
           workflowId: url.searchParams.get("workflow") ?? null,
-          cron: { matchingCount: 0 },
+          cron: {
+            matchingCount: cronJobs.length,
+            jobs: cronJobs,
+          },
           likelyBlockedReason: "",
         },
       });
@@ -1645,6 +1996,16 @@ export function startDashboard(port = 3333): http.Server {
       }
     }
 
+    if (p === "/api/rts/cron/run-global" && method === "POST") {
+      try {
+        const result = nudgeAllAntfarmCronSchedules();
+        return json(res, { ok: true, ...result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
     if (p === "/api/rts/research/generate" && method === "POST") {
       try {
         const body = JSON.parse(await readBody(req)) as { repoPath?: string; maxPlans?: number };
@@ -1667,6 +2028,31 @@ export function startDashboard(port = 3333): http.Server {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
+    if (p === "/api/rts/library/files" && method === "GET") {
+      try {
+        const role = String(url.searchParams.get("role") || "all");
+        const tag = String(url.searchParams.get("tag") || "all");
+        const q = String(url.searchParams.get("q") || "");
+        const max = Number(url.searchParams.get("max") || "5000");
+        const result = listLibraryMarkdownFiles({ role, tag, q, max });
+        return json(res, { ok: true, ...result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 500);
+      }
+    }
+
+    if (p === "/api/rts/library/file" && method === "GET") {
+      try {
+        const filePath = String(url.searchParams.get("path") || "");
+        const result = readLibraryMarkdownFile(filePath);
+        return json(res, { ok: true, ...result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 400);
       }
     }
 
@@ -1742,6 +2128,7 @@ export function startDashboard(port = 3333): http.Server {
           if (!r || !w) continue;
           workerAssignments[r] = w;
         }
+        const draftPort = Number(body.draftPort);
         const nextContext = {
           ...context,
           prompt: body.prompt || taskTitle,
@@ -1751,6 +2138,7 @@ export function startDashboard(port = 3333): http.Server {
           baseRepoPath,
           repoPath: baseRepoPath,
           worktreePath,
+          runtimePort: Number.isFinite(draftPort) && draftPort > 0 ? Math.floor(draftPort) : null,
           branchName,
         };
         db.prepare("UPDATE runs SET context = ?, updated_at = ? WHERE id = ?").run(
@@ -1765,7 +2153,6 @@ export function startDashboard(port = 3333): http.Server {
         let layout: { id: string; entityType: string; runId: string | null } | null = null;
         const draftX = Number(body.draftX);
         const draftY = Number(body.draftY);
-        const draftPort = Number(body.draftPort);
         const layoutId = draftId || `feature-${run.id}`;
         layout = upsertLayoutPosition({
           entityType: "feature",
@@ -1808,6 +2195,7 @@ export function startDashboard(port = 3333): http.Server {
             "DELETE FROM rts_layout_entities WHERE entity_type = 'feature' AND id <> ? AND (run_id = ? OR worktree_path = ?)"
           ).run(layout.id, run.id, worktreePath);
         } catch {}
+        const runtimeStart = ensureFactoryRuntime(worktreePath, Number.isFinite(draftPort) && draftPort > 0 ? draftPort : null);
         if (firstStep?.id) {
           const evt = { ts: new Date().toISOString(), event: "step.pending" as const, runId: run.id, workflowId, stepId: firstStep.id };
           emitEvent(evt);
@@ -1816,7 +2204,7 @@ export function startDashboard(port = 3333): http.Server {
           } catch {}
         }
 
-        return json(res, { ok: true, run: getRunById(run.id), worktreePath, branchName, layout });
+        return json(res, { ok: true, run: getRunById(run.id), worktreePath, branchName, layout, runtime: runtimeStart });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return json(res, { ok: false, error: message }, 500);
@@ -1891,6 +2279,26 @@ export function startDashboard(port = 3333): http.Server {
         }
         const entityId = String(body.entityId || "").trim();
         if (!entityId) return json(res, { ok: false, error: "entityId is required" }, 400);
+        if (entityType === "feature") {
+          const db = getDb();
+          const row = db.prepare(
+            "SELECT run_id, repo_path, worktree_path, payload_json FROM rts_layout_entities WHERE id = ? AND entity_type = 'feature' LIMIT 1"
+          ).get(entityId) as { run_id: string | null; repo_path: string | null; worktree_path: string | null; payload_json: string } | undefined;
+          if (row?.run_id) {
+            const result = deleteRunWithArtifacts(String(row.run_id));
+            return json(res, { ok: true, ...result, via: "run-delete" });
+          }
+          if (row) {
+            try {
+              const payload = JSON.parse(row.payload_json || "{}") as Record<string, unknown>;
+              const port = isValidPortValue(payload.port);
+              if (port) stopFactoryRuntimeByPort(port);
+              const wtRaw = String(payload.worktreePath ?? row.worktree_path ?? "").trim();
+              const repoRaw = String(payload.repo ?? row.repo_path ?? "").trim();
+              if (wtRaw) removeWorktreeByPaths(wtRaw, repoRaw);
+            } catch {}
+          }
+        }
         const result = deleteLayoutEntity(entityType, entityId);
         return json(res, { ok: true, ...result });
       } catch (err) {
