@@ -4,6 +4,7 @@ Task: Add easter egg ant command to antfarm CLI
 Started: 2026-02-11 05:47 ET
 
 ## Codebase Patterns
+- RTS E2E coverage lives in `tests/*.e2e.test.ts`; use Puppeteer + `startDashboard(...)` and mobile `page.setViewport(...)` to validate real UI flows
 - RTS mobile/desktop behavior should be toggled via `window.matchMedia` + `.layout` mode class to keep interaction guards and rendering in sync across breakpoints
 - CLI entry: `src/cli/cli.ts`, commands matched via `group` variable from `process.argv[2]`
 - Dynamic imports used for command modules (e.g., `await import("./ant.js")`)
@@ -108,4 +109,11 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-mobile-building-detail-route.test.ts` to assert route wiring, detail/back controls, and deterministic not-found UI in both `src` and `dist`
 - Files changed: `src/server/rts.html`, `tests/rts-mobile-building-detail-route.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** Mobile detail routing can be implemented safely with hash navigation so behavior remains deterministic in static HTML deployments.
+---
+## 2026-02-13 02:20 - US-006: Add end-to-end regression coverage for mobile hierarchy workflow
+- Added `tests/rts-mobile-hierarchy.e2e.test.ts` (Puppeteer + node:test) covering mobile viewport list rendering, base-level plus action API flow, and building detail/back navigation.
+- Updated `test:e2e:rts` script to run all `tests/*.e2e.test.ts` so mobile hierarchy regression executes alongside existing RTS E2E coverage.
+- Verified plus-action request contract (`/api/rts/factory/create`) includes/returns the selected base id and building id, and validated detail navigation is route-driven with list return.
+- Files changed: `tests/rts-mobile-hierarchy.e2e.test.ts`, `package.json`, `progress.txt`
+- **Learnings:** RTS E2E tests can boot isolated dashboards via `startDashboard(...)` and should use mobile viewport + delegated selectors to validate end-to-end UI behavior reliably.
 ---

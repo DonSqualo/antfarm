@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && cp src/server/index.html dist/server/index.html && cp src/server/rts.html dist/server/rts.html && mkdir -p dist/server/rts-sprites && cp -R src/server/rts-sprites/. dist/server/rts-sprites/ && chmod +x dist/cli/cli.js",
     "start": "node dist/cli/cli.js",
-    "test:e2e:rts": "npm run build && node --test --experimental-strip-types tests/rts-building-palette.e2e.test.ts"
+    "test:e2e:rts": "npm run build && node --test --test-force-exit --experimental-strip-types tests/*.e2e.test.ts"
   },
   "dependencies": {
     "json5": "^2.2.3",
