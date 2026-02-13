@@ -13,6 +13,7 @@ Started: 2026-02-11 05:47 ET
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
 - `/api/rts/state` returns `{ ok: true, state: ... }`; integration tests should assert nested fields from `payload.state`
+- RTS refresh persistence regressions can be exercised API-first by hitting `/rts` between `/api/rts/state` saves, then asserting entity arrays from the state payload
 
 ---
 
@@ -116,4 +117,10 @@ Started: 2026-02-11 05:47 ET
 - Updated `test:e2e:rts` script to include the new regression test.
 - Files changed: `src/server/dashboard.ts`, `tests/rts-layout-non-destructive-persistence.e2e.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** `/api/rts/state` payload assertions in tests must read from the nested `state` field.
+---
+## 2026-02-13 18:08 - US-002: Add regression coverage for refresh persistence of disconnected base/library entities
+- Added `tests/rts-refresh-disconnected-entities-persistence.e2e.test.ts` to create disconnected base + warehouse entities, trigger save/reload/save via `/api/rts/state` + `/rts`, and assert both entities persist after refresh.
+- Updated `test:e2e:rts` to include the new regression coverage in the RTS end-to-end test run.
+- Files changed: `tests/rts-refresh-disconnected-entities-persistence.e2e.test.ts`, `package.json`, `progress.txt`
+- **Learnings:** Refresh regression can be validated without brittle browser UI interaction by loading `/rts` and asserting persisted entity arrays from `/api/rts/state`.
 ---
