@@ -12,6 +12,7 @@ Started: 2026-02-11 05:47 ET
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
+- Static dashboard assets should be authored in `src/server/`, copied by `npm run build`, and served in `dashboard.ts` with dist-first + src fallback resolution
 
 ---
 
@@ -107,4 +108,12 @@ Started: 2026-02-11 05:47 ET
 - Expanded RTS e2e script to run both palette UI regression and existing-repo base flow regression
 - Files changed: `src/server/dashboard.ts`, `tests/rts-base-existing-repo.e2e.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** RTS base creation server contract now explicitly supports existing-local-repo mode through `/api/rts/base/clone`; regression coverage should assert this contract directly.
+---
+## 2026-02-13 15:24 - US-001: Add PWA asset pipeline and mobile metadata serving
+- Added PWA server assets in `src/server/`: `manifest.webmanifest`, `service-worker.v1.js`, `icon-192.png`, and `icon-512.png`
+- Extended build pipeline in `package.json` to copy new PWA assets into `dist/server/` alongside existing RTS assets
+- Updated `src/server/dashboard.ts` static serving to expose `/manifest.webmanifest`, `/service-worker.v1.js`, `/icon-192.png`, and `/icon-512.png` with explicit MIME types and cache headers
+- Added `tests/pwa-assets-serving.e2e.test.ts` to verify manifest metadata shape, dist copy output, and HTTP 200 + correct content types for manifest/service worker/icon endpoints
+- Files changed: `package.json`, `src/server/dashboard.ts`, `src/server/manifest.webmanifest`, `src/server/service-worker.v1.js`, `src/server/icon-192.png`, `src/server/icon-512.png`, `tests/pwa-assets-serving.e2e.test.ts`, `progress.txt`
+- **Learnings:** PWA installability support for RTS can be validated with lightweight server e2e checks (no browser automation) by asserting manifest/service-worker headers from `startDashboard()`.
 ---
