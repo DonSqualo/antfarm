@@ -53,6 +53,7 @@ If `antfarm` fails with a `node:sqlite` error, your `node` binary may be Bun's w
 - RTS sprite versioning policy: do not replace existing building sprite files; add new versioned PNG filenames and update `src/server/rts.html` references.
 - Responsive RTS shell behavior is class-driven on `.layout` (`mobile-tab-build|runs|intel`) and must preserve desktop fallback by explicitly restoring non-mobile panel visibility in client JS.
 - RTS multi-panel API update contract lives in `src/server/panel-update-contract.ts`; prefer returning a typed `uiUpdate` envelope (`createPanelUpdateEnvelope`) from dashboard endpoints instead of ad-hoc target strings.
+- RTS panel swapping in `src/server/rts.html` should register renderers by target/kind (`panelPatchRenderers`, `buildingSelectionRenderers`) and dispatch via router helpers, not hardcoded click-handler conditionals.
 
 ## What It Changes in OpenClaw
 

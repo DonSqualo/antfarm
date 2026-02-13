@@ -20,6 +20,7 @@ Started: 2026-02-11 05:47 ET
 - RTS mobile performance-sensitive visual writes (camera transform vars) should be funneled through `updateCameraVisuals()` + `scheduleVisualFrame()` (requestAnimationFrame) instead of direct style writes inside pointer/touch loops
 - Runtime polling in RTS should use self-scheduled `setTimeout` (`scheduleRuntimePoll`) with bounded retry backoff so offline/reconnect UX and poll recovery stay centralized
 - RTS multi-panel API responses should use `createPanelUpdateEnvelope` + `PANEL_TARGETS` (`src/server/panel-update-contract.ts`) so panel targets stay typed and centrally validated.
+- RTS client panel swaps should flow through target registries (`panelPatchRenderers`, `buildingSelectionRenderers`) so new panel targets/kinds can be added without changing click handlers.
 
 ---
 
@@ -168,6 +169,15 @@ Started: 2026-02-11 05:47 ET
 - Added regression coverage in `tests/rts-mobile-panel-cards-sheets.test.ts` validating card groups, sheet wiring, and keyboard-safe form hooks in both `src/server/rts.html` and `dist/server/rts.html`.
 - Files changed: `src/server/rts.html`, `tests/rts-mobile-panel-cards-sheets.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For mobile RTS panel ergonomics, centralize card/sheet primitives in shared render helpers and assert src/dist parity so built dashboard HTML remains aligned with source behavior.
+---
+## 2026-02-13 19:03 - US-002: Add a central panel patch router in the RTS client
+- Added a client-side panel patch router in `src/server/rts.html` with target registration (`registerPanelPatchRenderer`) and dispatch (`applyPanelUpdateRouter` / `applyPanelPatch`) keyed by panel target ID.
+- Routed default Action Console rendering through the new dispatcher (`routeDefaultActionConsole`) so default sidebar behavior is preserved through the central routing path.
+- Refactored building selection panel rendering to a mapped registry (`buildingSelectionRenderers`) so adding new building/panel kinds no longer requires hardcoded click-handler branching.
+- Wired feature run start/delete API responses to apply server-provided `uiUpdate` panel patches via the dispatcher.
+- Added regression coverage in `tests/rts-panel-patch-router.test.ts` for router presence, default-route behavior, and renderer mapping in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-panel-patch-router.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** The RTS client now has a target-ID panel dispatch seam that can be extended for future left-panel/video content without changing selection click wiring.
 ---
 ## 2026-02-13 20:10 - US-006: Optimize render path for smooth mobile performance
 - Refactored high-frequency camera visual updates in `src/server/rts.html` to use requestAnimationFrame coalescing via `scheduleVisualFrame()`/`flushVisualFrame()` so pointer/touch pan loops no longer perform direct per-event style writes.
