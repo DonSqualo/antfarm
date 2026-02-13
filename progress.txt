@@ -14,6 +14,7 @@ Started: 2026-02-11 05:47 ET
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
 - Static dashboard assets should be authored in `src/server/`, copied by `npm run build`, and served in `dashboard.ts` with dist-first + src fallback resolution
 - RTS PWA client hooks should use defensive browser capability guards (`'serviceWorker' in navigator`, `beforeinstallprompt`) so desktop browsers keep existing UX unchanged
+- Mobile RTS shell mode should be toggled by layout classes (`mobile-tab-build|runs|intel`) with desktop fallback behavior explicitly restored in JS when viewport exits mobile breakpoints
 
 ---
 
@@ -126,4 +127,13 @@ Started: 2026-02-11 05:47 ET
 - Updated `test:e2e:rts` to include the new RTS PWA bootstrap regression.
 - Files changed: `src/server/rts.html`, `tests/rts-pwa-client-bootstrap.test.ts`, `package.json`, `progress.txt`.
 - **Learnings:** Keep PWA enhancement hooks behind capability detection so mobile install flows can be added without changing desktop behavior.
+---
+## 2026-02-13 16:07 - US-003: Implement mobile-first layout shell with game UI patterns
+- Added a mobile shell in `src/server/rts.html` with a top status strip (`#mobileStatusStrip`) and thumb-friendly bottom tab dock (`#mobileActionTabs`) containing Build/Runs/Intel tabs.
+- Implemented responsive tab behavior with `initMobileLayoutShell`, `setMobileTab`, and `applyMobilePanelVisibility` so mobile viewports switch visible panel content while desktop keeps the existing right-dock action panel behavior.
+- Added live mobile HUD status updates (`updateMobileStatusStrip`) to surface run count, current selection type, and running agent count.
+- Added regression coverage in `tests/rts-mobile-layout-shell.test.ts` validating status strip/dock presence, tab panel switching wiring, and desktop fallback behavior in both `src/server/rts.html` and `dist/server/rts.html`.
+- Extended `test:e2e:rts` script to include the new responsive shell regression test.
+- Files changed: `src/server/rts.html`, `tests/rts-mobile-layout-shell.test.ts`, `package.json`, `progress.txt`
+- **Learnings:** Mobile RTS HUD ergonomics can be delivered safely by breakpoint-scoped layout classes while preserving desktop contracts through explicit non-mobile reset logic.
 ---

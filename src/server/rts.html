@@ -86,6 +86,10 @@ button,select,input,textarea {
 button { cursor:pointer; }
 button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .layout { position:relative; width:100vw; height:100vh; }
+.mobile-status-strip,
+.mobile-action-tabs {
+  display:none;
+}
 .world-wrap {
   position:relative;
   inset:0;
@@ -222,7 +226,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .hud-right { display:flex; gap:0; pointer-events:auto; flex-direction:column; width:100%; height:100%; max-height:100%; overflow:hidden; }
 #livePanel,
-#selectionPanel { display:none !important; }
+#selectionPanel { display:none; }
 #actionPanel {
   background:linear-gradient(180deg,#0a1b31f2 0%, #081427f2 100%);
   min-height:100%;
@@ -785,19 +789,86 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   .camera-hint { bottom:170px; }
 }
 @media (max-width:760px) {
-  :root { --dock-w:min(250px, 68vw); --command-h:118px; --screen-pad:8px; --panel-gutter:var(--screen-pad); }
-  .hud {
+  :root { --dock-w:min(250px, 96vw); --command-h:118px; --screen-pad:8px; --panel-gutter:var(--screen-pad); }
+  .layout {
+    padding-top:44px;
+    padding-bottom:168px;
+    box-sizing:border-box;
+  }
+  .mobile-status-strip {
+    position:fixed;
     top:0;
-    bottom:0;
-    left:auto;
+    left:0;
     right:0;
-    width:var(--dock-w);
-    height:auto;
+    height:36px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:4px 10px;
+    background:linear-gradient(180deg,#061121f2 0%,#081426ed 100%);
+    border-bottom:1px solid #5fa5d655;
+    z-index:280;
+    font-family:'Geist Mono', monospace;
+    font-size:10px;
+    color:#a9e8ff;
+    letter-spacing:.3px;
+  }
+  .mobile-action-tabs {
+    position:fixed;
+    left:var(--screen-pad);
+    right:var(--screen-pad);
+    bottom:calc(var(--command-h) + 6px);
+    height:38px;
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0,1fr));
+    gap:6px;
+    z-index:281;
+  }
+  .mobile-action-tabs button {
+    border-radius:10px;
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:.4px;
+    background:linear-gradient(160deg,#0d2946 0%, #0a2038 100%);
+  }
+  .mobile-action-tabs button.active {
+    border-color:#8de7ff;
+    box-shadow:0 0 0 1px #95e6ff66 inset, 0 0 18px #4ccff744;
+  }
+  .hud {
+    top:auto;
+    bottom:calc(var(--command-h) + 44px);
+    left:var(--screen-pad);
+    right:var(--screen-pad);
+    width:auto;
+    height:31vh;
+    min-height:180px;
+    max-height:45vh;
   }
   .hud-right {
     width:100%;
     max-height:100%;
+    border:1px solid var(--panel-edge);
+    background:linear-gradient(180deg,#0a1b31f2 0%, #081427f2 100%);
   }
+  #actionPanel,
+  #selectionPanel,
+  #livePanel {
+    min-height:100%;
+    height:100%;
+    overflow-y:auto;
+    border:0;
+  }
+  .layout.mobile-tab-build #actionPanel { display:block; }
+  .layout.mobile-tab-build #livePanel,
+  .layout.mobile-tab-build #selectionPanel { display:none; }
+  .layout.mobile-tab-runs #livePanel { display:block; }
+  .layout.mobile-tab-runs #actionPanel,
+  .layout.mobile-tab-runs #selectionPanel { display:none; }
+  .layout.mobile-tab-intel #selectionPanel { display:block; }
+  .layout.mobile-tab-intel #actionPanel,
+  .layout.mobile-tab-intel #livePanel { display:none; }
   .command-bar {
     left:calc(var(--panel-gutter) - 1px) !important;
     right:calc(var(--panel-gutter) - 1px);
@@ -829,6 +900,16 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 </head>
 <body>
   <div class="layout">
+    <div id="mobileStatusStrip" class="mobile-status-strip" aria-label="Mobile status strip">
+      <span id="mobileStatusRuns">RUNS 0/0</span>
+      <span id="mobileStatusSelection">SELECT NONE</span>
+      <span id="mobileStatusAgents">AGENTS 0</span>
+    </div>
+    <div id="mobileActionTabs" class="mobile-action-tabs" role="tablist" aria-label="Mobile action dock tabs">
+      <button id="mobileTabBuild" type="button" role="tab" aria-selected="true">Build</button>
+      <button id="mobileTabRuns" type="button" role="tab" aria-selected="false">Runs</button>
+      <button id="mobileTabIntel" type="button" role="tab" aria-selected="false">Intel</button>
+    </div>
     <div class="world-wrap" id="worldWrap">
       <div class="world-bg"></div>
       <div id="world" class="world"></div>
@@ -958,6 +1039,75 @@ const state = {
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
 const SERVICE_WORKER_URL = '/service-worker.v1.js';
 let deferredInstallPrompt = null;
+let mobileActiveTab = 'build';
+
+function isMobileViewport(){
+  return window.matchMedia('(max-width: 760px)').matches;
+}
+
+function applyMobilePanelVisibility(){
+  const layout = document.querySelector('.layout');
+  const actionPanel = document.getElementById('actionPanel');
+  const livePanel = document.getElementById('livePanel');
+  const selectionPanel = document.getElementById('selectionPanel');
+  if (!(layout instanceof HTMLElement) || !(actionPanel instanceof HTMLElement) || !(livePanel instanceof HTMLElement) || !(selectionPanel instanceof HTMLElement)) return;
+
+  if (!isMobileViewport()) {
+    layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel');
+    actionPanel.style.display = 'block';
+    livePanel.style.display = 'none';
+    selectionPanel.style.display = 'none';
+    return;
+  }
+
+  layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel');
+  layout.classList.add(`mobile-tab-${mobileActiveTab}`);
+
+  const tabs = [
+    ['build', document.getElementById('mobileTabBuild')],
+    ['runs', document.getElementById('mobileTabRuns')],
+    ['intel', document.getElementById('mobileTabIntel')],
+  ];
+  tabs.forEach(([name, el]) => {
+    if (!(el instanceof HTMLButtonElement)) return;
+    const active = mobileActiveTab === name;
+    el.classList.toggle('active', active);
+    el.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function setMobileTab(tab){
+  if (!['build', 'runs', 'intel'].includes(tab)) return;
+  mobileActiveTab = tab;
+  applyMobilePanelVisibility();
+}
+
+function updateMobileStatusStrip(){
+  const runsEl = document.getElementById('mobileStatusRuns');
+  const selectionEl = document.getElementById('mobileStatusSelection');
+  const agentsEl = document.getElementById('mobileStatusAgents');
+  if (!(runsEl instanceof HTMLElement) || !(selectionEl instanceof HTMLElement) || !(agentsEl instanceof HTMLElement)) return;
+
+  const runs = Array.isArray(state.runs) ? state.runs : [];
+  const activeCount = runs.filter((run) => run && !['done', 'failed', 'cancelled'].includes(String(run.status || '').toLowerCase())).length;
+  runsEl.textContent = `RUNS ${activeCount}/${runs.length}`;
+
+  const selectedType = state.selected?.type ? String(state.selected.type).toUpperCase() : 'NONE';
+  selectionEl.textContent = `SELECT ${selectedType}`;
+  agentsEl.textContent = `AGENTS ${Number(state.live?.runningAgentCount || 0)}`;
+}
+
+function initMobileLayoutShell(){
+  const buildBtn = document.getElementById('mobileTabBuild');
+  const runsBtn = document.getElementById('mobileTabRuns');
+  const intelBtn = document.getElementById('mobileTabIntel');
+  if (buildBtn instanceof HTMLButtonElement) buildBtn.addEventListener('click', () => setMobileTab('build'));
+  if (runsBtn instanceof HTMLButtonElement) runsBtn.addEventListener('click', () => setMobileTab('runs'));
+  if (intelBtn instanceof HTMLButtonElement) intelBtn.addEventListener('click', () => setMobileTab('intel'));
+  window.addEventListener('resize', applyMobilePanelVisibility);
+  applyMobilePanelVisibility();
+  updateMobileStatusStrip();
+}
 
 function renderInstallPromptState(){
   const installBtn = document.getElementById('installAppBtn');
@@ -3317,6 +3467,8 @@ function renderWorld(){
     ? `${String(state.selected?.data?.runId || '')}:${String(state.selected?.data?.full || '')}`
     : '';
 
+  updateMobileStatusStrip();
+
   const runTargets = runTargetCenterMap();
   const activeMap = activeRunAgentMap();
   if (pathLayer) {
@@ -5568,6 +5720,7 @@ worldEl.addEventListener('click', (e) => {
 
 registerServiceWorker();
 initInstallPrompt();
+initMobileLayoutShell();
 boot();
 updateCameraVisuals();
 setInterval(async () => {
