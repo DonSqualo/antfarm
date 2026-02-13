@@ -63,6 +63,52 @@ function getRunById(id: string): (RunInfo & { steps: StepInfo[] }) | null {
   return { ...run, steps };
 }
 
+function getPromptTraceForAgent(runId: string, agentId: string): {
+  id: string;
+  runId: string;
+  stepDbId: string;
+  workflowId: string;
+  agentId: string;
+  promptHash: string;
+  createdAt: string;
+  files: Array<Record<string, unknown>>;
+  promptMarkdown: string;
+} | null {
+  const db = getDb();
+  const row = db.prepare(
+    "SELECT id, run_id, step_db_id, workflow_id, agent_id, files_json, prompt_markdown, prompt_hash, created_at FROM prompt_traces WHERE run_id = ? AND agent_id = ? ORDER BY datetime(created_at) DESC LIMIT 1"
+  ).get(runId, agentId) as {
+    id: string;
+    run_id: string;
+    step_db_id: string;
+    workflow_id: string;
+    agent_id: string;
+    files_json: string;
+    prompt_markdown: string;
+    prompt_hash: string;
+    created_at: string;
+  } | undefined;
+  if (!row) return null;
+  let files: Array<Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(row.files_json || "[]");
+    if (Array.isArray(parsed)) {
+      files = parsed.filter((v) => v && typeof v === "object") as Array<Record<string, unknown>>;
+    }
+  } catch {}
+  return {
+    id: row.id,
+    runId: row.run_id,
+    stepDbId: row.step_db_id,
+    workflowId: row.workflow_id,
+    agentId: row.agent_id,
+    promptHash: row.prompt_hash,
+    createdAt: row.created_at,
+    files,
+    promptMarkdown: row.prompt_markdown,
+  };
+}
+
 function json(res: http.ServerResponse, data: unknown, status = 200) {
   res.writeHead(status, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
   res.end(JSON.stringify(data));
@@ -1966,6 +2012,17 @@ export function startDashboard(port = 3333): http.Server {
           startedAt: new Date().toISOString(),
         },
       });
+    }
+
+    if (p === "/api/rts/agent/prompt-trace" && method === "GET") {
+      const runId = String(url.searchParams.get("runId") || "").trim();
+      const agentId = String(url.searchParams.get("agentId") || "").trim();
+      if (!runId || !agentId) {
+        return json(res, { ok: false, error: "runId and agentId are required" }, 400);
+      }
+      const trace = getPromptTraceForAgent(runId, agentId);
+      if (!trace) return json(res, { ok: false, error: "not_found" }, 404);
+      return json(res, { ok: true, trace });
     }
 
     if (p === "/api/rts/agent/redo-developer" && method === "POST") {

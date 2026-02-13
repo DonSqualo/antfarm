@@ -7,6 +7,9 @@ import crypto from "node:crypto";
 import { teardownWorkflowCronsIfIdle } from "./agent-cron.js";
 import { emitEvent } from "./events.js";
 import { logger } from "../lib/logger.js";
+import { resolveWorkflowDir } from "./paths.js";
+import { loadWorkflowSpecSync } from "./workflow-spec.js";
+import { composePromptTrace, type PromptTrace } from "./prompt-composer.js";
 
 /**
  * Fire-and-forget cron teardown when a run ends.
@@ -341,6 +344,64 @@ interface ClaimResult {
   stepId?: string;
   runId?: string;
   resolvedInput?: string;
+  promptTraceId?: string;
+}
+
+function localAgentIdFromScoped(agentId: string): string {
+  const base = toBaseAgentId(agentId);
+  const slash = base.indexOf("/");
+  if (slash < 0) return base;
+  return base.slice(slash + 1);
+}
+
+function formatPromptPreamble(promptTrace: PromptTrace): string {
+  const manifest = promptTrace.files.map((f, idx) => (
+    `${idx + 1}. [${f.layer}] ${f.absPath} sha256=${f.sha256}`
+  )).join("\n");
+  return [
+    "### COMPOSED_PROMPT_MANIFEST",
+    manifest || "(none)",
+    "",
+    "### COMPOSED_PROMPT_HASH",
+    promptTrace.promptHash,
+    "",
+    "### COMPOSED_PROMPT",
+    promptTrace.promptMarkdown,
+  ].join("\n");
+}
+
+function combinePromptAndTask(promptPreamble: string, taskInput: string): string {
+  return [
+    promptPreamble.trimEnd(),
+    "",
+    "### STEP_TASK",
+    taskInput,
+  ].join("\n");
+}
+
+function persistPromptTrace(params: {
+  runId: string;
+  workflowId: string;
+  stepDbId: string;
+  agentId: string;
+  promptTrace: PromptTrace;
+}): string {
+  const db = getDb();
+  const traceId = crypto.randomUUID();
+  db.prepare(
+    "INSERT INTO prompt_traces (id, run_id, step_db_id, workflow_id, agent_id, files_json, prompt_markdown, prompt_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(
+    traceId,
+    params.runId,
+    params.stepDbId,
+    params.workflowId,
+    params.agentId,
+    JSON.stringify(params.promptTrace.files),
+    params.promptTrace.promptMarkdown,
+    params.promptTrace.promptHash,
+    new Date().toISOString(),
+  );
+  return traceId;
 }
 
 /**
@@ -351,19 +412,19 @@ export function claimStep(agentId: string): ClaimResult {
   cleanupAbandonedSteps();
   const db = getDb();
 
-  let step: { id: string; run_id: string; input_template: string; type: string; loop_config: string | null } | undefined;
+  let step: { id: string; run_id: string; agent_id: string; input_template: string; type: string; loop_config: string | null } | undefined;
   db.exec("BEGIN IMMEDIATE");
   try {
     const scopedPattern = `${agentId}@run:%`;
     step = db.prepare(
-      `SELECT s.id, s.run_id, s.input_template, s.type, s.loop_config
+      `SELECT s.id, s.run_id, s.agent_id, s.input_template, s.type, s.loop_config
        FROM steps s
        JOIN runs r ON r.id = s.run_id
        WHERE (s.agent_id = ? OR s.agent_id LIKE ?) AND s.status = 'pending'
          AND r.status NOT IN ('failed', 'cancelled')
        ORDER BY datetime(s.updated_at) ASC, s.step_index ASC
        LIMIT 1`
-    ).get(agentId, scopedPattern) as { id: string; run_id: string; input_template: string; type: string; loop_config: string | null } | undefined;
+    ).get(agentId, scopedPattern) as { id: string; run_id: string; agent_id: string; input_template: string; type: string; loop_config: string | null } | undefined;
 
     if (!step) {
       db.exec("COMMIT");
@@ -384,9 +445,40 @@ export function claimStep(agentId: string): ClaimResult {
   }
 
   // Get run context
-  const run = db.prepare("SELECT context FROM runs WHERE id = ?").get(step.run_id) as { context: string } | undefined;
+  const run = db.prepare("SELECT workflow_id, context FROM runs WHERE id = ?").get(step.run_id) as { workflow_id: string; context: string } | undefined;
   const context: Record<string, string> = run ? JSON.parse(run.context) : {};
   applyWorktreeRepoOverride(context);
+
+  // Compose deterministic agent prompt from markdown tree + workspace files.
+  let composedPromptPreamble = "";
+  let promptTraceId = "";
+  if (run?.workflow_id) {
+    const workflowDir = resolveWorkflowDir(run.workflow_id);
+    const workflowSpec = loadWorkflowSpecSync(workflowDir);
+    const localAgentId = localAgentIdFromScoped(step.agent_id);
+    const workflowAgent = workflowSpec.agents.find((a) => a.id === localAgentId);
+    if (!workflowAgent) {
+      throw new Error(`Workflow agent "${localAgentId}" not found in ${run.workflow_id}/workflow.yml`);
+    }
+    const workspaceDir = getAgentWorkspacePath(step.agent_id);
+    if (!workspaceDir) {
+      throw new Error(`Unable to resolve workspace for agent "${step.agent_id}"`);
+    }
+    const promptTrace = composePromptTrace({
+      workflowDir,
+      workflow: workflowSpec,
+      agent: workflowAgent,
+      workspaceDir,
+    });
+    composedPromptPreamble = formatPromptPreamble(promptTrace);
+    promptTraceId = persistPromptTrace({
+      runId: step.run_id,
+      workflowId: run.workflow_id,
+      stepDbId: step.id,
+      agentId: step.agent_id,
+      promptTrace,
+    });
+  }
 
   // T6: Loop step claim logic
   if (step.type === "loop") {
@@ -461,7 +553,10 @@ export function claimStep(agentId: string): ClaimResult {
       db.prepare("UPDATE runs SET context = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(context), step.run_id);
 
       const resolvedInput = resolveTemplate(step.input_template, context);
-      return { found: true, stepId: step.id, runId: step.run_id, resolvedInput };
+      const fullInput = composedPromptPreamble
+        ? combinePromptAndTask(composedPromptPreamble, resolvedInput)
+        : resolvedInput;
+      return { found: true, stepId: step.id, runId: step.run_id, resolvedInput: fullInput, promptTraceId };
     }
   }
 
@@ -478,12 +573,16 @@ export function claimStep(agentId: string): ClaimResult {
   }
 
   const resolvedInput = resolveTemplate(step.input_template, context);
+  const finalInput = composedPromptPreamble
+    ? combinePromptAndTask(composedPromptPreamble, resolvedInput)
+    : resolvedInput;
 
   return {
     found: true,
     stepId: step.id,
     runId: step.run_id,
-    resolvedInput,
+    resolvedInput: finalInput,
+    promptTraceId,
   };
 }
 

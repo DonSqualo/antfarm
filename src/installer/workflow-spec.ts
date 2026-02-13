@@ -1,37 +1,129 @@
-import fs from "node:fs/promises";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
-import type { LoopConfig, WorkflowAgent, WorkflowSpec, WorkflowStep } from "./types.js";
+import type {
+  LoopConfig,
+  PromptProfile,
+  PromptTree,
+  WorkflowAgent,
+  WorkflowSpec,
+  WorkflowStep,
+} from "./types.js";
 
 export async function loadWorkflowSpec(workflowDir: string): Promise<WorkflowSpec> {
   const filePath = path.join(workflowDir, "workflow.yml");
-  const raw = await fs.readFile(filePath, "utf-8");
-  const parsed = YAML.parse(raw) as WorkflowSpec;
-  if (!parsed?.id) {
-    throw new Error(`workflow.yml missing id in ${workflowDir}`);
-  }
-  if (!Array.isArray(parsed.agents) || parsed.agents.length === 0) {
-    throw new Error(`workflow.yml missing agents list in ${workflowDir}`);
-  }
-  if (!Array.isArray(parsed.steps) || parsed.steps.length === 0) {
-    throw new Error(`workflow.yml missing steps list in ${workflowDir}`);
-  }
-  validateAgents(parsed.agents, workflowDir);
-  // Parse type/loop from raw YAML before validation
-  for (const step of parsed.steps) {
-    const rawStep = step as any;
-    if (rawStep.type) {
-      step.type = rawStep.type;
-    }
-    if (rawStep.loop) {
-      step.loop = parseLoopConfig(rawStep.loop);
-    }
-  }
-  validateSteps(parsed.steps, workflowDir);
-  return parsed;
+  const raw = await fsp.readFile(filePath, "utf-8");
+  return parseWorkflowSpec(raw, workflowDir);
 }
 
-function validateAgents(agents: WorkflowAgent[], workflowDir: string) {
+export function loadWorkflowSpecSync(workflowDir: string): WorkflowSpec {
+  const filePath = path.join(workflowDir, "workflow.yml");
+  const raw = fs.readFileSync(filePath, "utf-8");
+  return parseWorkflowSpec(raw, workflowDir);
+}
+
+function parseWorkflowSpec(raw: string, workflowDir: string): WorkflowSpec {
+  const parsed = YAML.parse(raw) as Record<string, unknown>;
+  const normalized = normalizeWorkflowSpec(parsed);
+  if (!normalized?.id) {
+    throw new Error(`workflow.yml missing id in ${workflowDir}`);
+  }
+  if (!Array.isArray(normalized.agents) || normalized.agents.length === 0) {
+    throw new Error(`workflow.yml missing agents list in ${workflowDir}`);
+  }
+  if (!Array.isArray(normalized.steps) || normalized.steps.length === 0) {
+    throw new Error(`workflow.yml missing steps list in ${workflowDir}`);
+  }
+  validatePromptTree(normalized.promptTree, workflowDir);
+  validateAgents(normalized.agents, workflowDir, normalized.promptTree);
+  validateSteps(normalized.steps, workflowDir);
+  return normalized;
+}
+
+function normalizeWorkflowSpec(parsed: Record<string, unknown>): WorkflowSpec {
+  const promptTreeRaw = (parsed.prompt_tree ?? parsed.promptTree ?? {}) as Record<string, unknown>;
+  const promptTree: PromptTree = {
+    base: String(promptTreeRaw.base || "").trim(),
+    classes: asStringRecord(promptTreeRaw.classes),
+    subclasses: asStringRecord(promptTreeRaw.subclasses),
+    skills: asOptionalStringRecord(promptTreeRaw.skills),
+    memory: asOptionalStringRecord(promptTreeRaw.memory),
+  };
+  const agents = Array.isArray(parsed.agents) ? parsed.agents : [];
+  const normalizedAgents = agents.map((agentRaw) => {
+    const raw = (agentRaw || {}) as Record<string, unknown>;
+    const profileRaw = (raw.prompt_profile ?? raw.promptProfile ?? {}) as Record<string, unknown>;
+    const promptProfile: PromptProfile = {
+      class: String(profileRaw.class || "").trim(),
+      subclass: String(profileRaw.subclass || "").trim(),
+      workspaceFiles: asOptionalStringArray(profileRaw.workspace_files ?? profileRaw.workspaceFiles),
+      skills: asOptionalStringArray(profileRaw.skills),
+      memory: asOptionalStringArray(profileRaw.memory),
+    };
+    const out = raw as WorkflowAgent;
+    out.promptProfile = promptProfile;
+    return out;
+  });
+  const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
+  const normalizedSteps = steps.map((stepRaw) => {
+    const step = (stepRaw || {}) as WorkflowStep;
+    const rawStep = stepRaw as any;
+    if (rawStep?.type) {
+      step.type = rawStep.type;
+    }
+    if (rawStep?.loop) {
+      step.loop = parseLoopConfig(rawStep.loop);
+    }
+    return step;
+  });
+
+  const out = parsed as WorkflowSpec;
+  out.promptTree = promptTree;
+  out.agents = normalizedAgents;
+  out.steps = normalizedSteps;
+  return out;
+}
+
+function asStringRecord(input: unknown): Record<string, string> {
+  if (!input || typeof input !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    const key = String(k || "").trim();
+    const value = String(v || "").trim();
+    if (!key || !value) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function asOptionalStringRecord(input: unknown): Record<string, string> | undefined {
+  const out = asStringRecord(input);
+  return Object.keys(out).length ? out : undefined;
+}
+
+function asOptionalStringArray(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const out = input.map((v) => String(v || "").trim()).filter(Boolean);
+  return out.length ? out : undefined;
+}
+
+function validatePromptTree(promptTree: PromptTree | undefined, workflowDir: string) {
+  if (!promptTree) {
+    throw new Error(`workflow.yml missing prompt_tree in ${workflowDir}`);
+  }
+  if (!promptTree.base?.trim()) {
+    throw new Error(`workflow.yml missing prompt_tree.base in ${workflowDir}`);
+  }
+  if (!promptTree.classes || Object.keys(promptTree.classes).length === 0) {
+    throw new Error(`workflow.yml missing prompt_tree.classes in ${workflowDir}`);
+  }
+  if (!promptTree.subclasses || Object.keys(promptTree.subclasses).length === 0) {
+    throw new Error(`workflow.yml missing prompt_tree.subclasses in ${workflowDir}`);
+  }
+}
+
+function validateAgents(agents: WorkflowAgent[], workflowDir: string, promptTree: PromptTree) {
   const ids = new Set<string>();
   for (const agent of agents) {
     if (!agent.id?.trim()) {
@@ -59,6 +151,26 @@ function validateAgents(agents: WorkflowAgent[], workflowDir: string) {
       }
       if (agent.workers > 32) {
         throw new Error(`workflow.yml agent "${agent.id}" workers is too large (max 32)`);
+      }
+    }
+    if (!agent.promptProfile?.class?.trim()) {
+      throw new Error(`workflow.yml missing prompt_profile.class for agent "${agent.id}"`);
+    }
+    if (!agent.promptProfile?.subclass?.trim()) {
+      throw new Error(`workflow.yml missing prompt_profile.subclass for agent "${agent.id}"`);
+    }
+    if (!(agent.promptProfile.class in promptTree.classes)) {
+      throw new Error(`workflow.yml agent "${agent.id}" prompt_profile.class "${agent.promptProfile.class}" not found in prompt_tree.classes`);
+    }
+    if (!(agent.promptProfile.subclass in promptTree.subclasses)) {
+      throw new Error(`workflow.yml agent "${agent.id}" prompt_profile.subclass "${agent.promptProfile.subclass}" not found in prompt_tree.subclasses`);
+    }
+    const workspaceFiles = agent.promptProfile.workspaceFiles ?? ["IDENTITY.md", "SOUL.md", "AGENTS.md"];
+    for (const file of workspaceFiles) {
+      if (!(file in agent.workspace.files)) {
+        throw new Error(
+          `workflow.yml agent "${agent.id}" prompt_profile.workspace_files includes "${file}" but workspace.files does not define it`,
+        );
       }
     }
   }

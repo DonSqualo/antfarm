@@ -4,6 +4,22 @@ export type WorkflowAgentFiles = {
   skills?: string[];
 };
 
+export type PromptTree = {
+  base: string;
+  classes: Record<string, string>;
+  subclasses: Record<string, string>;
+  skills?: Record<string, string>;
+  memory?: Record<string, string>;
+};
+
+export type PromptProfile = {
+  class: string;
+  subclass: string;
+  workspaceFiles?: string[];
+  skills?: string[];
+  memory?: string[];
+};
+
 /**
  * Agent roles control tool access during install.
  *
@@ -25,6 +41,7 @@ export type WorkflowAgent = {
   timeoutSeconds?: number;
   workers?: number;
   workspace: WorkflowAgentFiles;
+  promptProfile: PromptProfile;
 };
 
 export type WorkflowStepFailure = {
@@ -71,6 +88,7 @@ export type WorkflowSpec = {
   id: string;
   name?: string;
   version?: number;
+  promptTree: PromptTree;
   agents: WorkflowAgent[];
   steps: WorkflowStep[];
   context?: Record<string, string>;

@@ -8,6 +8,24 @@ description: |
   Setup creates the security branch. Fixer implements each fix with regression tests.
   Verifier confirms each fix. Tester runs final integration validation. PR agent creates the pull request.
 
+prompt_tree:
+  base: prompts/base/AGENT.md
+  classes:
+    analysis: prompts/classes/analysis.md
+    coding: prompts/classes/coding.md
+    verification: prompts/classes/verification.md
+    testing: prompts/classes/testing.md
+    pr: prompts/classes/pr.md
+    scanning: prompts/classes/scanning.md
+  subclasses:
+    scanner: prompts/subclasses/scanner.md
+    prioritizer: prompts/subclasses/prioritizer.md
+    setup: prompts/subclasses/setup.md
+    fixer: prompts/subclasses/fixer.md
+    verifier: prompts/subclasses/verifier.md
+    tester: prompts/subclasses/tester.md
+    pr: prompts/subclasses/pr.md
+
 agents:
   - id: scanner
     name: Scanner
@@ -19,6 +37,10 @@ agents:
         AGENTS.md: agents/scanner/AGENTS.md
         SOUL.md: agents/scanner/SOUL.md
         IDENTITY.md: agents/scanner/IDENTITY.md
+    prompt_profile:
+      class: scanning
+      subclass: scanner
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: prioritizer
     name: Prioritizer
@@ -30,6 +52,10 @@ agents:
         AGENTS.md: agents/prioritizer/AGENTS.md
         SOUL.md: agents/prioritizer/SOUL.md
         IDENTITY.md: agents/prioritizer/IDENTITY.md
+    prompt_profile:
+      class: analysis
+      subclass: prioritizer
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: setup
     name: Setup
@@ -41,6 +67,10 @@ agents:
         AGENTS.md: ../../agents/shared/setup/AGENTS.md
         SOUL.md: ../../agents/shared/setup/SOUL.md
         IDENTITY.md: ../../agents/shared/setup/IDENTITY.md
+    prompt_profile:
+      class: coding
+      subclass: setup
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: fixer
     name: Fixer
@@ -52,6 +82,10 @@ agents:
         AGENTS.md: agents/fixer/AGENTS.md
         SOUL.md: agents/fixer/SOUL.md
         IDENTITY.md: agents/fixer/IDENTITY.md
+    prompt_profile:
+      class: coding
+      subclass: fixer
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: verifier
     name: Verifier
@@ -63,6 +97,10 @@ agents:
         AGENTS.md: ../../agents/shared/verifier/AGENTS.md
         SOUL.md: ../../agents/shared/verifier/SOUL.md
         IDENTITY.md: ../../agents/shared/verifier/IDENTITY.md
+    prompt_profile:
+      class: verification
+      subclass: verifier
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: tester
     name: Tester
@@ -74,6 +112,10 @@ agents:
         AGENTS.md: agents/tester/AGENTS.md
         SOUL.md: agents/tester/SOUL.md
         IDENTITY.md: agents/tester/IDENTITY.md
+    prompt_profile:
+      class: testing
+      subclass: tester
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
   - id: pr
     name: PR Creator
@@ -85,6 +127,10 @@ agents:
         AGENTS.md: ../../agents/shared/pr/AGENTS.md
         SOUL.md: ../../agents/shared/pr/SOUL.md
         IDENTITY.md: ../../agents/shared/pr/IDENTITY.md
+    prompt_profile:
+      class: pr
+      subclass: pr
+      workspace_files: [IDENTITY.md, SOUL.md, AGENTS.md]
 
 steps:
   - id: scan
