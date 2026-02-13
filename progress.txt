@@ -4,6 +4,7 @@ Task: Add easter egg ant command to antfarm CLI
 Started: 2026-02-11 05:47 ET
 
 ## Codebase Patterns
+- Mobile touch interactions should be routed through shared world gesture guards (`shouldIgnoreTouchWorldGesture`) to avoid conflicts with palette cards and panel controls
 - CLI entry: `src/cli/cli.ts`, commands matched via `group` variable from `process.argv[2]`
 - Dynamic imports used for command modules (e.g., `await import("./ant.js")`)
 - Build: `npm run build` runs `tsc -p tsconfig.json` + copies HTML + chmod
@@ -136,4 +137,15 @@ Started: 2026-02-11 05:47 ET
 - Extended `test:e2e:rts` script to include the new responsive shell regression test.
 - Files changed: `src/server/rts.html`, `tests/rts-mobile-layout-shell.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** Mobile RTS HUD ergonomics can be delivered safely by breakpoint-scoped layout classes while preserving desktop contracts through explicit non-mobile reset logic.
+---
+
+
+## 2026-02-13 16:45 - US-004: Add touch-native camera and placement interactions
+- Added touch-native world interaction handling in `src/server/rts.html` with single-finger mobile panning, guarded gesture starts, and touch placement commit flow for all building kinds.
+- Added optional pinch zoom state plumbing with bounded min/max and explicit default disabled lock (`cameraZoom.enabled = false`) so mobile can safely defer zoom without unstable behavior.
+- Added hover suppression + conflict guards (`shouldIgnoreTouchWorldGesture`) so touch interactions don't depend on hover-only UI and don't interfere with palette card drag/drop controls.
+- Added regression test `tests/rts-touch-native-interactions.test.ts` to validate touch pan wiring, touch placement/select compatibility, and bounded pinch zoom fallback in both `src/server/rts.html` and `dist/server/rts.html`.
+- Updated `test:e2e:rts` script to include the new touch interaction regression test.
+- Files changed: `src/server/rts.html`, `tests/rts-touch-native-interactions.test.ts`, `package.json`, `progress.txt`
+- **Learnings:** Keep touch gesture routing centralized at `worldWrapEl` + window-level touch listeners and gate starts with control-target guards to preserve existing click/select/drag contracts.
 ---
