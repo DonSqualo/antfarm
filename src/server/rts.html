@@ -1602,12 +1602,18 @@ function markRunRelaunched(runId){
   });
 }
 
+async function syncLocalRepos(){
+  try { state.localRepos = await json('/api/local-repos'); }
+  catch { state.localRepos = []; }
+  return state.localRepos;
+}
+
 async function boot(){
   // Warm sprite decode/cache so first placement/select doesn't pop in images.
   void preloadRtsSprites();
   await hydratePersistedState();
   state.workflows = await json('/api/workflows');
-  try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
+  await syncLocalRepos();
   try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
   await refreshRuntimeState(true);
   rebuildScene();
@@ -1621,7 +1627,8 @@ async function refreshRuntimeState(throwOnError = false){
     const [runs, liveRes, diagRes] = await Promise.all([
       json('/api/runs'),
       json('/api/rts/live'),
-      json('/api/rts/diag?workflow=feature-dev')
+      json('/api/rts/diag?workflow=feature-dev'),
+      syncLocalRepos()
     ]);
     const nextSig = runsSignature(runs);
     const runsChanged = nextSig !== state.runSig;
@@ -3502,7 +3509,10 @@ function renderSelection(){
 function renderBaseCloneForm(draft){
   setFeatureMode(false);
   const panel = document.getElementById('actionPanel');
-  const repoOptions = (state.localRepos || []).map(r => {
+  const localRepos = Array.isArray(state.localRepos) ? state.localRepos : [];
+  const hasExistingSelection = localRepos.some((r) => r.path === draft.existingRepoPath);
+  if (draft.existingRepoPath && !hasExistingSelection) draft.existingRepoPath = '';
+  const repoOptions = localRepos.map(r => {
     const suggested = Number(r.suggestedPort) || getPortForPath(r.path) || '';
     const suffix = suggested ? ` • :${suggested}` : '';
     return `<option value="${esc(r.path)}">${esc(r.name)} • ${esc(r.path)}${suffix}</option>`;
@@ -3531,17 +3541,23 @@ function renderBaseCloneForm(draft){
   wirePanelDeleteButton();
 
   const existingRepoSelect = document.getElementById('existingRepoSelect');
+  const applyExistingRepoSelection = () => {
+    if (!draft.existingRepoPath) return;
+    draft.targetPath = draft.existingRepoPath;
+    const repoMeta = localRepos.find((r) => r.path === draft.existingRepoPath);
+    draft.port = Number(repoMeta?.suggestedPort) || getPortForPath(draft.existingRepoPath) || draft.port || 3333;
+    const pathInput = document.getElementById('cloneTargetPath');
+    if (pathInput) pathInput.value = draft.targetPath;
+    const portInput = document.getElementById('basePortInput');
+    if (portInput) portInput.value = String(draft.port);
+  };
+  if (draft.existingRepoPath) {
+    existingRepoSelect.value = draft.existingRepoPath;
+    applyExistingRepoSelection();
+  }
   existingRepoSelect.addEventListener('change', (e) => {
     draft.existingRepoPath = e.target.value || '';
-    if (draft.existingRepoPath) {
-      draft.targetPath = draft.existingRepoPath;
-      const repoMeta = (state.localRepos || []).find((r) => r.path === draft.existingRepoPath);
-      draft.port = Number(repoMeta?.suggestedPort) || getPortForPath(draft.existingRepoPath) || draft.port || 3333;
-      const pathInput = document.getElementById('cloneTargetPath');
-      if (pathInput) pathInput.value = draft.targetPath;
-      const portInput = document.getElementById('basePortInput');
-      if (portInput) portInput.value = String(draft.port);
-    }
+    applyExistingRepoSelection();
     queuePersist();
   });
   document.getElementById('cloneRepoUrl').addEventListener('input', e => { draft.repoUrl = e.target.value; queuePersist(); });

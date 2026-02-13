@@ -684,6 +684,108 @@ function resolveWorktreePath(baseRepoPath: string, worktreePath: string): string
   return path.isAbsolute(trimmed) ? path.normalize(trimmed) : path.resolve(baseRepoPath, trimmed);
 }
 
+function inferPortFromPath(pathValue: string): number | null {
+  const key = normalizePathKey(pathValue);
+  if (!key) return null;
+  if (/\/antfarm$/i.test(key)) return 3333;
+  const featureMatch = key.match(/antfarm-feature-(\d+)/i);
+  if (featureMatch) {
+    const n = Number(featureMatch[1] || 0);
+    if (Number.isFinite(n)) return 3400 + (n % 400);
+  }
+  return null;
+}
+
+function parseConfiguredRepoRoots(rawRoots: string): string[] {
+  return String(rawRoots || "")
+    .split(/[\n,;]/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function configuredLocalRepoRoots(): string[] {
+  const configured = [
+    ...parseConfiguredRepoRoots(process.env.ANTFARM_LOCAL_REPO_ROOTS || ""),
+    ...parseConfiguredRepoRoots(process.env.OPENCLAW_LOCAL_REPO_ROOTS || ""),
+  ];
+  const defaults = [
+    process.cwd(),
+    path.resolve(process.cwd(), ".."),
+    path.join(os.homedir(), ".openclaw", "workspace"),
+  ];
+  const deduped = new Set<string>();
+  for (const candidate of [...configured, ...defaults]) {
+    try {
+      const absolute = path.resolve(candidate);
+      deduped.add(path.normalize(fs.realpathSync(absolute)));
+    } catch {
+      // skip missing paths
+    }
+  }
+  return [...deduped];
+}
+
+function isGitRepoDirectory(repoPath: string): boolean {
+  try {
+    const gitPath = path.join(repoPath, ".git");
+    if (!fs.existsSync(gitPath)) return false;
+    const stat = fs.statSync(gitPath);
+    return stat.isDirectory() || stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+export type LocalRepoSummary = { path: string; name: string; suggestedPort?: number };
+
+export function discoverLocalGitRepos(roots = configuredLocalRepoRoots()): LocalRepoSummary[] {
+  const seenPaths = new Set<string>();
+  const repos: LocalRepoSummary[] = [];
+  const skipDirs = new Set([".git", "node_modules", "dist", "build", ".next", "coverage", ".cache"]);
+  const maxDepth = 6;
+
+  for (const root of roots) {
+    const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+    while (queue.length) {
+      const current = queue.shift() as { dir: string; depth: number };
+      let realDir = "";
+      try {
+        realDir = path.normalize(fs.realpathSync(current.dir));
+      } catch {
+        continue;
+      }
+      if (seenPaths.has(realDir)) continue;
+      seenPaths.add(realDir);
+
+      if (isGitRepoDirectory(realDir)) {
+        const suggestedPort = inferPortFromPath(realDir);
+        repos.push({
+          path: realDir,
+          name: path.basename(realDir) || realDir,
+          ...(suggestedPort ? { suggestedPort } : {}),
+        });
+      }
+
+      if (current.depth >= maxDepth) continue;
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(realDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (skipDirs.has(entry.name)) continue;
+        queue.push({ dir: path.join(realDir, entry.name), depth: current.depth + 1 });
+      }
+    }
+  }
+
+  return repos
+    .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+    .filter((repo, index, arr) => index === 0 || repo.path !== arr[index - 1].path);
+}
+
 function branchExists(baseRepoPath: string, branchName: string): boolean {
   const trimmed = String(branchName || "").trim();
   if (!trimmed) return false;
@@ -1424,7 +1526,31 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/local-repos") {
-      return json(res, []);
+      return json(res, discoverLocalGitRepos());
+    }
+
+    if (p === "/api/rts/base/clone" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { useExistingRepoPath?: string; repoUrl?: string; targetPath?: string };
+        const existingRepoPath = normalizeRepoPath(String(body?.useExistingRepoPath || ""));
+        if (existingRepoPath) {
+          if (!fs.existsSync(existingRepoPath)) {
+            return json(res, { ok: false, error: `Existing repo path not found: ${existingRepoPath}` }, 400);
+          }
+          if (!isGitRepoDirectory(existingRepoPath)) {
+            return json(res, { ok: false, error: `Not a git repo: ${existingRepoPath}` }, 400);
+          }
+          return json(res, { ok: true, mode: "existing", repoPath: existingRepoPath });
+        }
+
+        return json(res, {
+          ok: false,
+          error: "Clone-mode base creation is not supported in this flow. Select an existing local git repo.",
+        }, 400);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message }, 400);
+      }
     }
 
     if (p === "/api/rts/state" && method === "GET") {
