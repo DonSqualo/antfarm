@@ -12,6 +12,9 @@ Started: 2026-02-11 05:47 ET
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
+- RTS multi-panel API responses should use `createPanelUpdateEnvelope` + `PANEL_TARGETS` (`src/server/panel-update-contract.ts`) so panel targets stay typed and centrally validated.
+- RTS client panel swaps should flow through target registries (`panelPatchRenderers`, `buildingSelectionRenderers`) so new panel targets/kinds can be added without changing click handlers.
+- Building selection flows should emit one `createBuildingSelectionPanelUpdate(...)` envelope containing both bottom-bar and right-sidebar patches, then dispatch via `applyPanelUpdateRouter(...)`.
 
 ---
 
@@ -107,4 +110,28 @@ Started: 2026-02-11 05:47 ET
 - Expanded RTS e2e script to run both palette UI regression and existing-repo base flow regression
 - Files changed: `src/server/dashboard.ts`, `tests/rts-base-existing-repo.e2e.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** RTS base creation server contract now explicitly supports existing-local-repo mode through `/api/rts/base/clone`; regression coverage should assert this contract directly.
+---
+## 2026-02-13 16:58 - US-001: Define an internal panel-update contract with explicit target regions
+- Added shared panel update contract in `src/server/panel-update-contract.ts` with typed envelope/patch models, canonical panel target IDs, and deterministic target validation/normalization helpers.
+- Wired RTS API update paths in `src/server/dashboard.ts` to emit `uiUpdate` envelopes for feature run start and delete flows, targeting bottom command bar, right action sidebar, and left media panel placeholder.
+- Added regression coverage in `tests/panel-update-contract.test.ts` for target constants, deterministic rejection of unknown targets, normalization behavior, and dashboard usage of the contract.
+- Files changed: `src/server/panel-update-contract.ts`, `src/server/dashboard.ts`, `tests/panel-update-contract.test.ts`, `progress.txt`
+- **Learnings:** For cross-panel RTS updates, return a typed `uiUpdate` envelope from API responses instead of coupling callers to DOM IDs directly.
+---
+## 2026-02-13 19:03 - US-002: Add a central panel patch router in the RTS client
+- Added a client-side panel patch router in `src/server/rts.html` with target registration (`registerPanelPatchRenderer`) and dispatch (`applyPanelUpdateRouter` / `applyPanelPatch`) keyed by panel target ID.
+- Routed default Action Console rendering through the new dispatcher (`routeDefaultActionConsole`) so default sidebar behavior is preserved through the central routing path.
+- Refactored building selection panel rendering to a mapped registry (`buildingSelectionRenderers`) so adding new building/panel kinds no longer requires hardcoded click-handler branching.
+- Wired feature run start/delete API responses to apply server-provided `uiUpdate` panel patches via the dispatcher.
+- Added regression coverage in `tests/rts-panel-patch-router.test.ts` for router presence, default-route behavior, and renderer mapping in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-panel-patch-router.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** The RTS client now has a target-ID panel dispatch seam that can be extended for future left-panel/video content without changing selection click wiring.
+---
+## 2026-02-13 20:52 - US-003: Emit building-selection panel patches instead of direct panel mutations
+- Added `createBuildingSelectionPanelUpdate(building)` to emit one multi-target envelope for building clicks, containing both bottom command-bar and right action-sidebar patches.
+- Routed all building selection renderers (`feature`, `research`, `university`, `warehouse`, `library`, `power`) through `applyPanelUpdateRouter(...)` instead of directly mutating sidebar DOM render functions from selection handlers.
+- Extended right-sidebar panel patch renderer to handle research/university/storage modes by `buildingId`, keeping the selection-state mechanics and visual markers unchanged.
+- Added regression test `tests/rts-building-selection-panel-patches.test.ts` validating envelope structure and router-based building selection orchestration in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-building-selection-panel-patches.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** Building click flows should emit a single multi-panel update envelope and let target patch renderers own DOM updates per panel.
 ---

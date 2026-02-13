@@ -1191,6 +1191,57 @@ function wirePanelDeleteButton(){
   if (!btn) return;
   btn.addEventListener('click', () => deleteSelectedStructure());
 }
+
+const PANEL_TARGET_IDS = {
+  bottomCommandBar: 'panel.bottom.command-bar',
+  rightActionSidebar: 'panel.right.action-sidebar',
+  leftMediaPanel: 'panel.left.media-panel'
+};
+
+const panelPatchRenderers = new Map();
+
+function registerPanelPatchRenderer(targetId, renderPatch){
+  if (!targetId || typeof renderPatch !== 'function') return;
+  panelPatchRenderers.set(String(targetId), renderPatch);
+}
+
+function applyPanelPatch(patch, context = {}){
+  if (!patch || typeof patch !== 'object') return false;
+  const targetId = String(patch.target || '').trim().toLowerCase();
+  const renderPatch = panelPatchRenderers.get(targetId);
+  if (!renderPatch) return false;
+  renderPatch({ mode: patch.mode || 'merge', payload: patch.payload || {} }, context);
+  return true;
+}
+
+function applyPanelUpdateRouter(update, context = {}){
+  if (!update || !Array.isArray(update.patches)) return false;
+  let applied = false;
+  update.patches.forEach((patch) => {
+    if (applyPanelPatch(patch, context)) applied = true;
+  });
+  return applied;
+}
+
+function createBuildingSelectionPanelUpdate(building){
+  const selectedKind = String(building?.kind || '').trim().toLowerCase();
+  if (!selectedKind) return null;
+  return {
+    patches: [
+      {
+        target: PANEL_TARGET_IDS.bottomCommandBar,
+        mode: 'replace',
+        payload: { active: selectedKind, selectedKind }
+      },
+      {
+        target: PANEL_TARGET_IDS.rightActionSidebar,
+        mode: 'replace',
+        payload: { mode: selectedKind, buildingId: building?.id || null }
+      }
+    ]
+  };
+}
+
 function renderDefaultActionPanel(){
   const panel = document.getElementById('actionPanel');
   if (!panel) return;
@@ -1206,6 +1257,59 @@ function renderDefaultActionPanel(){
   `;
   wirePanelDeleteButton();
 }
+registerPanelPatchRenderer(PANEL_TARGET_IDS.bottomCommandBar, ({ payload }) => {
+  const commandBar = document.querySelector('.command-bar');
+  if (!commandBar) return;
+  const active = String(payload?.active || '').trim().toLowerCase();
+  if (active) commandBar.dataset.activeMode = active;
+  else delete commandBar.dataset.activeMode;
+});
+
+registerPanelPatchRenderer(PANEL_TARGET_IDS.leftMediaPanel, ({ payload }) => {
+  const livePanel = document.getElementById('livePanel');
+  if (!livePanel) return;
+  const mode = String(payload?.mode || '').trim().toLowerCase();
+  if (mode) livePanel.dataset.mediaMode = mode;
+  else delete livePanel.dataset.mediaMode;
+});
+
+registerPanelPatchRenderer(PANEL_TARGET_IDS.rightActionSidebar, ({ payload }, context = {}) => {
+  const mode = String(payload?.mode || '').trim().toLowerCase();
+  if (!mode || mode === 'default') {
+    renderDefaultActionPanel();
+    return;
+  }
+  if (mode === 'feature') {
+    const featureId = String(payload?.featureId || payload?.buildingId || context?.featureId || context?.buildingId || '').trim();
+    renderRunSetupPanel(featureId || null);
+    return;
+  }
+  if (mode === 'research') {
+    const buildingId = String(payload?.buildingId || context?.buildingId || '').trim();
+    renderResearchLabPanel(buildingId || null);
+    return;
+  }
+  if (mode === 'university') {
+    const buildingId = String(payload?.buildingId || context?.buildingId || '').trim();
+    renderUniversityPanel(buildingId || null);
+    return;
+  }
+  if (mode === 'warehouse' || mode === 'library' || mode === 'power') {
+    const buildingId = String(payload?.buildingId || context?.buildingId || '').trim();
+    renderStoragePanelForBuilding(buildingId || null);
+    return;
+  }
+  renderDefaultActionPanel();
+});
+
+function routeDefaultActionConsole(context = {}){
+  applyPanelPatch({
+    target: PANEL_TARGET_IDS.rightActionSidebar,
+    mode: 'replace',
+    payload: { mode: 'default' }
+  }, context);
+}
+
 function isResearchKind(kind){
   return kind === 'research' || kind === 'university';
 }
@@ -1743,7 +1847,7 @@ function renderLiveConsole(){
       ${runtimeLine ? `<div class="notice" style="margin-top:4px">Serving: ${esc(runtimeLine)}</div>` : ''}
     `;
   }
-  if (!state.selected) renderDefaultActionPanel();
+  if (!state.selected) routeDefaultActionConsole();
   const deployBtn = document.getElementById('deployWaitingBtn');
   const runGlobalCronBtn = document.getElementById('runGlobalCronBtn');
   deployBtn?.addEventListener('click', async () => {
@@ -2233,7 +2337,7 @@ function setPlacement(mode){
     card.classList.toggle('active', card.getAttribute('data-building') === mode);
   });
   if (!mode) hidePlacementGhost();
-  if (!state.selected) renderDefaultActionPanel();
+  if (!state.selected) routeDefaultActionConsole();
 }
 
 function placeBaseAt(x,y){
@@ -2752,9 +2856,10 @@ async function deleteSelectedStructure(){
     return;
   }
   if (s.type === 'building' && s.data?.kind === 'feature') {
+    let deleteResult = null;
     if (s.data?.runId) {
       try {
-        await postJson('/api/rts/building/delete', { runId: s.data.runId });
+        deleteResult = await postJson('/api/rts/building/delete', { runId: s.data.runId });
         state.runs = await json('/api/runs');
       } catch (err) {
         alert(`Delete failed: ${err.message || err}`);
@@ -2776,7 +2881,8 @@ async function deleteSelectedStructure(){
     queuePersist();
     rebuildScene();
     renderSelection();
-    renderRunSetupPanel(null);
+    applyPanelUpdateRouter(deleteResult?.uiUpdate, { featureId: s.data.id || null });
+    routeDefaultActionConsole();
     return;
   }
   if (s.type === 'building' && isResearchKind(s.data?.kind)) {
@@ -2810,8 +2916,9 @@ async function deleteSelectedStructure(){
     return;
   }
   if (s.type === 'building' && s.data?.kind === 'run') {
+    let deleteResult = null;
     try {
-      await postJson('/api/rts/building/delete', { runId: s.data.id });
+      deleteResult = await postJson('/api/rts/building/delete', { runId: s.data.id });
       state.runs = await json('/api/runs');
     } catch (err) {
       alert(`Delete failed: ${err.message || err}`);
@@ -2825,7 +2932,8 @@ async function deleteSelectedStructure(){
     queuePersist();
     rebuildScene();
     renderSelection();
-    renderRunSetupPanel(null);
+    applyPanelUpdateRouter(deleteResult?.uiUpdate, { featureId: s.data.id || null });
+    routeDefaultActionConsole();
   }
 }
 
@@ -3462,10 +3570,6 @@ function renderWorld(){
       onClick:() => {
         state.selected = { type:'building', data:b };
         renderSelection();
-        if (b.kind === 'feature') renderRunSetupPanel(b.id);
-        if (b.kind === 'research') renderResearchLabPanel(b.id);
-        if (b.kind === 'university') renderUniversityPanel(b.id);
-        if (isStorageKind(b.kind)) renderStoragePanelForBuilding(b.id);
         refreshSelectionVisuals();
       }
     });
@@ -3706,6 +3810,65 @@ function renderRunAgentsConsole(run, selectedAgentId){
   }
 }
 
+const buildingSelectionRenderers = new Map();
+
+function registerBuildingSelectionRenderer(kind, renderSelectionPanel){
+  if (!kind || typeof renderSelectionPanel !== 'function') return;
+  buildingSelectionRenderers.set(String(kind), renderSelectionPanel);
+}
+
+registerBuildingSelectionRenderer('feature', (building) => {
+  setFeatureMode(true);
+  const actionPanel = document.getElementById('actionPanel');
+  const shownFeatureId = String(actionPanel?.dataset?.featureId || '');
+  const isSameFeaturePanel = actionPanel?.dataset?.mode === 'feature' && shownFeatureId === String(building?.id || '');
+  if (isEditingActionPanel() && isSameFeaturePanel) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { featureId: building?.id || null, buildingId: building?.id || null });
+});
+
+registerBuildingSelectionRenderer('research', (building) => {
+  setFeatureMode(false);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
+});
+
+registerBuildingSelectionRenderer('university', (building) => {
+  setFeatureMode(false);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
+});
+
+registerBuildingSelectionRenderer('warehouse', (building) => {
+  setFeatureMode(false);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
+});
+
+registerBuildingSelectionRenderer('library', (building) => {
+  setFeatureMode(false);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
+});
+
+registerBuildingSelectionRenderer('power', (building) => {
+  setFeatureMode(false);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
+});
+
+function renderBuildingSelectionPanel(building){
+  const renderer = buildingSelectionRenderers.get(String(building?.kind || '').toLowerCase());
+  if (!renderer) return false;
+  renderer(building);
+  return true;
+}
+
 function renderSelection(){
   queuePersist();
   const panel = document.getElementById('actionPanel');
@@ -3713,7 +3876,7 @@ function renderSelection(){
   const s = state.selected;
   if (!s) {
     closeLibraryModal();
-    renderDefaultActionPanel();
+    routeDefaultActionConsole();
     return;
   }
   const keepLibraryModal = s.type === 'building' && isLibraryBuilding(s.data);
@@ -3774,29 +3937,7 @@ function renderSelection(){
   }
   if (s.type === 'building') {
     const b = s.data;
-    if (b.kind === 'feature') {
-      setFeatureMode(true);
-      const actionPanel = document.getElementById('actionPanel');
-      const shownFeatureId = String(actionPanel?.dataset?.featureId || '');
-      const isSameFeaturePanel = actionPanel?.dataset?.mode === 'feature' && shownFeatureId === String(b.id || '');
-      if (!isEditingActionPanel() || !isSameFeaturePanel) renderRunSetupPanel(b.id);
-      return;
-    }
-    if (b.kind === 'research') {
-      setFeatureMode(false);
-      if (!isEditingActionPanel()) renderResearchLabPanel(b.id);
-      return;
-    }
-    if (b.kind === 'university') {
-      setFeatureMode(false);
-      if (!isEditingActionPanel()) renderUniversityPanel(b.id);
-      return;
-    }
-    if (isStorageKind(b.kind)) {
-      setFeatureMode(false);
-      if (!isEditingActionPanel()) renderStoragePanelForBuilding(b.id);
-      return;
-    }
+    if (renderBuildingSelectionPanel(b)) return;
     renderRunAgentsConsole(b.run);
     return;
   }
@@ -4979,6 +5120,7 @@ function renderRunSetupPanel(targetDraftId){
       await persistNow();
       state.runs = latestRuns;
       rebuildScene();
+      applyPanelUpdateRouter(runResult?.uiUpdate, { featureId: draft.id || draftId });
       return true;
     } catch (err) {
       mutationNotice.textContent = `Error: ${err.message || err}`;
