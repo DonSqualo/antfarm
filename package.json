@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && cp src/server/index.html dist/server/index.html && cp src/server/rts.html dist/server/rts.html && cp src/server/manifest.webmanifest dist/server/manifest.webmanifest && cp src/server/service-worker.v1.js dist/server/service-worker.v1.js && cp src/server/icon-192.png dist/server/icon-192.png && cp src/server/icon-512.png dist/server/icon-512.png && mkdir -p dist/server/rts-sprites && cp -R src/server/rts-sprites/. dist/server/rts-sprites/ && chmod +x dist/cli/cli.js",
     "start": "node dist/cli/cli.js",
-    "test:e2e:rts": "npm run build && node --test --experimental-strip-types tests/rts-building-palette.e2e.test.ts tests/rts-base-existing-repo.e2e.test.ts tests/pwa-assets-serving.e2e.test.ts"
+    "test:e2e:rts": "npm run build && node --test --experimental-strip-types tests/rts-building-palette.e2e.test.ts tests/rts-base-existing-repo.e2e.test.ts tests/pwa-assets-serving.e2e.test.ts tests/rts-pwa-client-bootstrap.test.ts"
   },
   "dependencies": {
     "json5": "^2.2.3",

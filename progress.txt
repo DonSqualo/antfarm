@@ -13,6 +13,7 @@ Started: 2026-02-11 05:47 ET
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
 - Static dashboard assets should be authored in `src/server/`, copied by `npm run build`, and served in `dashboard.ts` with dist-first + src fallback resolution
+- RTS PWA client hooks should use defensive browser capability guards (`'serviceWorker' in navigator`, `beforeinstallprompt`) so desktop browsers keep existing UX unchanged
 
 ---
 
@@ -116,4 +117,13 @@ Started: 2026-02-11 05:47 ET
 - Added `tests/pwa-assets-serving.e2e.test.ts` to verify manifest metadata shape, dist copy output, and HTTP 200 + correct content types for manifest/service worker/icon endpoints
 - Files changed: `package.json`, `src/server/dashboard.ts`, `src/server/manifest.webmanifest`, `src/server/service-worker.v1.js`, `src/server/icon-192.png`, `src/server/icon-512.png`, `tests/pwa-assets-serving.e2e.test.ts`, `progress.txt`
 - **Learnings:** PWA installability support for RTS can be validated with lightweight server e2e checks (no browser automation) by asserting manifest/service-worker headers from `startDashboard()`.
+---
+## 2026-02-13 15:40 - US-002: Register service worker and install metadata in RTS client
+- Added installable mobile metadata in `src/server/rts.html`: manifest link, theme-color, and Apple mobile web-app meta tags.
+- Added client PWA bootstrap in `src/server/rts.html` with guarded service worker registration (`'serviceWorker' in navigator`), update checks on updatefound/visibility/focus, and error-safe registration handling.
+- Added minimal in-app install CTA state (`#installAppBtn`) that is only shown when `beforeinstallprompt` is emitted and hidden again after prompt/app install.
+- Added regression test `tests/rts-pwa-client-bootstrap.test.ts` to assert metadata tags, service worker guard/registration wiring, and conditional install prompt state in both `src/server/rts.html` and `dist/server/rts.html`.
+- Updated `test:e2e:rts` to include the new RTS PWA bootstrap regression.
+- Files changed: `src/server/rts.html`, `tests/rts-pwa-client-bootstrap.test.ts`, `package.json`, `progress.txt`.
+- **Learnings:** Keep PWA enhancement hooks behind capability detection so mobile install flows can be added without changing desktop behavior.
 ---
