@@ -17,6 +17,7 @@ Started: 2026-02-11 05:47 ET
 - RTS PWA client hooks should use defensive browser capability guards (`'serviceWorker' in navigator`, `beforeinstallprompt`) so desktop browsers keep existing UX unchanged
 - Mobile RTS shell mode should be toggled by layout classes (`mobile-tab-build|runs|intel`) with desktop fallback behavior explicitly restored in JS when viewport exits mobile breakpoints
 - Action Console mobile refactors should use shared `renderPanelCard(...)` and `openMobileSheet(...)` helpers so collapsible cards, CTA ordering, and long-form editors stay consistent across Feature/Research/Warehouse panels
+- RTS mobile performance-sensitive visual writes (camera transform vars) should be funneled through `updateCameraVisuals()` + `scheduleVisualFrame()` (requestAnimationFrame) instead of direct style writes inside pointer/touch loops
 
 ---
 
@@ -158,4 +159,12 @@ Started: 2026-02-11 05:47 ET
 - Added regression coverage in `tests/rts-mobile-panel-cards-sheets.test.ts` validating card groups, sheet wiring, and keyboard-safe form hooks in both `src/server/rts.html` and `dist/server/rts.html`.
 - Files changed: `src/server/rts.html`, `tests/rts-mobile-panel-cards-sheets.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For mobile RTS panel ergonomics, centralize card/sheet primitives in shared render helpers and assert src/dist parity so built dashboard HTML remains aligned with source behavior.
+---
+## 2026-02-13 20:10 - US-006: Optimize render path for smooth mobile performance
+- Refactored high-frequency camera visual updates in `src/server/rts.html` to use requestAnimationFrame coalescing via `scheduleVisualFrame()`/`flushVisualFrame()` so pointer/touch pan loops no longer perform direct per-event style writes.
+- Added mobile performance guard CSS under `@media (max-width:760px)` to disable costly shadow/filter effects on world entities, HUD elements, and mobile tab active states.
+- Reworked sprite preload flow to prioritize visible assets first (`collectVisibleSpriteUrls()`), defer non-critical assets to idle time, and prevent duplicate fetch/decode work with URL-level promise dedupe (`spritePreloadByUrl` + `preloadSpriteOnce`).
+- Added regression coverage in `tests/rts-mobile-performance-guards.test.ts` (src/dist parity) and wired it into `npm run test:e2e:rts`.
+- Files changed: `src/server/rts.html`, `tests/rts-mobile-performance-guards.test.ts`, `package.json`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** For RTS mobile smoothness, keep high-frequency DOM writes batched in a frame scheduler and treat sprite preloading as a two-phase path (critical visible assets first, bulk assets in idle time).
 ---

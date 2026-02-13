@@ -850,6 +850,15 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     padding-bottom:168px;
     box-sizing:border-box;
   }
+  .world-wrap,
+  .entity,
+  .hud-right,
+  .mobile-action-tabs button.active,
+  .unit,
+  .subunit {
+    box-shadow:none !important;
+    filter:none !important;
+  }
   .mobile-status-strip {
     position:fixed;
     top:0;
@@ -1243,6 +1252,9 @@ const RTS_SPRITE_URLS = [
   '/rts-sprites/subunit-cephalon-test.png?v=20260212b'
 ];
 let spritesPreloadPromise = null;
+const spritePreloadByUrl = new Map();
+let visualFrameHandle = 0;
+let cameraVisualsDirty = false;
 
 const skillTrees = {
   architect: ['System Mapping','Dependency Radar','Design Sync','API Stability'],
@@ -1639,17 +1651,62 @@ function closeLibraryModal(){
   const modal = document.getElementById('libraryModal');
   if (modal) modal.hidden = true;
 }
-function preloadRtsSprites(){
-  if (spritesPreloadPromise) return spritesPreloadPromise;
-  const load = (url) => new Promise((resolve) => {
+function parseCssUrl(raw){
+  const text = String(raw || '').trim();
+  const match = text.match(/^url\((?:['"]?)(.+?)(?:['"]?)\)$/i);
+  return match ? match[1] : '';
+}
+
+function preloadSpriteOnce(url){
+  const key = String(url || '').trim();
+  if (!key) return Promise.resolve(false);
+  const cached = spritePreloadByUrl.get(key);
+  if (cached) return cached;
+  const request = new Promise((resolve) => {
     const img = new Image();
     img.decoding = 'async';
     img.loading = 'eager';
     img.onload = () => resolve(true);
     img.onerror = () => resolve(false);
-    img.src = url;
+    img.src = key;
   });
-  spritesPreloadPromise = Promise.all(RTS_SPRITE_URLS.map(load)).catch(() => []);
+  spritePreloadByUrl.set(key, request);
+  return request;
+}
+
+function collectVisibleSpriteUrls(){
+  const urls = new Set();
+  const worldSprites = worldEl?.querySelectorAll?.('.building-sprite');
+  worldSprites?.forEach?.((img) => {
+    const src = img?.getAttribute?.('src') || '';
+    if (src) urls.add(src);
+  });
+  const paletteCards = document.querySelectorAll('.palette-card');
+  paletteCards.forEach((card) => {
+    const styleUrl = card instanceof HTMLElement ? card.style.getPropertyValue('--palette-bg') : '';
+    const parsed = parseCssUrl(styleUrl);
+    if (parsed) urls.add(parsed);
+  });
+  urls.add('/rts-sprites/bg-space-tile-20260212b.png?v=20260212b');
+  return [...urls];
+}
+
+function preloadRtsSprites(){
+  if (spritesPreloadPromise) return spritesPreloadPromise;
+  const visibleFirst = collectVisibleSpriteUrls();
+  const visibleSet = new Set(visibleFirst);
+  const deferred = RTS_SPRITE_URLS.filter((url) => !visibleSet.has(url));
+  const preloadDeferred = () => Promise.all(deferred.map((url) => preloadSpriteOnce(url)));
+  spritesPreloadPromise = Promise.all(visibleFirst.map((url) => preloadSpriteOnce(url)))
+    .then((critical) => {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => { void preloadDeferred(); }, { timeout: 1200 });
+      } else {
+        setTimeout(() => { void preloadDeferred(); }, 120);
+      }
+      return critical;
+    })
+    .catch(() => []);
   return spritesPreloadPromise;
 }
 async function json(url){
@@ -2909,10 +2966,23 @@ function screenToWorld(clientX, clientY){
   return { sx, sy, x: sx + state.camera.x, y: sy + state.camera.y };
 }
 
-function updateCameraVisuals(){
+function flushVisualFrame(){
+  visualFrameHandle = 0;
+  if (!cameraVisualsDirty) return;
+  cameraVisualsDirty = false;
   worldWrapEl.style.setProperty('--cam-x', `${state.camera.x}px`);
   worldWrapEl.style.setProperty('--cam-y', `${state.camera.y}px`);
   worldWrapEl.style.setProperty('--cam-scale', `${Number(state.cameraZoom?.scale || 1)}`);
+}
+
+function scheduleVisualFrame(){
+  if (visualFrameHandle) return;
+  visualFrameHandle = window.requestAnimationFrame(flushVisualFrame);
+}
+
+function updateCameraVisuals(){
+  cameraVisualsDirty = true;
+  scheduleVisualFrame();
 }
 
 function showPlacementGhost(kind, worldX, worldY){
