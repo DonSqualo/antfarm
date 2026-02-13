@@ -11,6 +11,7 @@ Started: 2026-02-11 05:47 ET
 - ESM with NodeNext module resolution, `.js` extensions in imports
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
+- RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
 
 ---
 
@@ -61,4 +62,49 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-assignment-ui-removal.test.ts` covering UI removal, automatic launch assignment derivation, and post-launch read-only assignment visibility in both `src/server/rts.html` and built `dist/server/rts.html`
 - Files changed: `src/server/rts.html`, `tests/rts-assignment-ui-removal.test.ts`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS dashboard changes, validate both source and built HTML because tests assert parity across `src/server/rts.html` and `dist/server/rts.html`.
+---
+## 2026-02-12 21:20 - US-001: Add research agenda field to Research Lab state and persistence
+- Extended Research Lab normalization in `src/server/rts.html` with `agenda` defaulting to empty string for backward-compatible loads.
+- Wired agenda-safe persistence by including normalized `researchBuildings` in `snapshotPersistableState()` and initializing new labs with `agenda: ''`.
+- Added regression coverage in `tests/rts-research-agenda-persistence.test.ts` validating agenda defaulting and persistence snapshot wiring in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-research-agenda-persistence.test.ts`, `progress.txt`
+- **Learnings:** RTS state snapshots can persist selective layout-owned entity arrays (e.g., `researchBuildings`) when paired with server-side layout upsert reconciliation.
+---
+## 2026-02-12 21:29 - US-001: Fix RTS building palette e2e regression after agenda persistence changes
+- Restored `<div class="command-title">BUILD FORGE 4</div>` in `src/server/rts.html` command bar so palette UI matches e2e selector contract.
+- Rebuilt dist artifacts via `npm run build` so `dist/server/rts.html` includes the same command title element.
+- Confirmed the previously failing required suite now passes.
+- Files changed: `src/server/rts.html`, `progress.txt`
+- **Learnings:** `tests/rts-building-palette.e2e.test.ts` treats `.command-title` as a required UI contract, so command-bar refactors must preserve that selector/text or update tests in lockstep.
+---
+
+## 2026-02-12 21:40 - US-002: Add agenda textarea to Research Console and bind it to selected lab
+- Added a labeled `Current Agenda` textarea in `renderResearchLabPanel` above the Research action controls.
+- Bound textarea `input` and `change` events to update the selected lab `agenda` immediately and persist via `queuePersist()`.
+- Ensured panel re-renders show the existing `lab.agenda` text, preserving the entered agenda when reopening the same lab.
+- Added regression test `tests/rts-research-agenda-textarea-binding.test.ts` to assert agenda textarea rendering, agenda value binding, and persistence wiring in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `dist/server/rts.html`, `tests/rts-research-agenda-textarea-binding.test.ts`, `progress.txt`
+- **Learnings:** Research Console panel changes should include explicit src/dist parity checks because tests validate both authored and built RTS HTML.
+---
+## 2026-02-12 22:06 - US-001: Implement local git repository discovery API for RTS base setup
+- Replaced stubbed `/api/local-repos` response with server-side discovery from configured/default local roots
+- Added local repo discovery helpers in `src/server/dashboard.ts` to scan directories for `.git` (directory or file), normalize absolute paths, de-duplicate results, derive display name, and attach `suggestedPort` when inferable
+- Added regression coverage in `tests/local-repos-discovery.test.ts` for filtering non-repos, normalization/name mapping, dedupe behavior, and `suggestedPort` inference
+- Files changed: `src/server/dashboard.ts`, `tests/local-repos-discovery.test.ts`, `progress.txt`
+- **Learnings:** RTS path-based port suggestions are currently derived from path naming conventions (`/antfarm` -> 3333, `antfarm-feature-<n>` -> 3400 + n%400); backend helpers should stay in sync with this convention.
+---
+## 2026-02-12 22:53 - US-002: Wire New Base dropdown to discovered local repositories with deterministic defaults
+- Added RTS local repo sync helper and wired it into bootstrap + runtime refresh so base draft rendering uses current `/api/local-repos` data
+- Updated base clone form selection flow to map options from `state.localRepos`, preserve/re-apply existing selection, and deterministically auto-fill `targetPath` + `port` from `suggestedPort` with path-based fallback logic
+- Preserved existing create validation behavior for existing-repo mode vs clone mode
+- Added regression test `tests/rts-base-local-repo-dropdown.test.ts` to verify local repo sync wiring, dropdown option sourcing, deterministic selection defaults, and payload/validation guards in both `src/server/rts.html` and `dist/server/rts.html`
+- Files changed: `src/server/rts.html`, `tests/rts-base-local-repo-dropdown.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** Base draft form logic should centralize existing-repo selection side effects (target path + port) in one helper so initial render and change events stay consistent.
+---
+## 2026-02-12 23:20 - US-003: Add end-to-end regression coverage for local repo options in base creation flow
+- Added dashboard endpoint support for existing-repo base creation via `POST /api/rts/base/clone` with git repo path validation and explicit existing mode response
+- Added `tests/rts-base-existing-repo.e2e.test.ts` to boot `startDashboard`, create a deterministic temporary local git repo fixture, verify `/api/local-repos` discovery, and verify existing-repo base creation succeeds without clone URL payload
+- Expanded RTS e2e script to run both palette UI regression and existing-repo base flow regression
+- Files changed: `src/server/dashboard.ts`, `tests/rts-base-existing-repo.e2e.test.ts`, `package.json`, `progress.txt`
+- **Learnings:** RTS base creation server contract now explicitly supports existing-local-repo mode through `/api/rts/base/clone`; regression coverage should assert this contract directly.
 ---
