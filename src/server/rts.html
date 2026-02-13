@@ -1810,6 +1810,25 @@ function applyPanelUpdateRouter(update, context = {}){
   return applied;
 }
 
+function createBuildingSelectionPanelUpdate(building){
+  const selectedKind = String(building?.kind || '').trim().toLowerCase();
+  if (!selectedKind) return null;
+  return {
+    patches: [
+      {
+        target: PANEL_TARGET_IDS.bottomCommandBar,
+        mode: 'replace',
+        payload: { active: selectedKind, selectedKind }
+      },
+      {
+        target: PANEL_TARGET_IDS.rightActionSidebar,
+        mode: 'replace',
+        payload: { mode: selectedKind, buildingId: building?.id || null }
+      }
+    ]
+  };
+}
+
 function renderDefaultActionPanel(){
   closeMobileSheet();
   const panel = document.getElementById('actionPanel');
@@ -1849,8 +1868,23 @@ registerPanelPatchRenderer(PANEL_TARGET_IDS.rightActionSidebar, ({ payload }, co
     return;
   }
   if (mode === 'feature') {
-    const featureId = String(payload?.featureId || context?.featureId || '').trim();
+    const featureId = String(payload?.featureId || payload?.buildingId || context?.featureId || context?.buildingId || '').trim();
     renderRunSetupPanel(featureId || null);
+    return;
+  }
+  if (mode === 'research') {
+    const buildingId = String(payload?.buildingId || context?.buildingId || '').trim();
+    renderResearchLabPanel(buildingId || null);
+    return;
+  }
+  if (mode === 'university') {
+    const buildingId = String(payload?.buildingId || context?.buildingId || '').trim();
+    renderUniversityPanel(buildingId || null);
+    return;
+  }
+  if (mode === 'warehouse' || mode === 'library' || mode === 'power') {
+    const buildingId = String(payload?.buildingId || context?.buildingId || '').trim();
+    renderStoragePanelForBuilding(buildingId || null);
     return;
   }
   renderDefaultActionPanel();
@@ -4934,38 +4968,44 @@ registerBuildingSelectionRenderer('feature', (building) => {
   const actionPanel = document.getElementById('actionPanel');
   const shownFeatureId = String(actionPanel?.dataset?.featureId || '');
   const isSameFeaturePanel = actionPanel?.dataset?.mode === 'feature' && shownFeatureId === String(building?.id || '');
-  if (!isEditingActionPanel() || !isSameFeaturePanel) {
-    applyPanelPatch({
-      target: PANEL_TARGET_IDS.rightActionSidebar,
-      mode: 'replace',
-      payload: { mode: 'feature', featureId: building?.id || null }
-    }, { featureId: building?.id || null });
-  }
+  if (isEditingActionPanel() && isSameFeaturePanel) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { featureId: building?.id || null, buildingId: building?.id || null });
 });
 
 registerBuildingSelectionRenderer('research', (building) => {
   setFeatureMode(false);
-  if (!isEditingActionPanel()) renderResearchLabPanel(building?.id);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
 });
 
 registerBuildingSelectionRenderer('university', (building) => {
   setFeatureMode(false);
-  if (!isEditingActionPanel()) renderUniversityPanel(building?.id);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
 });
 
 registerBuildingSelectionRenderer('warehouse', (building) => {
   setFeatureMode(false);
-  if (!isEditingActionPanel()) renderStoragePanelForBuilding(building?.id);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
 });
 
 registerBuildingSelectionRenderer('library', (building) => {
   setFeatureMode(false);
-  if (!isEditingActionPanel()) renderStoragePanelForBuilding(building?.id);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
 });
 
 registerBuildingSelectionRenderer('power', (building) => {
   setFeatureMode(false);
-  if (!isEditingActionPanel()) renderStoragePanelForBuilding(building?.id);
+  if (isEditingActionPanel()) return;
+  const update = createBuildingSelectionPanelUpdate(building);
+  applyPanelUpdateRouter(update, { buildingId: building?.id || null });
 });
 
 function renderBuildingSelectionPanel(building){

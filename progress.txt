@@ -21,6 +21,7 @@ Started: 2026-02-11 05:47 ET
 - Runtime polling in RTS should use self-scheduled `setTimeout` (`scheduleRuntimePoll`) with bounded retry backoff so offline/reconnect UX and poll recovery stay centralized
 - RTS multi-panel API responses should use `createPanelUpdateEnvelope` + `PANEL_TARGETS` (`src/server/panel-update-contract.ts`) so panel targets stay typed and centrally validated.
 - RTS client panel swaps should flow through target registries (`panelPatchRenderers`, `buildingSelectionRenderers`) so new panel targets/kinds can be added without changing click handlers.
+- Building selection flows should emit one `createBuildingSelectionPanelUpdate(...)` envelope containing both bottom-bar and right-sidebar patches, then dispatch via `applyPanelUpdateRouter(...)`.
 
 ---
 
@@ -186,6 +187,14 @@ Started: 2026-02-11 05:47 ET
 - Added regression coverage in `tests/rts-mobile-performance-guards.test.ts` (src/dist parity) and wired it into `npm run test:e2e:rts`.
 - Files changed: `src/server/rts.html`, `tests/rts-mobile-performance-guards.test.ts`, `package.json`, `dist/server/rts.html`, `progress.txt`
 - **Learnings:** For RTS mobile smoothness, keep high-frequency DOM writes batched in a frame scheduler and treat sprite preloading as a two-phase path (critical visible assets first, bulk assets in idle time).
+---
+## 2026-02-13 20:52 - US-003: Emit building-selection panel patches instead of direct panel mutations
+- Added `createBuildingSelectionPanelUpdate(building)` to emit one multi-target envelope for building clicks, containing both bottom command-bar and right action-sidebar patches.
+- Routed all building selection renderers (`feature`, `research`, `university`, `warehouse`, `library`, `power`) through `applyPanelUpdateRouter(...)` instead of directly mutating sidebar DOM render functions from selection handlers.
+- Extended right-sidebar panel patch renderer to handle research/university/storage modes by `buildingId`, keeping the selection-state mechanics and visual markers unchanged.
+- Added regression test `tests/rts-building-selection-panel-patches.test.ts` validating envelope structure and router-based building selection orchestration in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-building-selection-panel-patches.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** Building click flows should emit a single multi-panel update envelope and let target patch renderers own DOM updates per panel.
 ---
 ## 2026-02-13 21:44 - US-007: Provide offline fallback and reconnect UX for field usage
 - Added connectivity-aware RTS client UX in `src/server/rts.html`: explicit offline/reconnecting banner, mobile NET status chip, online/offline event listeners, and non-blocking status messaging.
