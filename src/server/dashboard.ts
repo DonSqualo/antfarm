@@ -68,6 +68,64 @@ function json(res: http.ServerResponse, data: unknown, status = 200) {
   res.end(JSON.stringify(data));
 }
 
+function weakEtagFromStat(st: fs.Stats): string {
+  return `W/"${st.size.toString(16)}-${Math.trunc(st.mtimeMs).toString(16)}"`;
+}
+
+function serveStaticFile(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  filePath: string,
+  options: {
+    contentType?: string;
+    cacheControl?: string;
+    cors?: boolean;
+  } = {}
+): boolean {
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(filePath);
+    if (!st.isFile()) return false;
+  } catch {
+    return false;
+  }
+
+  const etag = weakEtagFromStat(st);
+  const ifNoneMatch = String(req.headers["if-none-match"] || "").trim();
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    const headers: Record<string, string> = {
+      ETag: etag,
+      "Last-Modified": st.mtime.toUTCString(),
+    };
+    if (options.cacheControl) headers["Cache-Control"] = options.cacheControl;
+    if (options.cors) headers["Access-Control-Allow-Origin"] = "*";
+    res.writeHead(304, headers);
+    res.end();
+    return true;
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": options.contentType || guessMime(filePath),
+    "Content-Length": String(st.size),
+    ETag: etag,
+    "Last-Modified": st.mtime.toUTCString(),
+  };
+  if (options.cacheControl) headers["Cache-Control"] = options.cacheControl;
+  if (options.cors) headers["Access-Control-Allow-Origin"] = "*";
+  res.writeHead(200, headers);
+  if (req.method === "HEAD") {
+    res.end();
+    return true;
+  }
+  const stream = fs.createReadStream(filePath);
+  stream.on("error", () => {
+    try { res.writeHead(500); } catch {}
+    try { res.end("read_error"); } catch {}
+  });
+  stream.pipe(res);
+  return true;
+}
+
 async function readBody(req: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -659,6 +717,10 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
   const db = getDb();
   ensureRtsTables(db);
   const now = new Date().toISOString();
+  const hasCustomBasesPayload = Object.prototype.hasOwnProperty.call(nextState, "customBases");
+  const hasFeatureBuildingsPayload = Object.prototype.hasOwnProperty.call(nextState, "featureBuildings");
+  const hasWarehouseBuildingsPayload = Object.prototype.hasOwnProperty.call(nextState, "warehouseBuildings");
+  const hasRunLayoutOverridesPayload = Object.prototype.hasOwnProperty.call(nextState, "runLayoutOverrides");
   const upsert = db.prepare(
     "INSERT INTO rts_layout_entities (id, entity_type, run_id, repo_path, worktree_path, x, y, payload_json, updated_at) " +
     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) " +
@@ -805,25 +867,33 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       const y = Number.isFinite(existing?.y) ? Number(existing!.y) : (Number.isFinite(incomingY) ? incomingY : 0);
       upsert.run(id, "run", runId, null, null, x, y, JSON.stringify({ runId, x, y }), now);
     }
-    const baseRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'base'").all() as Array<{ id: string }>;
-    for (const row2 of baseRows) if (!seenBaseIds.has(row2.id)) deleteById.run(row2.id);
-    const featureRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'feature'").all() as Array<{ id: string; run_id: string | null }>;
-    for (const row2 of featureRows) {
-      if (seenFeatureIds.has(row2.id)) continue;
-      // Keep run-backed feature rows even if the latest state snapshot omitted them.
-      if (row2.run_id && runIdSet.has(row2.run_id)) continue;
-      deleteById.run(row2.id);
+    if (hasCustomBasesPayload) {
+      const baseRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'base'").all() as Array<{ id: string }>;
+      for (const row2 of baseRows) if (!seenBaseIds.has(row2.id)) deleteById.run(row2.id);
+    }
+    if (hasFeatureBuildingsPayload) {
+      const featureRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'feature'").all() as Array<{ id: string; run_id: string | null }>;
+      for (const row2 of featureRows) {
+        if (seenFeatureIds.has(row2.id)) continue;
+        // Keep run-backed feature rows even if the latest state snapshot omitted them.
+        if (row2.run_id && runIdSet.has(row2.run_id)) continue;
+        deleteById.run(row2.id);
+      }
     }
     // Research labs are long-lived user structures. Do not prune by omission from
     // snapshot state; stale/incomplete clients can otherwise wipe them.
-    const warehouseRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'warehouse'").all() as Array<{ id: string }>;
-    for (const row2 of warehouseRows) {
-      if (!seenWarehouseIds.has(row2.id)) deleteById.run(row2.id);
+    if (hasWarehouseBuildingsPayload) {
+      const warehouseRows = db.prepare("SELECT id FROM rts_layout_entities WHERE entity_type = 'warehouse'").all() as Array<{ id: string }>;
+      for (const row2 of warehouseRows) {
+        if (!seenWarehouseIds.has(row2.id)) deleteById.run(row2.id);
+      }
     }
-    const runRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'run'").all() as Array<{ id: string; run_id: string | null }>;
-    for (const row2 of runRows) {
-      const id = row2.run_id || (String(row2.id || "").startsWith("run:") ? String(row2.id).slice(4) : "");
-      if (!id || !seenRunIds.has(id)) deleteById.run(row2.id);
+    if (hasRunLayoutOverridesPayload) {
+      const runRows = db.prepare("SELECT id, run_id FROM rts_layout_entities WHERE entity_type = 'run'").all() as Array<{ id: string; run_id: string | null }>;
+      for (const row2 of runRows) {
+        const id = row2.run_id || (String(row2.id || "").startsWith("run:") ? String(row2.id).slice(4) : "");
+        if (!id || !seenRunIds.has(id)) deleteById.run(row2.id);
+      }
     }
     db.exec("COMMIT");
   } catch (err) {
@@ -1064,13 +1134,15 @@ async function deployPendingRuns(
   return { attempted: targets.length, kicked, runIds };
 }
 
-function serveHTML(res: http.ServerResponse, fileName = "index.html") {
+function serveHTML(req: http.IncomingMessage, res: http.ServerResponse, fileName = "index.html") {
   const htmlPath = path.join(__dirname, fileName);
   // In dist, html may not exist—serve from src
   const srcHtmlPath = path.resolve(__dirname, "..", "..", "src", "server", fileName);
   const filePath = fs.existsSync(htmlPath) ? htmlPath : srcHtmlPath;
-  res.writeHead(200, { "Content-Type": "text/html" });
-  res.end(fs.readFileSync(filePath, "utf-8"));
+  if (!serveStaticFile(req, res, filePath, { contentType: "text/html; charset=utf-8", cacheControl: "no-cache" })) {
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("not found");
+  }
 }
 
 function guessMime(filePath: string): string {
@@ -2342,9 +2414,12 @@ export function startDashboard(port = 3333): http.Server {
       const fontPath = path.resolve(__dirname, "..", "..", "assets", "fonts", fontName);
       const srcFontPath = path.resolve(__dirname, "..", "..", "src", "..", "assets", "fonts", fontName);
       const resolvedFont = fs.existsSync(fontPath) ? fontPath : srcFontPath;
-      if (fs.existsSync(resolvedFont)) {
-        res.writeHead(200, { "Content-Type": "font/woff2", "Cache-Control": "public, max-age=31536000", "Access-Control-Allow-Origin": "*" });
-        return res.end(fs.readFileSync(resolvedFont));
+      if (serveStaticFile(req, res, resolvedFont, {
+        contentType: "font/woff2",
+        cacheControl: "public, max-age=31536000, immutable",
+        cors: true,
+      })) {
+        return;
       }
     }
 
@@ -2353,9 +2428,11 @@ export function startDashboard(port = 3333): http.Server {
       const logoPath = path.resolve(__dirname, "..", "..", "assets", "logo.jpeg");
       const srcLogoPath = path.resolve(__dirname, "..", "..", "src", "..", "assets", "logo.jpeg");
       const resolvedLogo = fs.existsSync(logoPath) ? logoPath : srcLogoPath;
-      if (fs.existsSync(resolvedLogo)) {
-        res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" });
-        return res.end(fs.readFileSync(resolvedLogo));
+      if (serveStaticFile(req, res, resolvedLogo, {
+        contentType: "image/jpeg",
+        cacheControl: "public, max-age=31536000, immutable",
+      })) {
+        return;
       }
     }
 
@@ -2365,13 +2442,12 @@ export function startDashboard(port = 3333): http.Server {
       const spritePath = path.resolve(__dirname, "rts-sprites", spriteName);
       const srcSpritePath = path.resolve(__dirname, "..", "..", "src", "server", "rts-sprites", spriteName);
       const resolvedSprite = fs.existsSync(spritePath) ? spritePath : srcSpritePath;
-      if (fs.existsSync(resolvedSprite)) {
-        res.writeHead(200, {
-          "Content-Type": guessMime(resolvedSprite),
-          "Cache-Control": "public, max-age=86400",
-          "Access-Control-Allow-Origin": "*",
-        });
-        return res.end(fs.readFileSync(resolvedSprite));
+      if (serveStaticFile(req, res, resolvedSprite, {
+        contentType: guessMime(resolvedSprite),
+        cacheControl: "public, max-age=31536000, immutable",
+        cors: true,
+      })) {
+        return;
       }
       res.writeHead(404);
       return res.end("not found");
@@ -2379,12 +2455,12 @@ export function startDashboard(port = 3333): http.Server {
 
     // Serve frontend
     if (p === "/" || p === "/rts" || p === "/rts/") {
-      return serveHTML(res, "rts.html");
+      return serveHTML(req, res, "rts.html");
     }
     if (p === "/classic" || p === "/index" || p === "/index.html") {
-      return serveHTML(res, "index.html");
+      return serveHTML(req, res, "index.html");
     }
-    return serveHTML(res, "rts.html");
+    return serveHTML(req, res, "rts.html");
   });
 
   server.listen(port, () => {

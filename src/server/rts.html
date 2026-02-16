@@ -935,26 +935,16 @@ const state = {
 };
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
-const RTS_SPRITE_URLS = [
-  '/rts-sprites/bg-space-tile-20260212b.png?v=20260212b',
-  '/rts-sprites/base_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/feature_factory_sprite.png?v=20260212v',
-  '/rts-sprites/research_lab_sprite.png?v=20260212v',
-  '/rts-sprites/warehouse_sprite.png?v=20260212v',
-  '/rts-sprites/university_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/library_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/power_sprite-20260212a.png?v=20260212a',
+const RTS_IDLE_SPRITE_PREFETCH_URLS = [
   '/rts-sprites/base_preview_3-20260213a.png?v=20260213a',
   '/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/university_preview-20260212a.webp?v=20260212a',
   '/rts-sprites/library_preview-20260212a.webp?v=20260212a',
-  '/rts-sprites/power_preview-20260212a.webp?v=20260212a',
-  '/rts-sprites/unit-cephalon-test.png?v=20260212b',
-  '/rts-sprites/subunit-cephalon-test.png?v=20260212b'
+  '/rts-sprites/power_preview-20260212a.webp?v=20260212a'
 ];
-let spritesPreloadPromise = null;
+let idleSpritePrefetchStarted = false;
 
 const skillTrees = {
   architect: ['System Mapping','Dependency Radar','Design Sync','API Stability'],
@@ -1296,18 +1286,33 @@ function closeLibraryModal(){
   const modal = document.getElementById('libraryModal');
   if (modal) modal.hidden = true;
 }
-function preloadRtsSprites(){
-  if (spritesPreloadPromise) return spritesPreloadPromise;
+function preloadIdleSprites(){
+  if (idleSpritePrefetchStarted) return;
+  idleSpritePrefetchStarted = true;
   const load = (url) => new Promise((resolve) => {
     const img = new Image();
     img.decoding = 'async';
-    img.loading = 'eager';
+    img.loading = 'lazy';
     img.onload = () => resolve(true);
     img.onerror = () => resolve(false);
     img.src = url;
   });
-  spritesPreloadPromise = Promise.all(RTS_SPRITE_URLS.map(load)).catch(() => []);
-  return spritesPreloadPromise;
+  void Promise.all(RTS_IDLE_SPRITE_PREFETCH_URLS.map(load)).catch(() => []);
+}
+
+function scheduleIdleSpritePrefetch(){
+  const run = () => {
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(() => preloadIdleSprites(), { timeout: 3500 });
+      return;
+    }
+    window.setTimeout(preloadIdleSprites, 1200);
+  };
+  if (document.readyState === 'complete') {
+    run();
+    return;
+  }
+  window.addEventListener('load', run, { once: true });
 }
 async function json(url){
   const r = await fetch(url);
@@ -1830,8 +1835,8 @@ function markRunRelaunched(runId){
 }
 
 async function boot(){
-  // Warm sprite decode/cache so first placement/select doesn't pop in images.
-  void preloadRtsSprites();
+  // Keep first paint responsive; non-critical previews warm up after initial load.
+  scheduleIdleSpritePrefetch();
   await hydratePersistedState();
   state.workflows = await json('/api/workflows');
   try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
