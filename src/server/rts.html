@@ -876,22 +876,26 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   inset:0;
   z-index:260;
   overflow:auto;
-  padding:12px;
-  background:linear-gradient(180deg,#09172d 0%, #071223 100%);
+  padding:58px 12px 94px;
+  background:
+    radial-gradient(120% 90% at 20% -10%, #1b4064 0%, #0b2036 38%, #070f1d 100%),
+    linear-gradient(180deg,#09172d 0%, #071223 100%);
 }
 .mobile-list-panel h3 {
   font-family:Orbitron,sans-serif;
-  font-size:13px;
-  letter-spacing:.5px;
+  font-size:12px;
+  letter-spacing:.7px;
+  text-transform:uppercase;
   color:var(--corpus-teal);
-  margin-bottom:8px;
+  margin-bottom:10px;
 }
 .mobile-tree-base {
-  border:1px solid var(--panel-edge);
-  background:#0b1a2dcc;
-  border-radius:8px;
-  padding:10px;
-  margin-bottom:10px;
+  border:1px solid #3f6584;
+  background:linear-gradient(170deg,#0e243aeb 0%, #0a1a2be8 100%);
+  border-radius:12px;
+  padding:11px;
+  margin-bottom:12px;
+  box-shadow:0 10px 24px #03101f66;
 }
 .mobile-tree-base-head {
   display:flex;
@@ -900,13 +904,13 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   gap:8px;
 }
 .mobile-base-add-btn {
-  border:1px solid #4f799f;
-  background:#0b1b30;
-  color:var(--corpus-teal);
+  border:1px solid #6ba7d5;
+  background:linear-gradient(180deg,#153452 0%, #102840 100%);
+  color:#d7f4ff;
   border-radius:999px;
-  width:28px;
-  height:28px;
-  font-size:18px;
+  width:30px;
+  height:30px;
+  font-size:19px;
   line-height:1;
   cursor:pointer;
 }
@@ -930,11 +934,11 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   display:block;
   width:100%;
   text-align:left;
-  border:1px solid #4f799f;
-  background:#0b1b30;
+  border:1px solid #4a7397;
+  background:linear-gradient(170deg,#112d48 0%, #0d2238 100%);
   color:var(--corpus-ice);
-  border-radius:8px;
-  padding:8px 10px;
+  border-radius:10px;
+  padding:9px 10px;
   font-size:12px;
 }
 .mobile-tree-item-body {
@@ -979,6 +983,9 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 .layout.mobile-list-mode .mobile-list-panel {
   display:block;
 }
+.layout.mobile-native-app .mobile-action-tabs {
+  display:grid;
+}
 @media (max-width:1180px) {
   :root { --dock-w:min(280px, 30vw); --command-h:128px; --panel-gutter:var(--dock-w); }
   .hud-right { width:100%; max-height:100%; }
@@ -1008,17 +1015,17 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   }
   .mobile-status-strip {
     position:fixed;
-    top:0;
+    top:env(safe-area-inset-top, 0px);
     left:0;
     right:0;
-    height:36px;
+    height:40px;
     display:flex;
     align-items:center;
     justify-content:space-between;
     gap:8px;
-    padding:4px 10px;
-    background:linear-gradient(180deg,#061121f2 0%,#081426ed 100%);
-    border-bottom:1px solid #5fa5d655;
+    padding:6px 10px;
+    background:linear-gradient(180deg,#050f1eef 0%,#081426ea 100%);
+    border-bottom:1px solid #5fa5d633;
     z-index:280;
     font-family:'Geist Mono', monospace;
     font-size:10px;
@@ -1027,25 +1034,27 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   }
   .mobile-action-tabs {
     position:fixed;
-    left:var(--screen-pad);
-    right:var(--screen-pad);
-    bottom:calc(var(--command-h) + 6px);
-    height:38px;
+    left:10px;
+    right:10px;
+    bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
+    height:56px;
     display:grid;
     grid-template-columns:repeat(3, minmax(0,1fr));
-    gap:6px;
-    z-index:281;
+    gap:8px;
+    z-index:291;
   }
   .mobile-action-tabs button {
-    border-radius:10px;
-    font-size:11px;
+    border-radius:13px;
+    font-size:12px;
     font-weight:600;
-    letter-spacing:.4px;
-    background:linear-gradient(160deg,#0d2946 0%, #0a2038 100%);
+    letter-spacing:.5px;
+    border:1px solid #3e698c;
+    background:linear-gradient(160deg,#0f2f4e 0%, #0b223b 100%);
+    box-shadow:0 10px 20px #03101f73;
   }
   .mobile-action-tabs button.active {
-    border-color:#8de7ff;
-    box-shadow:0 0 0 1px #95e6ff66 inset, 0 0 18px #4ccff744;
+    border-color:#9ee3ff;
+    box-shadow:0 0 0 1px #95e6ff66 inset, 0 0 18px #4ccff744, 0 10px 22px #052034b5;
   }
   .hud {
     top:auto;
@@ -1105,6 +1114,21 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     min-height:180px;
     max-height:260px;
     font-size:12px;
+  }
+  .layout.mobile-native-app {
+    padding-top:0;
+    padding-bottom:0;
+  }
+  .layout.mobile-list-mode .mobile-list-panel {
+    display:block;
+    padding-top:calc(env(safe-area-inset-top, 0px) + 52px);
+    padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 78px);
+  }
+  .layout.mobile-list-mode .connectivity-banner {
+    top:calc(env(safe-area-inset-top, 0px) + 42px);
+  }
+  .layout.mobile-list-mode .mobile-action-tabs {
+    display:grid;
   }
 }
 </style>
@@ -1277,13 +1301,14 @@ function applyMobilePanelVisibility(){
   if (!(layout instanceof HTMLElement) || !(actionPanel instanceof HTMLElement) || !(livePanel instanceof HTMLElement) || !(selectionPanel instanceof HTMLElement)) return;
 
   if (!isMobileViewport()) {
-    layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel');
+    layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel', 'mobile-native-app');
     actionPanel.style.display = 'block';
     livePanel.style.display = 'none';
     selectionPanel.style.display = 'none';
     return;
   }
 
+  layout.classList.add('mobile-native-app');
   layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel');
   layout.classList.add(`mobile-tab-${mobileActiveTab}`);
 
@@ -1304,6 +1329,7 @@ function setMobileTab(tab){
   if (!['build', 'runs', 'intel'].includes(tab)) return;
   mobileActiveTab = tab;
   applyMobilePanelVisibility();
+  if (state.mobileListMode) renderMobileListMode();
 }
 
 function updateMobileStatusStrip(){
@@ -2603,9 +2629,53 @@ function findMobileBuildingById(buildingId){
   return null;
 }
 
+function mobileRunCardsMarkup(){
+  const runs = Array.isArray(state.runs) ? state.runs : [];
+  if (!runs.length) return `<div class="notice">No runs yet.</div>`;
+  const cards = runs.map((run) => {
+    const status = prettyStatus(getDisplayRunStatus(run, String(run?.status || ''), String(run?.id || '')));
+    const progress = Math.max(0, Math.min(100, Number(runProgress(run) || 0)));
+    const color = status === 'done' ? 'var(--ok)' : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)');
+    const runId = String(run?.id || '');
+    const wf = String(run?.workflow_id || 'workflow');
+    return `<article class="mobile-tree-base"><div class="mobile-tree-base-head"><h3>${esc(wf)}</h3><span class="notice">${esc(status)}</span></div><div class="notice">RUN ${esc(runId.slice(0, 12)) || 'pending'}</div><div class="progress"><div class="bar" style="width:${progress}%;background:${color}"></div></div></article>`;
+  }).join('');
+  return cards;
+}
+
+function mobileIntelCardsMarkup(){
+  const live = state.live || {};
+  const diag = state.diag || {};
+  const activeAgents = Array.isArray(live.activeAgents) ? live.activeAgents : [];
+  const cronCount = Array.isArray(diag?.cron?.jobs) ? diag.cron.jobs.length : Number(diag?.cron?.matchingCount || 0);
+  const selected = state.selected?.type ? String(state.selected.type).toUpperCase() : 'NONE';
+  return `
+    <article class="mobile-tree-base">
+      <div class="mobile-tree-base-head"><h3>Runtime</h3><span class="notice">${esc(String(state.connectivity?.state || 'online').toUpperCase())}</span></div>
+      <div class="notice">Active runs: ${Number(live.activeRunCount || 0)}</div>
+      <div class="notice">Pending runs: ${Number(live.pendingRunCount || 0)}</div>
+      <div class="notice">Running agents: ${Number(live.runningAgentCount || 0)}</div>
+      <div class="notice">Cron jobs: ${cronCount}</div>
+    </article>
+    <article class="mobile-tree-base">
+      <div class="mobile-tree-base-head"><h3>Focus</h3><span class="notice">${esc(selected)}</span></div>
+      <div class="notice">Selected: ${esc(selected)}</div>
+      <div class="notice">Visible agents: ${activeAgents.length}</div>
+    </article>
+  `;
+}
+
 function renderMobileListMode(){
   const panel = document.getElementById('mobileListPanel');
   if (!panel) return;
+  if (mobileActiveTab === 'runs') {
+    panel.innerHTML = `<h3>Active Runs</h3>${mobileRunCardsMarkup()}`;
+    return;
+  }
+  if (mobileActiveTab === 'intel') {
+    panel.innerHTML = `<h3>Mission Intel</h3>${mobileIntelCardsMarkup()}`;
+    return;
+  }
   const routeBuildingId = getMobileBuildingRouteId();
   const selected = routeBuildingId ? findMobileBuildingById(routeBuildingId) : null;
   if (routeBuildingId) {
@@ -2706,6 +2776,7 @@ async function setMobileListMode(active){
     hidePlacementGhost();
     await refreshMobileTree();
   }
+  applyMobilePanelVisibility();
   renderMobileListMode();
 }
 
@@ -2818,10 +2889,11 @@ async function runRuntimePoll(){
   const runsChanged = await refreshRuntimeState(false);
   if (!state.liveStream && navigator.onLine !== false) startLiveStream();
   if (runsChanged) rebuildScene();
-  else if (Number(state.live?.runningAgentCount || 0) > 0) {
+  else if (!state.mobileListMode && Number(state.live?.runningAgentCount || 0) > 0) {
     ensureMotionLoop();
     renderUnitsLiveState();
-  } else renderUnitsLiveState();
+  } else if (!state.mobileListMode) renderUnitsLiveState();
+  else renderMobileListMode();
   renderLiveConsole();
   state.runtimePoll.inFlight = false;
   const delay = state.runtimePoll.failures ? boundedRetryDelayMs(state.runtimePoll.failures) : state.runtimePoll.baseDelayMs;
@@ -3135,8 +3207,8 @@ function rebuildScene(){
   state.mobileTree = buildMobileTreeFromScene();
   if (state.mobileListMode) renderMobileListMode();
 
-  renderWorld();
-  if (Number(state.live?.runningAgentCount || 0) > 0) ensureMotionLoop();
+  if (!state.mobileListMode) renderWorld();
+  if (!state.mobileListMode && Number(state.live?.runningAgentCount || 0) > 0) ensureMotionLoop();
   if (state.selected) renderSelection();
   if (state.selected?.type === 'building' && !isEditingActionPanel()) {
     if (state.selected.data?.kind === 'feature') renderRunSetupPanel(state.selected.data.id);
