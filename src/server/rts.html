@@ -1430,10 +1430,11 @@ async function persistDraggedEntityPosition(drag){
   });
 }
 
-async function hydratePersistedState(){
+async function hydratePersistedState(view = 'full', resetSelection = true){
   let persisted = null;
   try {
-    const r = await json('/api/rts/state');
+    const mode = view === 'layout' ? 'layout' : 'full';
+    const r = await json(`/api/rts/state?view=${encodeURIComponent(mode)}`);
     persisted = r?.state || null;
   } catch {}
   if (!persisted || typeof persisted !== 'object') return;
@@ -1489,7 +1490,7 @@ async function hydratePersistedState(){
       .map((d) => normalizeFeatureDraft({ ...d, phase: 'draft' }));
   }
   // Do not restore selection across sessions; always boot into clean neutral view.
-  state.selected = null;
+  if (resetSelection) state.selected = null;
 }
 function parseContext(run){ try { return JSON.parse(run.context || '{}'); } catch { return {}; } }
 function extractPrUrl(run){
@@ -1842,12 +1843,19 @@ function markRunRelaunched(runId){
 async function boot(){
   // Keep first paint responsive; non-critical previews warm up after initial load.
   scheduleIdleSpritePrefetch();
-  await hydratePersistedState();
+  await hydratePersistedState('layout', true);
   state.workflows = await json('/api/workflows');
   try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
   try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
   await refreshRuntimeState(true);
   rebuildScene();
+  // Backfill heavy plan/item payloads after initial scene becomes interactive.
+  setTimeout(() => {
+    void hydratePersistedState('full', false).then(() => {
+      rebuildScene();
+      renderLiveConsole();
+    });
+  }, 0);
   renderLiveConsole();
   startLiveStream();
   queuePersist();

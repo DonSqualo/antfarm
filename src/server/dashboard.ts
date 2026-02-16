@@ -556,7 +556,8 @@ function readLibraryMarkdownFile(absPathRaw: string): { path: string; content: s
   return { path: absPath, content, size: Number(st.size || 0), mtimeMs: Number(st.mtimeMs || 0) };
 }
 
-function getRtsState(): Record<string, unknown> {
+function getRtsState(options: { view?: "full" | "layout" } = {}): Record<string, unknown> {
+  const view = options.view === "layout" ? "layout" : "full";
   // Keep this path read-only and cheap: it is called on every dashboard boot.
   const db = getDb();
   ensureRtsTables(db);
@@ -597,15 +598,17 @@ function getRtsState(): Record<string, unknown> {
   let needsRunWorktreeInference = false;
   const seenFeatureKeys = new Set<string>();
   for (const r of rows) {
-    let payload: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(r.payload_json || "{}");
-      if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
-    } catch {}
     if (r.entity_type === "base") {
+      let payload: Record<string, unknown> = {};
+      if (view === "full") {
+        try {
+          const parsed = JSON.parse(r.payload_json || "{}");
+          if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+        } catch {}
+      }
       customBases.push({
         ...payload,
-        id: payload.id ?? r.id,
+        id: (payload.id as string | undefined) ?? r.id,
         x: Number(r.x),
         y: Number(r.y),
         repo: r.repo_path ?? payload.repo ?? "",
@@ -614,18 +617,25 @@ function getRtsState(): Record<string, unknown> {
       continue;
     }
     if (r.entity_type === "feature") {
+      let payload: Record<string, unknown> = {};
+      if (view === "full") {
+        try {
+          const parsed = JSON.parse(r.payload_json || "{}");
+          if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+        } catch {}
+      }
       const repoPath = String(r.repo_path ?? payload.repo ?? "");
       const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath);
-      let resolvedRunId = (r.run_id ?? payload.runId ?? null) as string | null;
+      let resolvedRunId = (r.run_id ?? (view === "full" ? payload.runId : null) ?? null) as string | null;
       let resolvedStatus: string | null = null;
       if (resolvedRunId && !runIdSet.has(resolvedRunId)) {
         // Layout pointed at a deleted run: heal to draft mode immediately.
         resolvedRunId = null;
       }
-      if (!resolvedRunId && worktreePath) {
+      if (view === "full" && !resolvedRunId && worktreePath) {
         needsRunWorktreeInference = true;
       }
-      if (needsRunWorktreeInference && runByWorktree.size === 0) {
+      if (view === "full" && needsRunWorktreeInference && runByWorktree.size === 0) {
         const runsWithContext = db.prepare("SELECT id, status, context FROM runs").all() as Array<{ id: string; status: string; context: string }>;
         for (const run of runsWithContext) {
           let ctx: Record<string, unknown> = {};
@@ -652,8 +662,8 @@ function getRtsState(): Record<string, unknown> {
       if (seenFeatureKeys.has(dedupeKey)) continue;
       seenFeatureKeys.add(dedupeKey);
       featureBuildings.push({
-        ...payload,
-        id: payload.id ?? r.id,
+        ...(view === "full" ? payload : {}),
+        id: (payload.id as string | undefined) ?? r.id,
         kind: "feature",
         x: Number(r.x),
         y: Number(r.y),
@@ -661,18 +671,28 @@ function getRtsState(): Record<string, unknown> {
         worktreePath: worktreePath || String(r.worktree_path ?? payload.worktreePath ?? ""),
         runId: resolvedRunId,
         committed: resolvedRunId ? true : payload.committed,
-        phase: resolvedStatus || payload.phase || (resolvedRunId ? "running" : "draft"),
+        phase: resolvedStatus || (view === "full" ? payload.phase : null) || (resolvedRunId ? "running" : "draft"),
       });
       continue;
     }
     if (r.entity_type === "research") {
+      let payload: Record<string, unknown> = {};
+      if (view === "full") {
+        try {
+          const parsed = JSON.parse(r.payload_json || "{}");
+          if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+        } catch {}
+      }
       const repoPath = String(r.repo_path ?? payload.repo ?? "");
       const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath) || repoPath;
-      const rawKind = String(payload.kind || payload.variant || (String(r.id || "").startsWith("university-") ? "university" : "research")).toLowerCase();
+      const rawKind = String(
+        (view === "full" ? (payload.kind || payload.variant) : "") ||
+        (String(r.id || "").startsWith("university-") ? "university" : "research")
+      ).toLowerCase();
       const kind = rawKind === "university" ? "university" : "research";
       researchBuildings.push({
-        ...payload,
-        id: payload.id ?? r.id,
+        ...(view === "full" ? payload : {}),
+        id: (payload.id as string | undefined) ?? r.id,
         kind,
         x: Number(r.x),
         y: Number(r.y),
@@ -682,13 +702,23 @@ function getRtsState(): Record<string, unknown> {
       continue;
     }
     if (r.entity_type === "warehouse") {
+      let payload: Record<string, unknown> = {};
+      if (view === "full") {
+        try {
+          const parsed = JSON.parse(r.payload_json || "{}");
+          if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+        } catch {}
+      }
       const repoPath = String(r.repo_path ?? payload.repo ?? "");
       const worktreePath = absolutizePath(String(r.worktree_path ?? payload.worktreePath ?? ""), repoPath) || repoPath;
-      const rawKind = String(payload.kind || payload.variant || (String(r.id || "").startsWith("library-") ? "library" : "warehouse")).toLowerCase();
+      const rawKind = String(
+        (view === "full" ? (payload.kind || payload.variant) : "") ||
+        (String(r.id || "").startsWith("library-") ? "library" : "warehouse")
+      ).toLowerCase();
       const kind = rawKind === "library" ? "library" : (rawKind === "power" ? "power" : "warehouse");
       warehouseBuildings.push({
-        ...payload,
-        id: payload.id ?? r.id,
+        ...(view === "full" ? payload : {}),
+        id: (payload.id as string | undefined) ?? r.id,
         kind,
         x: Number(r.x),
         y: Number(r.y),
@@ -1993,14 +2023,16 @@ export function startDashboard(port = 3333): http.Server {
 
     if (p === "/api/rts/state" && method === "GET") {
       const started = Date.now();
-      const state = getRtsState();
+      const requestedView = String(url.searchParams.get("view") || "").toLowerCase();
+      const view = requestedView === "layout" ? "layout" : "full";
+      const state = getRtsState({ view });
       const elapsed = Date.now() - started;
       if (elapsed >= 80) {
         try {
           const db = getDb();
           const runCount = Number((db.prepare("SELECT COUNT(*) AS c FROM runs").get() as { c?: number } | undefined)?.c || 0);
           const layoutCount = Number((db.prepare("SELECT COUNT(*) AS c FROM rts_layout_entities").get() as { c?: number } | undefined)?.c || 0);
-          console.warn(`[rts:slow] /api/rts/state ${elapsed}ms runs=${runCount} layout=${layoutCount}`);
+          console.warn(`[rts:slow] /api/rts/state view=${view} ${elapsed}ms runs=${runCount} layout=${layoutCount}`);
         } catch {}
       }
       return json(res, { ok: true, state });
