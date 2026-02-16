@@ -941,7 +941,9 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       const x = Number.isFinite(existing?.x) ? Number(existing!.x) : (Number.isFinite(incomingX) ? incomingX : 0);
       const y = Number.isFinite(existing?.y) ? Number(existing!.y) : (Number.isFinite(incomingY) ? incomingY : 0);
       const worktreePath = absolutizePath(String(research?.worktreePath ?? ""), repoPath) || repoPath || null;
-      const payload = { ...research, kind: "research", repo: repoPath, worktreePath, x, y };
+      const rawKind = String(research?.kind ?? research?.variant ?? "research").toLowerCase();
+      const kind = rawKind === "university" ? "university" : "research";
+      const payload = { ...research, kind, repo: repoPath, worktreePath, x, y };
       upsert.run(id, "research", null, repoPath || null, worktreePath, x, y, JSON.stringify(payload), now);
     }
     for (const warehouse of warehouseBuildings) {
