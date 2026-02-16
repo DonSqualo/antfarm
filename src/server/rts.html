@@ -134,7 +134,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .world-bg {
   position:absolute; inset:0;
   z-index:0;
-  background-image:url('/rts-sprites/bg-space-tile-20260212b.png?v=20260212b');
+  background-image:var(--world-bg-image, none);
   background-repeat:repeat;
   background-size:128px 128px;
   background-position:calc(var(--cam-x, 0px) * -0.75) calc(var(--cam-y, 0px) * -0.75);
@@ -1256,9 +1256,11 @@ const state = {
   cameraDrag: { active:false, startX:0, startY:0, originX:0, originY:0, pointerId:null, viaTouch:false },
   mobileListMode: false,
   mobileTree: { bases: [] },
+  mobileTreeLoading: false,
   mobileFactoryCreate: { inFlightBaseId: '', errorByBase: {} },
   mobileMediaQuery: null,
   mobileRouteSyncing: false,
+  mobileFastPath: false,
   draggingEntity: null,
   draggingMoved: false,
   suppressWorldClick: false,
@@ -1285,12 +1287,17 @@ const state = {
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
 const SERVICE_WORKER_URL = '/service-worker.v1.js';
+const WORLD_BG_IMAGE = "url('/rts-sprites/bg-space-tile-20260212b.png?v=20260212b')";
 let deferredInstallPrompt = null;
 let mobileActiveTab = 'build';
 const MOBILE_LIST_BREAKPOINT = 900;
 
 function isMobileViewport(){
   return window.matchMedia('(max-width: 760px)').matches;
+}
+
+function setWorldBackgroundEnabled(enabled){
+  document.documentElement.style.setProperty('--world-bg-image', enabled ? WORLD_BG_IMAGE : 'none');
 }
 
 function applyMobilePanelVisibility(){
@@ -2592,6 +2599,15 @@ function buildMobileTreeFromScene(){
 }
 
 async function refreshMobileTree(){
+  const noSceneData = !Array.isArray(state.buildings) || state.buildings.length === 0;
+  if (state.mobileListMode && (state.mobileFastPath || noSceneData)) {
+    try {
+      const tree = await json('/api/rts/mobile/tree');
+      const bases = Array.isArray(tree?.bases) ? tree.bases : [];
+      state.mobileTree = { bases };
+      return;
+    } catch {}
+  }
   state.mobileTree = buildMobileTreeFromScene();
 }
 
@@ -2668,6 +2684,10 @@ function mobileIntelCardsMarkup(){
 function renderMobileListMode(){
   const panel = document.getElementById('mobileListPanel');
   if (!panel) return;
+  if (mobileActiveTab === 'build' && state.mobileTreeLoading) {
+    panel.innerHTML = `<h3>Mobile Ops List</h3><div class="notice">Syncing command state...</div>`;
+    return;
+  }
   if (mobileActiveTab === 'runs') {
     panel.innerHTML = `<h3>Active Runs</h3>${mobileRunCardsMarkup()}`;
     return;
@@ -2700,7 +2720,10 @@ function renderMobileListMode(){
   const errorByBase = (state.mobileFactoryCreate && typeof state.mobileFactoryCreate.errorByBase === 'object') ? state.mobileFactoryCreate.errorByBase : {};
   const baseMarkup = bases.map((base) => {
     const baseId = String(base?.id || '');
-    const canCreateFactory = String(base?.source || '') === 'custom';
+    const baseSource = String(base?.source || '').trim().toLowerCase();
+    const canCreateFactory = baseSource
+      ? baseSource === 'custom'
+      : !baseId.startsWith('base:');
     const isCreating = inFlightBaseId === baseId;
     const baseError = String(errorByBase[baseId] || '');
     const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
@@ -2736,7 +2759,7 @@ async function createFactoryForMobileBase(baseId){
     const payload = await postJson('/api/rts/factory/create', { baseId: safeBaseId, kind: 'factory' });
     const createdId = String(payload?.buildingId || '').trim();
     const targetBase = (state.customBases || []).find((base) => String(base?.id || '') === safeBaseId);
-    if (createdId && targetBase && !state.featureBuildings.some((feature) => String(feature?.id || '') === createdId)) {
+    if (!state.mobileFastPath && createdId && targetBase && !state.featureBuildings.some((feature) => String(feature?.id || '') === createdId)) {
       state.featureBuildings.push({
         id: createdId,
         kind: 'feature',
@@ -2770,11 +2793,15 @@ async function setMobileListMode(active){
   const layout = document.querySelector('.layout');
   if (layout) layout.classList.toggle('mobile-list-mode', enabled);
   if (enabled) {
+    state.mobileFastPath = true;
     state.cameraDrag.active = false;
     state.draggingEntity = null;
     setPlacement(null);
     hidePlacementGhost();
+    setWorldBackgroundEnabled(false);
     await refreshMobileTree();
+  } else {
+    setWorldBackgroundEnabled(true);
   }
   applyMobilePanelVisibility();
   renderMobileListMode();
@@ -2787,19 +2814,45 @@ function syncMobileListMode(){
 }
 
 async function boot(){
-  // Warm sprite decode/cache so first placement/select doesn't pop in images.
-  void preloadRtsSprites();
   state.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_LIST_BREAKPOINT}px)`);
   if (typeof state.mobileMediaQuery?.addEventListener === 'function') state.mobileMediaQuery.addEventListener('change', syncMobileListMode);
   else if (typeof state.mobileMediaQuery?.addListener === 'function') state.mobileMediaQuery.addListener(syncMobileListMode);
-  await hydratePersistedState();
-  state.workflows = await json('/api/workflows');
-  try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
-  try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
-  await refreshRuntimeState(true);
-  rebuildScene();
-  renderLiveConsole();
-  startLiveStream();
+  const initialMobile = !!state.mobileMediaQuery?.matches;
+  state.mobileFastPath = initialMobile;
+  setWorldBackgroundEnabled(!initialMobile);
+  if (initialMobile) {
+    const layout = document.querySelector('.layout');
+    if (layout) layout.classList.add('mobile-list-mode');
+    state.mobileListMode = true;
+    state.mobileTreeLoading = true;
+    applyMobilePanelVisibility();
+    renderMobileListMode();
+  }
+  if (!initialMobile) {
+    // Warm sprite decode/cache so first placement/select doesn't pop in images.
+    void preloadRtsSprites();
+    await hydratePersistedState();
+  }
+  if (initialMobile) {
+    void (async () => {
+      try { state.workflows = await json('/api/workflows'); } catch { state.workflows = []; }
+      try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
+      try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
+      try { await refreshRuntimeState(false); } catch {}
+      await refreshMobileTree();
+      state.mobileTreeLoading = false;
+      renderMobileListMode();
+      renderLiveConsole();
+    })();
+  } else {
+    state.workflows = await json('/api/workflows');
+    try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
+    try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
+    await refreshRuntimeState(true);
+    rebuildScene();
+    renderLiveConsole();
+    startLiveStream();
+  }
   const mobileListPanel = document.getElementById('mobileListPanel');
   mobileListPanel?.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -2832,7 +2885,7 @@ async function boot(){
     renderMobileListMode();
   });
   syncMobileListMode();
-  queuePersist();
+  if (!initialMobile) queuePersist();
 }
 
 async function refreshRuntimeState(throwOnError = false){
@@ -2887,8 +2940,12 @@ async function runRuntimePoll(){
   if (state.runtimePoll.inFlight) return;
   state.runtimePoll.inFlight = true;
   const runsChanged = await refreshRuntimeState(false);
-  if (!state.liveStream && navigator.onLine !== false) startLiveStream();
-  if (runsChanged) rebuildScene();
+  if (!state.mobileListMode && !state.liveStream && navigator.onLine !== false) startLiveStream();
+  if (runsChanged && !state.mobileListMode) rebuildScene();
+  else if (runsChanged && state.mobileListMode) {
+    await refreshMobileTree();
+    renderMobileListMode();
+  }
   else if (!state.mobileListMode && Number(state.live?.runningAgentCount || 0) > 0) {
     ensureMotionLoop();
     renderUnitsLiveState();
