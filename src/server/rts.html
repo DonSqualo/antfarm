@@ -535,7 +535,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .unit {
   position:absolute;
   width:32px; height:32px;
-  background:url('/rts-sprites/unit-cephalon-test.png?v=20260212b') center/contain no-repeat;
+  background:url('/rts-sprites/unit-cephalon-test.webp?v=20260212b') center/contain no-repeat;
   filter:none;
   cursor:pointer;
   animation:float-unit 1.8s ease-in-out infinite alternate;
@@ -561,7 +561,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .subunit {
   position:absolute;
   width:16px; height:16px;
-  background:url('/rts-sprites/subunit-cephalon-test.png?v=20260212b') center/contain no-repeat;
+  background:url('/rts-sprites/subunit-cephalon-test.webp?v=20260212b') center/contain no-repeat;
   filter:none;
   image-rendering:pixelated;
   image-rendering:crisp-edges;
@@ -1173,7 +1173,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 
     <section class="command-bar">
       <div class="command-grid">
-        <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)" style="--palette-bg:url('/rts-sprites/base_preview_3-20260213a.png?v=20260213a');">
+        <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)" style="--palette-bg:url('/rts-sprites/base_preview_3-20260213a.webp?v=20260213a');">
           <span class="palette-tooltip" role="tooltip">
             <span class="tooltip-title">Base Core</span>
             <span class="tooltip-copy">Main command hub. Place first to anchor routing and runtime links.</span>
@@ -1287,7 +1287,7 @@ const state = {
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
 const SERVICE_WORKER_URL = '/service-worker.v1.js';
-const WORLD_BG_IMAGE = "url('/rts-sprites/bg-space-tile-20260212b.png?v=20260212b')";
+const WORLD_BG_IMAGE = "url('/rts-sprites/bg-space-tile-20260212b.webp?v=20260212b')";
 let deferredInstallPrompt = null;
 let mobileActiveTab = 'build';
 const MOBILE_LIST_BREAKPOINT = 900;
@@ -1462,23 +1462,23 @@ function registerServiceWorker(){
   });
 }
 const RTS_SPRITE_URLS = [
-  '/rts-sprites/bg-space-tile-20260212b.png?v=20260212b',
-  '/rts-sprites/base_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/feature_factory_sprite.png?v=20260212v',
-  '/rts-sprites/research_lab_sprite.png?v=20260212v',
-  '/rts-sprites/warehouse_sprite.png?v=20260212v',
-  '/rts-sprites/university_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/library_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/power_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/base_preview_3-20260213a.png?v=20260213a',
+  '/rts-sprites/bg-space-tile-20260212b.webp?v=20260212b',
+  '/rts-sprites/base_sprite-20260212a.webp?v=20260212a',
+  '/rts-sprites/feature_factory_sprite.webp?v=20260212v',
+  '/rts-sprites/research_lab_sprite.webp?v=20260212v',
+  '/rts-sprites/warehouse_sprite.webp?v=20260212v',
+  '/rts-sprites/university_sprite-20260212a.webp?v=20260212a',
+  '/rts-sprites/library_sprite-20260212a.webp?v=20260212a',
+  '/rts-sprites/power_sprite-20260212a.webp?v=20260212a',
+  '/rts-sprites/base_preview_3-20260213a.webp?v=20260213a',
   '/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/university_preview-20260212a.webp?v=20260212a',
   '/rts-sprites/library_preview-20260212a.webp?v=20260212a',
   '/rts-sprites/power_preview-20260212a.webp?v=20260212a',
-  '/rts-sprites/unit-cephalon-test.png?v=20260212b',
-  '/rts-sprites/subunit-cephalon-test.png?v=20260212b'
+  '/rts-sprites/unit-cephalon-test.webp?v=20260212b',
+  '/rts-sprites/subunit-cephalon-test.webp?v=20260212b'
 ];
 let spritesPreloadPromise = null;
 const spritePreloadByUrl = new Map();
@@ -1916,7 +1916,7 @@ function collectVisibleSpriteUrls(){
     const parsed = parseCssUrl(styleUrl);
     if (parsed) urls.add(parsed);
   });
-  urls.add('/rts-sprites/bg-space-tile-20260212b.png?v=20260212b');
+  urls.add('/rts-sprites/bg-space-tile-20260212b.webp?v=20260212b');
   return [...urls];
 }
 
@@ -2484,7 +2484,7 @@ function mobileRenderKindForBuilding(building){
 }
 
 function mobileSpriteForKind(kind){
-  if (kind === 'base') return '/rts-sprites/base_preview_3-20260213a.png?v=20260213a';
+  if (kind === 'base') return '/rts-sprites/base_preview_3-20260213a.webp?v=20260213a';
   if (kind === 'research') return '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k';
   if (kind === 'warehouse') return '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k';
   if (kind === 'university') return '/rts-sprites/university_preview-20260212a.webp?v=20260212a';
@@ -3615,27 +3615,27 @@ function placePowerAt(x,y){
 
 function structureMarkup(kind, variant = ''){
   if (kind === 'base') {
-    return `<img class="building-sprite" src="/rts-sprites/base_sprite-20260212a.png?v=20260212a" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/base_sprite-20260212a.webp?v=20260212a" alt="" />`;
   }
   if (kind === 'feature') {
-    return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.png?v=20260212v" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.webp?v=20260212v" alt="" />`;
   }
   if (kind === 'university' || (kind === 'research' && String(variant || '') === 'university')) {
-    return `<img class="building-sprite" src="/rts-sprites/university_sprite-20260212a.png?v=20260212a" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/university_sprite-20260212a.webp?v=20260212a" alt="" />`;
   }
   if (kind === 'research') {
-    return `<img class="building-sprite" src="/rts-sprites/research_lab_sprite.png?v=20260212v" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/research_lab_sprite.webp?v=20260212v" alt="" />`;
   }
   if (kind === 'library' || (kind === 'warehouse' && String(variant || '') === 'library')) {
-    return `<img class="building-sprite" src="/rts-sprites/library_sprite-20260212a.png?v=20260212a" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/library_sprite-20260212a.webp?v=20260212a" alt="" />`;
   }
   if (kind === 'power' || (kind === 'warehouse' && String(variant || '') === 'power')) {
-    return `<img class="building-sprite" src="/rts-sprites/power_sprite-20260212a.png?v=20260212a" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/power_sprite-20260212a.webp?v=20260212a" alt="" />`;
   }
   if (kind === 'warehouse') {
-    return `<img class="building-sprite" src="/rts-sprites/warehouse_sprite.png?v=20260212v" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/warehouse_sprite.webp?v=20260212v" alt="" />`;
   }
-  return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.png?v=20260212v" alt="" />`;
+  return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.webp?v=20260212v" alt="" />`;
 }
 
 function snapPlacement(kind, worldX, worldY){
