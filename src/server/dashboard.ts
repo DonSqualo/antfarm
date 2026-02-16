@@ -515,7 +515,11 @@ function titleFromKind(kind: string): string {
 
 function deriveBaseLabel(base: Record<string, unknown>): string {
   const repoName = path.basename(String(base.repo ?? "").trim()) || "Base";
-  return asDisplayLabel(base.label ?? base.name ?? base.title, repoName);
+  const rawLabel = String(base.label ?? base.name ?? base.title ?? "").trim();
+  // Prefer the repo name over synthetic/default labels so mobile shows the real repo identity.
+  if (/^(alpha base|beta base|base|unlinked)$/i.test(rawLabel) && repoName && repoName !== "Base") return repoName;
+  if (/^base[-\s]/i.test(rawLabel) && repoName && repoName !== "Base") return repoName;
+  return rawLabel || repoName;
 }
 
 function deriveBuildingLabel(building: Record<string, unknown>, kind: string): string {
@@ -534,6 +538,36 @@ function centerFor(entity: Record<string, unknown>): { x: number; y: number } {
   return { x: Number(entity.x ?? 0), y: Number(entity.y ?? 0) };
 }
 
+function resolveBaseRepoPath(base: Record<string, unknown>): string {
+  const raw = String(base?.repo ?? "").trim();
+  const candidate = normalizeRepoPath(raw);
+  if (candidate && isGitRepoPath(candidate)) return candidate;
+  const cwd = normalizeRepoPath(process.cwd());
+  if (cwd && isGitRepoPath(cwd)) return cwd;
+  return candidate || raw;
+}
+
+function repairBaseRepoAndLabel(baseId: string, repoPath: string, label: string): void {
+  const id = String(baseId || "").trim();
+  if (!id) return;
+  const repo = normalizeRepoPath(String(repoPath || ""));
+  const nextLabel = String(label || "").trim();
+  const db = getDb();
+  ensureRtsTables(db);
+  const row = db.prepare("SELECT payload_json FROM rts_layout_entities WHERE id = ? AND entity_type = 'base'").get(id) as { payload_json: string } | undefined;
+  if (!row) return;
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(row.payload_json || "{}");
+    if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+  } catch {}
+  const merged: Record<string, unknown> = { ...payload };
+  if (repo) merged.repo = repo;
+  if (nextLabel) merged.label = nextLabel;
+  db.prepare("UPDATE rts_layout_entities SET repo_path = ?, payload_json = ?, updated_at = ? WHERE id = ? AND entity_type = 'base'")
+    .run(repo || null, JSON.stringify(merged), new Date().toISOString(), id);
+}
+
 export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record<string, unknown>> } {
   const rawBases = Array.isArray(state.customBases) ? state.customBases as Array<Record<string, unknown>> : [];
   const rawFeature = Array.isArray(state.featureBuildings) ? state.featureBuildings as Array<Record<string, unknown>> : [];
@@ -545,11 +579,12 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
   for (const base of rawBases) {
     const id = String(base.id ?? "").trim();
     if (!id || baseById.has(id)) continue;
-    const repo = String(base.repo ?? "").trim();
+    const repoPath = resolveBaseRepoPath(base);
+    const repo = String(repoPath || "").trim();
     const node: Record<string, unknown> = {
       id,
       kind: "base",
-      label: deriveBaseLabel(base),
+      label: deriveBaseLabel({ ...base, repo }),
       repo,
       buildings: [],
       x: Number(base.x ?? 0),
@@ -721,6 +756,7 @@ export function createBaseScopedFactory(
   const customBases = Array.isArray(state.customBases) ? state.customBases as Array<Record<string, unknown>> : [];
   let base = customBases.find((candidate) => String(candidate?.id || "").trim() === baseId) ?? null;
   if (!base) throw new Error(`baseId not found: ${baseId}`);
+  const baseRepoPath = resolveBaseRepoPath(base);
 
   const featureBuildings = Array.isArray(state.featureBuildings)
     ? [...state.featureBuildings as Array<Record<string, unknown>>]
@@ -728,15 +764,15 @@ export function createBaseScopedFactory(
   const id = `feature-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const x = Number(base.x ?? 0) + 120;
   const y = Number(base.y ?? 0) + 80;
-  featureBuildings.push({
-    id,
-    kind: "feature",
-    label: "Factory",
-    repo: String(base.repo ?? ""),
-    baseId,
-    x,
-    y,
-    committed: false,
+      featureBuildings.push({
+        id,
+        kind: "feature",
+        label: "Factory",
+        repo: String(baseRepoPath || (base.repo ?? "")),
+        baseId,
+        x,
+        y,
+        committed: false,
     phase: "draft",
     createdAt: new Date().toISOString(),
   });
@@ -1337,6 +1373,118 @@ async function deployPendingRuns(
     }
   }
   return { attempted: targets.length, kicked, runIds };
+}
+
+async function launchFeatureRun(params: {
+  workflowId: string;
+  taskTitle: string;
+  prompt: string;
+  baseRepoPath: string;
+  baseId: string;
+  draftX: number;
+  draftY: number;
+  draftPort?: number | null;
+}): Promise<{
+  run: RunInfo & { steps: StepInfo[] };
+  worktreePath: string;
+  branchName: string;
+  layout: { id: string; entityType: string; runId: string | null };
+  runtime: { ok: boolean; port?: number; key?: string; message?: string };
+}> {
+  const workflowId = String(params.workflowId || "feature-dev").trim() || "feature-dev";
+  const taskTitle = String(params.taskTitle || "Mobile Factory").trim() || "Mobile Factory";
+  const prompt = String(params.prompt || taskTitle).trim() || taskTitle;
+  const baseRepoPath = normalizeRepoPath(String(params.baseRepoPath || ""));
+  const baseId = String(params.baseId || "").trim();
+  if (!baseId) throw new Error("baseId is required");
+  if (!baseRepoPath || !fs.existsSync(baseRepoPath)) throw new Error(`Base repo path not found: ${baseRepoPath || "(empty)"}`);
+  if (!fs.existsSync(path.join(baseRepoPath, ".git"))) throw new Error(`Not a git repo: ${baseRepoPath}`);
+
+  const nowToken = Date.now().toString().slice(-5);
+  const branchName = `feature/mobile-factory-${nowToken}`;
+  const worktreePath = resolveWorktreePath(baseRepoPath, "");
+
+  if (!fs.existsSync(worktreePath)) {
+    const args = ["-C", baseRepoPath, "worktree", "add"];
+    if (branchExists(baseRepoPath, branchName)) args.push(worktreePath, branchName);
+    else args.push("-b", branchName, worktreePath);
+    execFileSync("git", args, { stdio: "pipe" });
+  }
+
+  const run = await runWorkflow({ workflowId, taskTitle, deferInitialKick: true });
+  const db = getDb();
+  const row = db.prepare("SELECT context FROM runs WHERE id = ?").get(run.id) as { context: string } | undefined;
+  const context = parseRunContext(row?.context ?? "{}");
+
+  const draftPort = Number(params.draftPort);
+  const nextContext = {
+    ...context,
+    prompt,
+    task: taskTitle,
+    baseId,
+    workerAssignments: context.workerAssignments || {},
+    baseRepoPath,
+    repoPath: baseRepoPath,
+    worktreePath,
+    runtimePort: Number.isFinite(draftPort) && draftPort > 0 ? Math.floor(draftPort) : null,
+    branchName,
+  };
+  db.prepare("UPDATE runs SET context = ?, updated_at = ? WHERE id = ?").run(
+    JSON.stringify(nextContext),
+    new Date().toISOString(),
+    run.id
+  );
+
+  const firstStep = db.prepare(
+    "SELECT id FROM steps WHERE run_id = ? AND step_index = 0 AND status = 'pending' LIMIT 1"
+  ).get(run.id) as { id: string } | undefined;
+
+  const layoutId = `feature-${run.id}`;
+  const layout = upsertLayoutPosition({
+    entityType: "feature",
+    entityId: layoutId,
+    runId: run.id,
+    repoPath: baseRepoPath,
+    worktreePath,
+    x: Number.isFinite(params.draftX) ? params.draftX : 0,
+    y: Number.isFinite(params.draftY) ? params.draftY : 0,
+    allowCreate: true,
+  });
+
+  try {
+    const row2 = db.prepare("SELECT payload_json FROM rts_layout_entities WHERE id = ?").get(layout.id) as { payload_json: string } | undefined;
+    let payload: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(row2?.payload_json || "{}");
+      if (parsed && typeof parsed === "object") payload = parsed as Record<string, unknown>;
+    } catch {}
+    const nextPayload: Record<string, unknown> = {
+      ...payload,
+      id: layout.id,
+      kind: "feature",
+      repo: baseRepoPath,
+      worktreePath,
+      baseId,
+      prompt,
+      runId: run.id,
+      committed: true,
+      phase: "running",
+      x: Number.isFinite(params.draftX) ? params.draftX : Number(payload.x || 0),
+      y: Number.isFinite(params.draftY) ? params.draftY : Number(payload.y || 0),
+    };
+    if (Number.isFinite(draftPort) && draftPort > 0) nextPayload.port = draftPort;
+    db.prepare("UPDATE rts_layout_entities SET payload_json = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(nextPayload), new Date().toISOString(), layout.id);
+  } catch {}
+
+  const runtimeStart = ensureFactoryRuntime(worktreePath, Number.isFinite(draftPort) && draftPort > 0 ? draftPort : null);
+  if (firstStep?.id) {
+    const evt = { ts: new Date().toISOString(), event: "step.pending" as const, runId: run.id, workflowId, stepId: firstStep.id };
+    emitEvent(evt);
+    try { await immediateHandoff(evt); } catch {}
+  }
+
+  return { run: getRunById(run.id)!, worktreePath, branchName, layout, runtime: runtimeStart };
 }
 
 function serveHTML(res: http.ServerResponse, fileName = "index.html") {
@@ -2209,16 +2357,48 @@ export function startDashboard(port = 3333): http.Server {
     if (p === "/api/rts/factory/create" && method === "POST") {
       try {
         const body = JSON.parse(await readBody(req)) as { baseId?: string; kind?: string };
-        const created = createBaseScopedFactory(getRtsState(), {
-          baseId: String(body?.baseId || ""),
-          kind: String(body?.kind || ""),
+        const baseId = String(body?.baseId || "").trim();
+        if (!baseId) return json(res, { ok: false, error: "baseId is required" }, 400);
+
+        const state = getRtsState();
+        const customBases = Array.isArray(state.customBases) ? state.customBases as Array<Record<string, unknown>> : [];
+        const base = customBases.find((b) => String(b?.id || "").trim() === baseId) ?? null;
+        if (!base) return json(res, { ok: false, error: `baseId not found: ${baseId}` }, 400);
+
+        const baseRepoPath = resolveBaseRepoPath(base);
+        if (!baseRepoPath) return json(res, { ok: false, error: "base repo path is empty" }, 400);
+
+        const desiredLabel = path.basename(baseRepoPath) || deriveBaseLabel({ ...base, repo: baseRepoPath });
+        // Make DB truth match what mobile/desktop expect: base repo should point at a real git repo.
+        if (String(base.repo || "").trim() !== baseRepoPath || String(base.label || "").trim() !== desiredLabel) {
+          repairBaseRepoAndLabel(baseId, baseRepoPath, desiredLabel);
+        }
+
+        const draftX = Number(base.x ?? 0) + 120;
+        const draftY = Number(base.y ?? 0) + 80;
+        const baseSuggested = inferSuggestedPortForRepo(baseRepoPath);
+        const draftPort = baseSuggested ? (baseSuggested + 1) : null;
+
+        const result = await launchFeatureRun({
+          workflowId: "feature-dev",
+          taskTitle: `Mobile Factory ${new Date().toISOString().slice(11, 19)}`,
+          prompt: "Mobile factory: start feature-dev workflow",
+          baseRepoPath,
+          baseId,
+          draftX,
+          draftY,
+          draftPort: Number.isFinite(Number(draftPort)) ? Number(draftPort) : null,
         });
-        saveRtsState(created.state);
+
         return json(res, {
           ok: true,
-          buildingId: created.buildingId,
-          baseId: created.baseId,
-          kind: created.kind,
+          baseId,
+          kind: "feature",
+          run: result.run,
+          worktreePath: result.worktreePath,
+          branchName: result.branchName,
+          layout: result.layout,
+          runtime: result.runtime,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
