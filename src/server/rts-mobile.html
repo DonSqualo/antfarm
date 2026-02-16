@@ -22,6 +22,18 @@ body { margin:0; font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Rob
 .list { list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
 .item { width:100%; text-align:left; border:1px solid #4b7396; background:linear-gradient(160deg,var(--panel-2) 0%, #0d2238 100%); color:var(--text); border-radius:10px; padding:10px; }
 .item:hover { border-color:#88c8f0; }
+.item-body { display:flex; align-items:flex-start; gap:10px; }
+.item-icon {
+  width:34px;
+  height:34px;
+  border-radius:7px;
+  border:1px solid #4e7898;
+  background-color:#081425;
+  background-size:cover;
+  background-position:center;
+  flex:0 0 34px;
+}
+.item-meta { min-width:0; flex:1 1 auto; }
 .progress { margin-top:7px; height:6px; border-radius:999px; border:1px solid #4f7693; overflow:hidden; background:#08101d; }
 .bar { height:100%; background:linear-gradient(90deg,#58ffe4,#66cbff); }
 .plus { width:30px; height:30px; border-radius:999px; border:1px solid #6ba7d5; background:linear-gradient(180deg,#153452 0%, #102840 100%); color:#d7f4ff; font-size:19px; }
@@ -46,10 +58,32 @@ body { margin:0; font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Rob
 const state = { tab:'build', treeLoading:true, tree:{ bases:[] }, runs:[], live:null, diag:null, inFlightBaseId:'', errors:{} };
 const topEl = document.getElementById('top');
 const mainEl = document.getElementById('main');
+const spritePreloads = new Set();
 
 function esc(s){ return String(s ?? '').replace(/[&<>\"]/g, (m)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
 async function json(url){ const r=await fetch(url); const d=await r.json(); if(!r.ok) throw new Error(d?.error||`request_failed:${r.status}`); return d; }
 async function postJson(url, body){ const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); const d=await r.json(); if(!r.ok||d?.ok===false) throw new Error(d?.error||`request_failed:${r.status}`); return d; }
+
+function spriteForKind(kind){
+  const k = String(kind || '').toLowerCase();
+  if (k === 'base') return '/rts-sprites/base_preview_3-20260213a.webp?v=20260213a';
+  if (k === 'research') return '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k';
+  if (k === 'warehouse') return '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k';
+  if (k === 'university') return '/rts-sprites/university_preview-20260212a.webp?v=20260212a';
+  if (k === 'library') return '/rts-sprites/library_preview-20260212a.webp?v=20260212a';
+  if (k === 'power') return '/rts-sprites/power_preview-20260212a.webp?v=20260212a';
+  return '/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k';
+}
+
+function preloadSprite(url){
+  const key = String(url || '');
+  if (!key || spritePreloads.has(key)) return;
+  spritePreloads.add(key);
+  const img = new Image();
+  img.decoding = 'async';
+  img.loading = 'lazy';
+  img.src = key;
+}
 
 function runProgress(run){
   const steps = Array.isArray(run?.steps) ? run.steps : [];
@@ -92,7 +126,11 @@ function renderBuild(){
     const baseLabel = String(base?.label||'Base');
     const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
     const canCreate = !baseId.startsWith('base:');
-    const rows = buildings.length ? buildings.map((b)=>`<li><button class="item" data-building-id="${esc(String(b?.id||''))}"><div class="row"><strong>${esc(String(b?.label||b?.kind||'Building'))}</strong><span class="notice">${esc(String(b?.kind||''))}</span></div></button></li>`).join('') : '<li class="notice">No buildings</li>';
+    const rows = buildings.length ? buildings.map((b)=>{
+      const sprite = spriteForKind(String(b?.kind || 'feature'));
+      preloadSprite(sprite);
+      return `<li><button class="item" data-building-id="${esc(String(b?.id||''))}"><div class="item-body"><span class="item-icon" style="background-image:url('${esc(sprite)}')"></span><span class="item-meta"><span class="row"><strong>${esc(String(b?.label||b?.kind||'Building'))}</strong><span class="notice">${esc(String(b?.kind||''))}</span></span></span></div></button></li>`;
+    }).join('') : '<li class="notice">No buildings</li>';
     return `
       <section class="card">
         <div class="row">
