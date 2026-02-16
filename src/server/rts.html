@@ -1848,11 +1848,22 @@ async function boot(){
   // Keep first paint responsive; non-critical previews warm up after initial load.
   scheduleIdleSpritePrefetch();
   await hydratePersistedState('layout', true);
-  state.workflows = await json('/api/workflows');
-  try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
-  try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
-  await refreshRuntimeState(true);
+  // Draw immediately from lightweight layout state so buildings appear fast.
   rebuildScene();
+  renderLiveConsole();
+  startLiveStream();
+  queuePersist();
+
+  // Fetch non-critical data in background; these should never block first paint.
+  void (async () => {
+    try { state.workflows = await json('/api/workflows'); } catch { state.workflows = []; }
+    try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
+    try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
+    await refreshRuntimeState(false);
+    rebuildScene();
+    renderLiveConsole();
+  })();
+
   // Backfill heavy plan/item payloads after initial scene becomes interactive.
   setTimeout(() => {
     void hydratePersistedState('full', false).then(() => {
@@ -1860,9 +1871,6 @@ async function boot(){
       renderLiveConsole();
     });
   }, 0);
-  renderLiveConsole();
-  startLiveStream();
-  queuePersist();
 }
 
 async function refreshRuntimeState(throwOnError = false){
