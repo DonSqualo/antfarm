@@ -1959,18 +1959,19 @@ async function generateResearchPlans(repoPath: string, maxPlansRaw: number): Pro
 
 export function startDashboard(port = 3333): http.Server {
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-    const p = url.pathname;
-    const method = req.method ?? "GET";
+    try {
+      const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+      const p = url.pathname;
+      const method = req.method ?? "GET";
 
-    if (method === "OPTIONS") {
-      res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      });
-      return res.end();
-    }
+      if (method === "OPTIONS") {
+        res.writeHead(204, {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        });
+        return res.end();
+      }
 
     if (p === "/api/workflows") {
       return json(res, loadWorkflows());
@@ -2533,7 +2534,23 @@ export function startDashboard(port = 3333): http.Server {
     if (p === "/classic" || p === "/index" || p === "/index.html") {
       return serveHTML(req, res, "index.html");
     }
-    return serveHTML(req, res, "rts.html");
+      return serveHTML(req, res, "rts.html");
+    } catch (err) {
+      const message = err instanceof Error ? err.stack || err.message : String(err);
+      try { console.error("[dashboard:req:error]", message); } catch {}
+      if (!res.headersSent) {
+        try {
+          res.writeHead(500, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+          res.end(JSON.stringify({ ok: false, error: "internal_error" }));
+        } catch {}
+      } else {
+        try { res.end(); } catch {}
+      }
+    }
+  });
+
+  server.on("error", (err) => {
+    try { console.error("[dashboard:server:error]", err); } catch {}
   });
 
   server.listen(port, () => {
