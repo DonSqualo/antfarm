@@ -506,7 +506,10 @@ function asDisplayLabel(raw: unknown, fallback: string): string {
 function titleFromKind(kind: string): string {
   if (kind === "feature") return "Factory";
   if (kind === "research") return "Research Lab";
+  if (kind === "university") return "University";
   if (kind === "warehouse") return "Warehouse";
+  if (kind === "library") return "Library";
+  if (kind === "power") return "Power Plant";
   return "Building";
 }
 
@@ -539,8 +542,6 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
 
   const bases: Array<Record<string, unknown>> = [];
   const baseById = new Map<string, Record<string, unknown>>();
-  const repoBaseIdByRepo = new Map<string, string>();
-
   for (const base of rawBases) {
     const id = String(base.id ?? "").trim();
     if (!id || baseById.has(id)) continue;
@@ -556,10 +557,21 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
     };
     baseById.set(id, node);
     bases.push(node);
-    if (repo) repoBaseIdByRepo.set(normalizePathKey(repo), id);
   }
 
   const attachBuilding = (kind: string, building: Record<string, unknown>) => {
+    const rawKind = String(kind || "").toLowerCase();
+    const normalizedKind = rawKind === "university"
+      ? "university"
+      : (rawKind === "library"
+        ? "library"
+        : (rawKind === "power"
+          ? "power"
+          : (rawKind === "research"
+            ? "research"
+            : (rawKind === "warehouse"
+              ? "warehouse"
+              : "feature"))));
     const buildingId = String(building.id ?? "").trim();
     if (!buildingId) return;
     const repo = String(building.repo ?? "").trim();
@@ -583,17 +595,28 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
           return best;
         }, null as null | { base: Record<string, unknown>; dist: number })?.base ?? candidates[0];
       }
-      if (!targetBase) return;
+    }
+
+    if (!targetBase && bases.length > 0) {
+      const center = centerFor(building);
+      targetBase = bases.reduce((best, candidate) => {
+        const c = centerFor(candidate);
+        const dist = Math.hypot(c.x - center.x, c.y - center.y);
+        if (!best || dist < best.dist) return { base: candidate, dist };
+        return best;
+      }, null as null | { base: Record<string, unknown>; dist: number })?.base ?? bases[0];
     }
 
     if (!targetBase) return;
 
     const buildingNode = {
       id: buildingId,
-      kind,
-      label: deriveBuildingLabel(building, kind),
+      kind: normalizedKind,
+      label: deriveBuildingLabel(building, normalizedKind),
       baseId: String(targetBase.id),
       repo,
+      x: Number(building.x ?? 0),
+      y: Number(building.y ?? 0),
     };
     const buildings = Array.isArray(targetBase.buildings) ? targetBase.buildings as Array<Record<string, unknown>> : [];
     buildings.push(buildingNode);
@@ -601,8 +624,8 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
   };
 
   rawFeature.forEach((b) => attachBuilding("feature", b));
-  rawResearch.forEach((b) => attachBuilding("research", b));
-  rawWarehouse.forEach((b) => attachBuilding("warehouse", b));
+  rawResearch.forEach((b) => attachBuilding(String(b.kind ?? b.variant ?? "research"), b));
+  rawWarehouse.forEach((b) => attachBuilding(String(b.kind ?? b.variant ?? "warehouse"), b));
 
   return {
     bases: bases.map((base) => ({
@@ -610,7 +633,64 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
       kind: "base",
       label: asDisplayLabel(base.label, "Base"),
       repo: String(base.repo ?? ""),
-      buildings: Array.isArray(base.buildings) ? base.buildings : [],
+      buildings: (() => {
+        const all = Array.isArray(base.buildings) ? base.buildings as Array<Record<string, unknown>> : [];
+        const universities = all.filter((b) => String(b.kind ?? "") === "university");
+        const libraries = all.filter((b) => String(b.kind ?? "") === "library");
+        const assignedLibraries = new Set<string>();
+        const nestedLibraries = new Map<string, Array<Record<string, unknown>>>();
+        universities.forEach((u) => nestedLibraries.set(String(u.id ?? ""), []));
+        libraries.forEach((library) => {
+          if (!universities.length) return;
+          const center = centerFor(library);
+          const nearest = universities.reduce((best, u) => {
+            const c = centerFor(u);
+            const dist = Math.hypot(c.x - center.x, c.y - center.y);
+            if (!best || dist < best.dist) return { id: String(u.id ?? ""), dist };
+            return best;
+          }, null as null | { id: string; dist: number });
+          if (!nearest?.id) return;
+          nestedLibraries.get(nearest.id)?.push({
+            ...library,
+            parentId: nearest.id,
+            parentLabel: String(universities.find((u) => String(u.id ?? "") === nearest.id)?.label ?? "University"),
+            level: 2,
+          });
+          assignedLibraries.add(String(library.id ?? ""));
+        });
+        const out: Array<Record<string, unknown>> = [];
+        universities
+          .slice()
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((u) => {
+            out.push({ ...u, level: 1 });
+            const children = (nestedLibraries.get(String(u.id ?? "")) || [])
+              .slice()
+              .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+            children.forEach((c) => out.push(c));
+          });
+        all
+          .filter((b) => String(b.kind ?? "") === "research")
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        all
+          .filter((b) => String(b.kind ?? "") === "library" && !assignedLibraries.has(String(b.id ?? "")))
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        all
+          .filter((b) => String(b.kind ?? "") === "warehouse")
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        all
+          .filter((b) => String(b.kind ?? "") === "power")
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        all
+          .filter((b) => String(b.kind ?? "") === "feature")
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        return out;
+      })(),
     })),
   };
 }
