@@ -2101,8 +2101,7 @@ async function generateResearchPlans(repoPath: string, maxPlansRaw: number): Pro
 
 export function startDashboard(port = 3333): http.Server {
   const server = http.createServer(async (req, res) => {
-    try {
-      const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
       const p = url.pathname;
       const method = req.method ?? "GET";
 

@@ -6821,29 +6821,6 @@ boot().then(() => {
   scheduleRuntimePoll(boundedRetryDelayMs(1));
 });
 updateCameraVisuals();
-<<<<<<< HEAD
-=======
-setInterval(async () => {
-  if (Date.now() < Number(state.pollRetryUntilMs || 0)) {
-    if (!state.liveStream && !state.liveStreamRetryTimer) startLiveStream();
-    return;
-  }
-  const refreshResult = await refreshRuntimeState(false);
-  const runsChanged = refreshResult === true;
-  if (refreshResult === null) {
-    state.pollFailCount = Math.max(0, Number(state.pollFailCount || 0) + 1);
-    const backoff = Math.min(30000, 1000 * (2 ** Math.min(state.pollFailCount, 5)));
-    state.pollRetryUntilMs = Date.now() + backoff;
-  }
-  if (!state.liveStream) startLiveStream();
-  if (runsChanged) rebuildScene();
-  else if (Number(state.live?.runningAgentCount || 0) > 0) {
-    ensureMotionLoop();
-    renderUnitsLiveState();
-  } else renderUnitsLiveState();
-  renderLiveConsole();
-}, 2000);
->>>>>>> e79e9ec (fix: harden dashboard against transient stream and request failures)
 
 window.addEventListener('beforeunload', () => {
   if (state.motionTimer) {
