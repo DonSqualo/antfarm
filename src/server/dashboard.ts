@@ -1079,6 +1079,8 @@ function guessMime(filePath: string): string {
   if (ext === ".png") return "image/png";
   if (ext === ".webp") return "image/webp";
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webmanifest") return "application/manifest+json";
+  if (ext === ".js") return "application/javascript; charset=utf-8";
   return "application/octet-stream";
 }
 
@@ -2357,6 +2359,27 @@ export function startDashboard(port = 3333): http.Server {
         res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" });
         return res.end(fs.readFileSync(resolvedLogo));
       }
+    }
+
+    // Serve PWA assets
+    if (p === "/manifest.webmanifest" || p === "/service-worker.v1.js" || p === "/icon-192.png" || p === "/icon-512.png") {
+      const assetName = path.basename(p);
+      const distPath = path.resolve(__dirname, assetName);
+      const srcPath = path.resolve(__dirname, "..", "..", "src", "server", assetName);
+      const resolvedPath = fs.existsSync(distPath) ? distPath : srcPath;
+      if (fs.existsSync(resolvedPath)) {
+        const cacheControl = assetName.endsWith(".webmanifest")
+          ? "public, max-age=3600"
+          : (assetName.includes("service-worker") ? "no-cache" : "public, max-age=31536000, immutable");
+        res.writeHead(200, {
+          "Content-Type": guessMime(resolvedPath),
+          "Cache-Control": cacheControl,
+          "Access-Control-Allow-Origin": "*",
+        });
+        return res.end(fs.readFileSync(resolvedPath));
+      }
+      res.writeHead(404);
+      return res.end("not found");
     }
 
     // Serve RTS sprite assets

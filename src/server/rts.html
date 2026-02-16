@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#081427" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Antfarm RTS" />
+<link rel="manifest" href="/manifest.webmanifest" />
 <title>Antfarm RTS Command Grid</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -56,6 +62,52 @@ body {
     linear-gradient(165deg,var(--bg-c) 0%,var(--bg-b) 45%,var(--bg-a) 100%);
 }
 .notice { font-size:11px; color:var(--muted); }
+.install-app-cta {
+  position:fixed;
+  right:calc(var(--dock-w) + 14px);
+  bottom:calc(var(--command-h) + 14px);
+  z-index:260;
+  border:1px solid #86d7ff;
+  border-radius:999px;
+  background:linear-gradient(160deg,#0d3155 0%,#0a233d 100%);
+  color:#dff6ff;
+  font-weight:600;
+  letter-spacing:.2px;
+  box-shadow:0 10px 28px #02101f99;
+}
+.install-app-cta[hidden] { display:none !important; }
+.connectivity-banner {
+  position:fixed;
+  left:12px;
+  right:calc(var(--dock-w) + 14px);
+  top:10px;
+  z-index:285;
+  padding:7px 10px;
+  border-radius:10px;
+  border:1px solid #5fa5d655;
+  background:#081427de;
+  color:#cfefff;
+  font-size:11px;
+  letter-spacing:.2px;
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(-4px);
+  transition:opacity .2s ease, transform .2s ease;
+}
+.connectivity-banner.is-visible {
+  opacity:1;
+  transform:translateY(0);
+}
+.connectivity-banner[data-state="offline"] {
+  border-color:#ff8aa577;
+  color:#ffd8e1;
+  background:#2a0f18e6;
+}
+.connectivity-banner[data-state="reconnecting"] {
+  border-color:#ffd06b88;
+  color:#ffe8b9;
+  background:#2b2010e6;
+}
 button,select,input,textarea {
   border:1px solid #4f799f;
   background:#0b1b30;
@@ -66,6 +118,10 @@ button,select,input,textarea {
 button { cursor:pointer; }
 button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .layout { position:relative; width:100vw; height:100vh; }
+.mobile-status-strip,
+.mobile-action-tabs {
+  display:none;
+}
 .world-wrap {
   position:relative;
   inset:0;
@@ -73,6 +129,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   height:100%;
   overflow:hidden;
   background:#050913;
+  touch-action:none;
 }
 .world-bg {
   position:absolute; inset:0;
@@ -88,7 +145,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   position:absolute;
   inset:0;
   z-index:2;
-  transform:translate3d(calc(var(--cam-x, 0px) * -1), calc(var(--cam-y, 0px) * -1), 0);
+  transform:translate3d(calc(var(--cam-x, 0px) * -1), calc(var(--cam-y, 0px) * -1), 0) scale(var(--cam-scale, 1));
   will-change:transform;
 }
 .path-layer {
@@ -202,7 +259,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .hud-right { display:flex; gap:0; pointer-events:auto; flex-direction:column; width:100%; height:100%; max-height:100%; overflow:hidden; }
 #livePanel,
-#selectionPanel { display:none !important; }
+#selectionPanel { display:none; }
 #actionPanel {
   background:linear-gradient(180deg,#0a1b31f2 0%, #081427f2 100%);
   min-height:100%;
@@ -534,6 +591,55 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   color:#ffd4e2;
 }
 .panel-delete:hover { border-color:#cf7fa2; }
+.panel-card {
+  margin-top:8px;
+  border:1px solid #345671;
+  border-radius:10px;
+  background:#09192b;
+  overflow:hidden;
+}
+.panel-card > summary {
+  list-style:none;
+  cursor:pointer;
+  padding:9px 10px;
+  font-size:11px;
+  font-weight:600;
+  color:#d2eeff;
+  background:#0d2035;
+  border-bottom:1px solid #28455e;
+}
+.panel-card > summary::-webkit-details-marker { display:none; }
+.panel-card .panel-card-body { padding:9px 10px 10px; }
+.panel-card[open] > summary { border-bottom-color:#3d6b8f; }
+.sheet-open-btn { width:100%; margin-top:8px; }
+.mobile-sheet {
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  z-index:1300;
+  border:1px solid #4c7698;
+  border-bottom:0;
+  border-radius:14px 14px 0 0;
+  background:linear-gradient(160deg,#0b1a2e 0%,#071423 100%);
+  box-shadow:0 -18px 36px #00000099;
+  max-height:min(78vh, 620px);
+  display:flex;
+  flex-direction:column;
+}
+.mobile-sheet[hidden] { display:none; }
+.mobile-sheet-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:10px 12px;
+  border-bottom:1px solid #33556f;
+}
+.mobile-sheet-body {
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  overflow:auto;
+}
 .library-modal {
   position:fixed;
   inset:2vh 2vw;
@@ -610,7 +716,12 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   background:#040b14;
 }
 @media (max-width: 900px) {
-  .library-modal { inset:1vh 1vw; }
+  .library-modal {
+    inset:auto 0 0 0;
+    border-radius:14px 14px 0 0;
+    border-bottom:0;
+    max-height:80vh;
+  }
   .library-modal-body { grid-template-columns:1fr; }
 }
 .building-hover {
@@ -765,19 +876,101 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   .camera-hint { bottom:170px; }
 }
 @media (max-width:760px) {
-  :root { --dock-w:min(250px, 68vw); --command-h:118px; --screen-pad:8px; --panel-gutter:var(--screen-pad); }
-  .hud {
+  :root { --dock-w:min(250px, 96vw); --command-h:118px; --screen-pad:8px; --panel-gutter:var(--screen-pad); }
+  .layout {
+    padding-top:44px;
+    padding-bottom:168px;
+    box-sizing:border-box;
+  }
+  .world-wrap,
+  .entity,
+  .hud-right,
+  .mobile-action-tabs button.active,
+  .unit,
+  .subunit {
+    box-shadow:none !important;
+    filter:none !important;
+  }
+  .connectivity-banner {
+    left:var(--screen-pad);
+    right:var(--screen-pad);
+    top:40px;
+    font-size:10px;
+  }
+  .mobile-status-strip {
+    position:fixed;
     top:0;
-    bottom:0;
-    left:auto;
+    left:0;
     right:0;
-    width:var(--dock-w);
-    height:auto;
+    height:36px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:4px 10px;
+    background:linear-gradient(180deg,#061121f2 0%,#081426ed 100%);
+    border-bottom:1px solid #5fa5d655;
+    z-index:280;
+    font-family:'Geist Mono', monospace;
+    font-size:10px;
+    color:#a9e8ff;
+    letter-spacing:.3px;
+  }
+  .mobile-action-tabs {
+    position:fixed;
+    left:var(--screen-pad);
+    right:var(--screen-pad);
+    bottom:calc(var(--command-h) + 6px);
+    height:38px;
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0,1fr));
+    gap:6px;
+    z-index:281;
+  }
+  .mobile-action-tabs button {
+    border-radius:10px;
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:.4px;
+    background:linear-gradient(160deg,#0d2946 0%, #0a2038 100%);
+  }
+  .mobile-action-tabs button.active {
+    border-color:#8de7ff;
+    box-shadow:0 0 0 1px #95e6ff66 inset, 0 0 18px #4ccff744;
+  }
+  .hud {
+    top:auto;
+    bottom:calc(var(--command-h) + 44px);
+    left:var(--screen-pad);
+    right:var(--screen-pad);
+    width:auto;
+    height:31vh;
+    min-height:180px;
+    max-height:45vh;
   }
   .hud-right {
     width:100%;
     max-height:100%;
+    border:1px solid var(--panel-edge);
+    background:linear-gradient(180deg,#0a1b31f2 0%, #081427f2 100%);
   }
+  #actionPanel,
+  #selectionPanel,
+  #livePanel {
+    min-height:100%;
+    height:100%;
+    overflow-y:auto;
+    border:0;
+  }
+  .layout.mobile-tab-build #actionPanel { display:block; }
+  .layout.mobile-tab-build #livePanel,
+  .layout.mobile-tab-build #selectionPanel { display:none; }
+  .layout.mobile-tab-runs #livePanel { display:block; }
+  .layout.mobile-tab-runs #actionPanel,
+  .layout.mobile-tab-runs #selectionPanel { display:none; }
+  .layout.mobile-tab-intel #selectionPanel { display:block; }
+  .layout.mobile-tab-intel #actionPanel,
+  .layout.mobile-tab-intel #livePanel { display:none; }
   .command-bar {
     left:calc(var(--panel-gutter) - 1px) !important;
     right:calc(var(--panel-gutter) - 1px);
@@ -809,6 +1002,18 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 </head>
 <body>
   <div class="layout">
+    <div id="connectivityBanner" class="connectivity-banner" data-state="online" role="status" aria-live="polite" hidden></div>
+    <div id="mobileStatusStrip" class="mobile-status-strip" aria-label="Mobile status strip">
+      <span id="mobileStatusRuns">RUNS 0/0</span>
+      <span id="mobileStatusSelection">SELECT NONE</span>
+      <span id="mobileStatusAgents">AGENTS 0</span>
+      <span id="mobileStatusNet">NET ONLINE</span>
+    </div>
+    <div id="mobileActionTabs" class="mobile-action-tabs" role="tablist" aria-label="Mobile action dock tabs">
+      <button id="mobileTabBuild" type="button" role="tab" aria-selected="true">Build</button>
+      <button id="mobileTabRuns" type="button" role="tab" aria-selected="false">Runs</button>
+      <button id="mobileTabIntel" type="button" role="tab" aria-selected="false">Intel</button>
+    </div>
     <div class="world-wrap" id="worldWrap">
       <div class="world-bg"></div>
       <div id="world" class="world"></div>
@@ -887,6 +1092,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     </section>
   </div>
   <div id="buildingHoverCard" class="building-hover" aria-hidden="true"></div>
+  <button id="installAppBtn" class="install-app-cta" type="button" hidden aria-live="polite">Install App</button>
 
 <script>
 const state = {
@@ -912,7 +1118,8 @@ const state = {
   selected: null,
   persistTimer: null,
   camera: { x: 0, y: 0 },
-  cameraDrag: { active:false, startX:0, startY:0, originX:0, originY:0 },
+  cameraZoom: { enabled:false, scale:1, min:0.8, max:1.4 },
+  cameraDrag: { active:false, startX:0, startY:0, originX:0, originY:0, pointerId:null, viaTouch:false },
   draggingEntity: null,
   draggingMoved: false,
   suppressWorldClick: false,
@@ -931,10 +1138,181 @@ const state = {
   streamSelectionByRun: {},
   featureMode: false,
   runStatusOverrides: {},
-  libraryBrowser: { role: 'all', tag: 'all', q: '', selectedPath: '' }
+  libraryBrowser: { role: 'all', tag: 'all', q: '', selectedPath: '' },
+  keyboardSafeViewportBound: false,
+  connectivity: { state: (typeof navigator !== 'undefined' && navigator.onLine === false) ? 'offline' : 'online', detail: 'Connected', changedAt: Date.now() },
+  runtimePoll: { timer: null, failures: 0, inFlight: false, baseDelayMs: 2000, maxDelayMs: 20000 }
 };
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
+const SERVICE_WORKER_URL = '/service-worker.v1.js';
+let deferredInstallPrompt = null;
+let mobileActiveTab = 'build';
+
+function isMobileViewport(){
+  return window.matchMedia('(max-width: 760px)').matches;
+}
+
+function applyMobilePanelVisibility(){
+  const layout = document.querySelector('.layout');
+  const actionPanel = document.getElementById('actionPanel');
+  const livePanel = document.getElementById('livePanel');
+  const selectionPanel = document.getElementById('selectionPanel');
+  if (!(layout instanceof HTMLElement) || !(actionPanel instanceof HTMLElement) || !(livePanel instanceof HTMLElement) || !(selectionPanel instanceof HTMLElement)) return;
+
+  if (!isMobileViewport()) {
+    layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel');
+    actionPanel.style.display = 'block';
+    livePanel.style.display = 'none';
+    selectionPanel.style.display = 'none';
+    return;
+  }
+
+  layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel');
+  layout.classList.add(`mobile-tab-${mobileActiveTab}`);
+
+  const tabs = [
+    ['build', document.getElementById('mobileTabBuild')],
+    ['runs', document.getElementById('mobileTabRuns')],
+    ['intel', document.getElementById('mobileTabIntel')],
+  ];
+  tabs.forEach(([name, el]) => {
+    if (!(el instanceof HTMLButtonElement)) return;
+    const active = mobileActiveTab === name;
+    el.classList.toggle('active', active);
+    el.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function setMobileTab(tab){
+  if (!['build', 'runs', 'intel'].includes(tab)) return;
+  mobileActiveTab = tab;
+  applyMobilePanelVisibility();
+}
+
+function updateMobileStatusStrip(){
+  const runsEl = document.getElementById('mobileStatusRuns');
+  const selectionEl = document.getElementById('mobileStatusSelection');
+  const agentsEl = document.getElementById('mobileStatusAgents');
+  const netEl = document.getElementById('mobileStatusNet');
+  if (!(runsEl instanceof HTMLElement) || !(selectionEl instanceof HTMLElement) || !(agentsEl instanceof HTMLElement) || !(netEl instanceof HTMLElement)) return;
+
+  const runs = Array.isArray(state.runs) ? state.runs : [];
+  const activeCount = runs.filter((run) => run && !['done', 'failed', 'cancelled'].includes(String(run.status || '').toLowerCase())).length;
+  runsEl.textContent = `RUNS ${activeCount}/${runs.length}`;
+
+  const selectedType = state.selected?.type ? String(state.selected.type).toUpperCase() : 'NONE';
+  selectionEl.textContent = `SELECT ${selectedType}`;
+  agentsEl.textContent = `AGENTS ${Number(state.live?.runningAgentCount || 0)}`;
+  netEl.textContent = `NET ${String(state.connectivity?.state || 'online').toUpperCase()}`;
+}
+
+function connectivityLabel(mode){
+  if (mode === 'offline') return 'Offline mode · using cached shell';
+  if (mode === 'reconnecting') return 'Reconnecting · retrying sync';
+  return 'Online · live sync active';
+}
+
+function renderConnectivityNotice(){
+  const banner = document.getElementById('connectivityBanner');
+  if (!(banner instanceof HTMLElement)) return;
+  const mode = String(state.connectivity?.state || 'online');
+  const detail = String(state.connectivity?.detail || connectivityLabel(mode));
+  banner.dataset.state = mode;
+  banner.textContent = detail;
+  const visible = mode !== 'online';
+  banner.hidden = !visible;
+  banner.classList.toggle('is-visible', visible);
+  updateMobileStatusStrip();
+}
+
+function setConnectivityState(mode, detail = ''){
+  const normalized = mode === 'offline' || mode === 'reconnecting' ? mode : 'online';
+  state.connectivity = {
+    state: normalized,
+    detail: detail || connectivityLabel(normalized),
+    changedAt: Date.now()
+  };
+  renderConnectivityNotice();
+}
+
+function boundedRetryDelayMs(failures){
+  const attempt = Math.max(0, Number(failures) || 0);
+  const exp = Math.min(attempt, 4);
+  const delay = state.runtimePoll.baseDelayMs * (2 ** exp);
+  return Math.min(state.runtimePoll.maxDelayMs, delay);
+}
+
+function initMobileLayoutShell(){
+  const buildBtn = document.getElementById('mobileTabBuild');
+  const runsBtn = document.getElementById('mobileTabRuns');
+  const intelBtn = document.getElementById('mobileTabIntel');
+  if (buildBtn instanceof HTMLButtonElement) buildBtn.addEventListener('click', () => setMobileTab('build'));
+  if (runsBtn instanceof HTMLButtonElement) runsBtn.addEventListener('click', () => setMobileTab('runs'));
+  if (intelBtn instanceof HTMLButtonElement) intelBtn.addEventListener('click', () => setMobileTab('intel'));
+  window.addEventListener('resize', applyMobilePanelVisibility);
+  applyMobilePanelVisibility();
+  updateMobileStatusStrip();
+  renderConnectivityNotice();
+}
+
+function renderInstallPromptState(){
+  const installBtn = document.getElementById('installAppBtn');
+  if (!(installBtn instanceof HTMLButtonElement)) return;
+  installBtn.hidden = !deferredInstallPrompt;
+}
+
+function initInstallPrompt(){
+  const installBtn = document.getElementById('installAppBtn');
+  if (installBtn instanceof HTMLButtonElement) {
+    installBtn.addEventListener('click', async () => {
+      const promptEvent = deferredInstallPrompt;
+      if (!promptEvent) return;
+      deferredInstallPrompt = null;
+      renderInstallPromptState();
+      try {
+        promptEvent.prompt();
+        await promptEvent.userChoice;
+      } catch {}
+    });
+  }
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    renderInstallPromptState();
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    renderInstallPromptState();
+  });
+  renderInstallPromptState();
+}
+
+function registerServiceWorker(){
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', async () => {
+    try {
+      const registration = await navigator.serviceWorker.register(SERVICE_WORKER_URL, { scope: '/' });
+      const watchInstallingWorker = (installingWorker) => {
+        if (!installingWorker) return;
+        installingWorker.addEventListener('statechange', () => {
+          if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            registration.update().catch(() => {});
+          }
+        });
+      };
+      watchInstallingWorker(registration.installing);
+      registration.addEventListener('updatefound', () => watchInstallingWorker(registration.installing));
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') registration.update().catch(() => {});
+      });
+      window.addEventListener('focus', () => registration.update().catch(() => {}));
+    } catch (error) {
+      console.warn('Service worker registration failed:', error);
+    }
+  });
+}
+
 const RTS_SPRITE_URLS = [
   '/rts-sprites/bg-space-tile-20260212b.png?v=20260212b',
   '/rts-sprites/base_sprite-20260212a.png?v=20260212a',
@@ -955,6 +1333,9 @@ const RTS_SPRITE_URLS = [
   '/rts-sprites/subunit-cephalon-test.png?v=20260212b'
 ];
 let spritesPreloadPromise = null;
+const spritePreloadByUrl = new Map();
+let visualFrameHandle = 0;
+let cameraVisualsDirty = false;
 
 const skillTrees = {
   architect: ['System Mapping','Dependency Radar','Design Sync','API Stability'],
@@ -1191,7 +1572,62 @@ function wirePanelDeleteButton(){
   if (!btn) return;
   btn.addEventListener('click', () => deleteSelectedStructure());
 }
+function renderPanelCard({ id, title, body, open = false }){
+  return `<details class="panel-card" ${open ? 'open' : ''} id="${esc(id)}"><summary>${esc(title)}</summary><div class="panel-card-body">${body}</div></details>`;
+}
+function ensureMobileSheet(){
+  let sheet = document.getElementById('mobileDetailSheet');
+  if (sheet) return sheet;
+  sheet = document.createElement('div');
+  sheet.id = 'mobileDetailSheet';
+  sheet.className = 'mobile-sheet';
+  sheet.hidden = true;
+  document.body.appendChild(sheet);
+  return sheet;
+}
+function openMobileSheet({ title, content }){
+  const sheet = ensureMobileSheet();
+  sheet.hidden = false;
+  sheet.innerHTML = `
+    <div class="mobile-sheet-header">
+      <strong>${esc(title || 'Details')}</strong>
+      <button id="mobileSheetCloseBtn" class="ghost">Close</button>
+    </div>
+    <div class="mobile-sheet-body">${content || ''}</div>
+  `;
+  document.getElementById('mobileSheetCloseBtn')?.addEventListener('click', () => closeMobileSheet());
+}
+function closeMobileSheet(){
+  const sheet = document.getElementById('mobileDetailSheet');
+  if (sheet) sheet.hidden = true;
+}
+function wireKeyboardSafeFormControls(scopeEl){
+  if (!(scopeEl instanceof HTMLElement)) return;
+  const focusSelector = 'input, textarea, select';
+  scopeEl.querySelectorAll(focusSelector).forEach((el) => {
+    el.addEventListener('focus', () => {
+      setTimeout(() => {
+        try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+      }, 40);
+    });
+  });
+  if (!isMobileViewport() || !window.visualViewport) return;
+  const panel = document.getElementById('actionPanel');
+  if (!(panel instanceof HTMLElement)) return;
+  const syncInset = () => {
+    const vv = window.visualViewport;
+    const keyboardInset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+    panel.style.paddingBottom = `${Math.max(10, keyboardInset + 10)}px`;
+  };
+  syncInset();
+  if (!state.keyboardSafeViewportBound) {
+    state.keyboardSafeViewportBound = true;
+    window.visualViewport.addEventListener('resize', syncInset, { passive: true });
+    window.visualViewport.addEventListener('scroll', syncInset, { passive: true });
+  }
+}
 function renderDefaultActionPanel(){
+  closeMobileSheet();
   const panel = document.getElementById('actionPanel');
   if (!panel) return;
   const live = state.live || {};
@@ -1296,17 +1732,62 @@ function closeLibraryModal(){
   const modal = document.getElementById('libraryModal');
   if (modal) modal.hidden = true;
 }
-function preloadRtsSprites(){
-  if (spritesPreloadPromise) return spritesPreloadPromise;
-  const load = (url) => new Promise((resolve) => {
+function parseCssUrl(raw){
+  const text = String(raw || '').trim();
+  const match = text.match(/^url\((?:['"]?)(.+?)(?:['"]?)\)$/i);
+  return match ? match[1] : '';
+}
+
+function preloadSpriteOnce(url){
+  const key = String(url || '').trim();
+  if (!key) return Promise.resolve(false);
+  const cached = spritePreloadByUrl.get(key);
+  if (cached) return cached;
+  const request = new Promise((resolve) => {
     const img = new Image();
     img.decoding = 'async';
     img.loading = 'eager';
     img.onload = () => resolve(true);
     img.onerror = () => resolve(false);
-    img.src = url;
+    img.src = key;
   });
-  spritesPreloadPromise = Promise.all(RTS_SPRITE_URLS.map(load)).catch(() => []);
+  spritePreloadByUrl.set(key, request);
+  return request;
+}
+
+function collectVisibleSpriteUrls(){
+  const urls = new Set();
+  const worldSprites = worldEl?.querySelectorAll?.('.building-sprite');
+  worldSprites?.forEach?.((img) => {
+    const src = img?.getAttribute?.('src') || '';
+    if (src) urls.add(src);
+  });
+  const paletteCards = document.querySelectorAll('.palette-card');
+  paletteCards.forEach((card) => {
+    const styleUrl = card instanceof HTMLElement ? card.style.getPropertyValue('--palette-bg') : '';
+    const parsed = parseCssUrl(styleUrl);
+    if (parsed) urls.add(parsed);
+  });
+  urls.add('/rts-sprites/bg-space-tile-20260212b.png?v=20260212b');
+  return [...urls];
+}
+
+function preloadRtsSprites(){
+  if (spritesPreloadPromise) return spritesPreloadPromise;
+  const visibleFirst = collectVisibleSpriteUrls();
+  const visibleSet = new Set(visibleFirst);
+  const deferred = RTS_SPRITE_URLS.filter((url) => !visibleSet.has(url));
+  const preloadDeferred = () => Promise.all(deferred.map((url) => preloadSpriteOnce(url)));
+  spritesPreloadPromise = Promise.all(visibleFirst.map((url) => preloadSpriteOnce(url)))
+    .then((critical) => {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => { void preloadDeferred(); }, { timeout: 1200 });
+      } else {
+        setTimeout(() => { void preloadDeferred(); }, 120);
+      }
+      return critical;
+    })
+    .catch(() => []);
   return spritesPreloadPromise;
 }
 async function json(url){
@@ -1865,11 +2346,62 @@ async function refreshRuntimeState(throwOnError = false){
     }
     state.live = (liveRes && liveRes.live) ? liveRes.live : state.live;
     state.diag = (diagRes && diagRes.diag) ? diagRes.diag : state.diag;
+    state.runtimePoll.failures = 0;
+    if (state.connectivity?.state !== 'online') {
+      setConnectivityState('online', 'Reconnected · live updates restored');
+    }
     return runsChanged;
   } catch (err) {
     if (throwOnError) throw err;
+    state.runtimePoll.failures = Number(state.runtimePoll.failures || 0) + 1;
+    const retryMs = boundedRetryDelayMs(state.runtimePoll.failures);
+    if (navigator.onLine === false) {
+      setConnectivityState('offline', `Offline mode · retry in ${Math.ceil(retryMs / 1000)}s`);
+    } else {
+      setConnectivityState('reconnecting', `Connection unstable · retry ${state.runtimePoll.failures} in ${Math.ceil(retryMs / 1000)}s`);
+    }
     return false;
   }
+}
+
+function scheduleRuntimePoll(delayMs = state.runtimePoll.baseDelayMs){
+  if (state.runtimePoll.timer) clearTimeout(state.runtimePoll.timer);
+  const nextDelay = Math.max(0, Number(delayMs) || 0);
+  state.runtimePoll.timer = setTimeout(() => {
+    void runRuntimePoll();
+  }, nextDelay);
+}
+
+async function runRuntimePoll(){
+  if (state.runtimePoll.inFlight) return;
+  state.runtimePoll.inFlight = true;
+  const runsChanged = await refreshRuntimeState(false);
+  if (!state.liveStream && navigator.onLine !== false) startLiveStream();
+  if (runsChanged) rebuildScene();
+  else if (Number(state.live?.runningAgentCount || 0) > 0) {
+    ensureMotionLoop();
+    renderUnitsLiveState();
+  } else renderUnitsLiveState();
+  renderLiveConsole();
+  state.runtimePoll.inFlight = false;
+  const delay = state.runtimePoll.failures ? boundedRetryDelayMs(state.runtimePoll.failures) : state.runtimePoll.baseDelayMs;
+  scheduleRuntimePoll(delay);
+}
+
+function initConnectivityMonitoring(){
+  renderConnectivityNotice();
+  window.addEventListener('offline', () => {
+    setConnectivityState('offline', 'Offline mode · using cached shell');
+    if (state.liveStream) {
+      try { state.liveStream.close(); } catch {}
+      state.liveStream = null;
+    }
+  });
+  window.addEventListener('online', () => {
+    setConnectivityState('reconnecting', 'Network restored · syncing now');
+    state.runtimePoll.failures = 0;
+    scheduleRuntimePoll(0);
+  });
 }
 
 function startLiveStream(){
@@ -2566,9 +3098,23 @@ function screenToWorld(clientX, clientY){
   return { sx, sy, x: sx + state.camera.x, y: sy + state.camera.y };
 }
 
-function updateCameraVisuals(){
+function flushVisualFrame(){
+  visualFrameHandle = 0;
+  if (!cameraVisualsDirty) return;
+  cameraVisualsDirty = false;
   worldWrapEl.style.setProperty('--cam-x', `${state.camera.x}px`);
   worldWrapEl.style.setProperty('--cam-y', `${state.camera.y}px`);
+  worldWrapEl.style.setProperty('--cam-scale', `${Number(state.cameraZoom?.scale || 1)}`);
+}
+
+function scheduleVisualFrame(){
+  if (visualFrameHandle) return;
+  visualFrameHandle = window.requestAnimationFrame(flushVisualFrame);
+}
+
+function updateCameraVisuals(){
+  cameraVisualsDirty = true;
+  scheduleVisualFrame();
 }
 
 function showPlacementGhost(kind, worldX, worldY){
@@ -3235,6 +3781,8 @@ function renderWorld(){
   const selectedUnitKey = (state.selected?.type === 'unit' || state.selected?.type === 'subunit')
     ? `${String(state.selected?.data?.runId || '')}:${String(state.selected?.data?.full || '')}`
     : '';
+
+  updateMobileStatusStrip();
 
   const runTargets = runTargetCenterMap();
   const activeMap = activeRunAgentMap();
@@ -4367,33 +4915,50 @@ function renderResearchLabPanel(targetLabId){
   }
   panel.innerHTML = `
     ${panelToolbar(isUni ? 'University Console' : 'Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
-    <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
-    <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
-    <button id="runResearchBtn">Research</button>
-    <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>
-    <div class="build-card" style="margin-top:8px">
-      <div class="kv"><strong>Generated Plans</strong></div>
-      <div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
-        <div class="agent-row research-plan" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '' : 'draggable="true"'} data-plan-id="${esc(plan.id)}">
+    ${renderPanelCard({
+      id: 'researchSourceCard',
+      title: 'Source',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
+      <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
+      <button id="runResearchBtn">Research</button>
+      <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'researchPlanCard',
+      title: `Generated Plans (${plans.length})`,
+      open: true,
+      body: `<div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
+        <div class="agent-row research-plan" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '' : 'draggable="true"'} data-plan-id="${esc(plan.id)}" data-plan-title="${esc(plan.title || `Plan ${idx + 1}`)}" data-plan-summary="${esc(plan.summary || '')}">
           <div class="agent-meta">
             <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
             ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '<span class="badge">WONT FIX</span>' : ''}
             <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Plan ${idx + 1}`)}</span>
           </div>
           <div class="agent-actions">
+            <button class="agent-restart" data-plan-open-sheet="${esc(plan.id)}">view</button>
             <button class="agent-restart" data-plan-deploy="${esc(plan.id)}" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? 'disabled' : ''}>deploy</button>
             <button class="agent-restart" data-plan-wont-fix="${esc(plan.id)}" title="Mark WONT FIX">delete</button>
           </div>
         </div>
       `).join('') : '<div class="notice">No plans yet. Press Research.</div>'}</div>
-      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in ${isUni ? 'Library or Warehouse' : 'Warehouse'}.</div>
-    </div>
+      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in ${isUni ? 'Library or Warehouse' : 'Warehouse'}.</div>`
+    })}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
   const notice = document.getElementById('researchNotice');
   const refreshPlanInteractions = () => {
     const list = document.getElementById('researchPlanList');
     if (!list) return;
+    list.querySelectorAll('[data-plan-open-sheet]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.research-plan');
+        const title = String(row?.getAttribute('data-plan-title') || 'Plan details');
+        const summary = String(row?.getAttribute('data-plan-summary') || 'No summary provided.');
+        openMobileSheet({ title, content: `<div class="build-card"><div class="prompt-text">${esc(summary)}</div></div>` });
+      });
+    });
     list.querySelectorAll('[data-plan-deploy]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-plan-deploy');
@@ -4516,24 +5081,32 @@ function renderWarehousePanel(targetWarehouseId){
 
   panel.innerHTML = `
     ${panelToolbar('Warehouse Console', String(repoKey || 'unlinked'))}
-    <div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
-    <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
-    <div class="kv"><strong>Input:</strong> ${esc(nearestLab ? `Research Lab ${nearestLab.id}` : 'none')}</div>
-    <div class="kv"><strong>Output:</strong> ${esc(nearestFeature ? `Feature ${nearestFeature.id}` : 'none')}</div>
-    <div class="notice" id="warehouseNotice">When a feature is marked EMPTY (after PR merge), it pulls the most important stored item.</div>
-    <div class="build-card" style="margin-top:8px">
-      <div class="kv"><strong>Stored Items</strong></div>
-      <div>${items.length ? items.map((plan, idx) => `
+    ${renderPanelCard({
+      id: 'warehouseRouteCard',
+      title: 'Routing',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
+      <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
+      <div class="kv"><strong>Input:</strong> ${esc(nearestLab ? `Research Lab ${nearestLab.id}` : 'none')}</div>
+      <div class="kv"><strong>Output:</strong> ${esc(nearestFeature ? `Feature ${nearestFeature.id}` : 'none')}</div>
+      <div class="notice" id="warehouseNotice">When a feature is marked EMPTY (after PR merge), it pulls the most important stored item.</div>`
+    })}
+    ${renderPanelCard({
+      id: 'warehouseItemsCard',
+      title: `Stored Items (${items.length})`,
+      open: true,
+      body: `<div>${items.length ? items.map((plan, idx) => `
         <div class="agent-row">
           <div class="agent-meta">
             <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
             <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Item ${idx + 1}`)}</span>
           </div>
         </div>
-      `).join('') : '<div class="notice">Warehouse is empty.</div>'}</div>
-    </div>
+      `).join('') : '<div class="notice">Warehouse is empty.</div>'}</div>`
+    })}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
 }
 
 async function renderPowerPlantPanel(targetWarehouseId){
@@ -4841,29 +5414,71 @@ function renderRunSetupPanel(targetDraftId){
 
   panel.innerHTML = `
     ${panelToolbar(isDraft ? 'Feature Draft Setup' : 'Feature Run Console', String(draft.id || ''))}
-    <div class="kv"><strong>Repo:</strong> ${esc(draft.repo)}</div>
-    <div class="kv"><strong>Base scope:</strong> ${esc(base?.id || 'none')}</div>
-    ${allAgentsCompleted ? `<button id="markFeatureEmptyBtn" style="margin:4px 0 8px 0" ${freeReady || draft.empty ? '' : 'disabled'}>${freeLabel}</button>` : ''}
-    <label class="kv">Worktree path
-      <input id="worktreePath" value="${esc(draft.worktreePath)}" />
-    </label>
-    <div class="kv"><strong>Runtime:</strong> ${runtimeLink(draft.port || 3334)}</div>
-    <div class="kv"><strong>Empty:</strong> ${draft.empty ? 'yes' : 'no'}</div>
-    ${isDraft
-      ? `<label class="kv">Feature prompt
-      <textarea id="featurePrompt" rows="8" placeholder="Describe detailed scope, constraints, and acceptance criteria...">${esc(draft.prompt)}</textarea>
-    </label>`
-      : `<div class="kv"><strong>Feature prompt:</strong></div>
-    <div class="build-card" style="margin-top:6px"><div class="prompt-text">${esc(String(draft.prompt || run?.task || ''))}</div></div>`}
-    ${hasRun ? renderAgentStatusList(runAgents, run) : ''}
-    <button id="launchFeatureRunBtn" style="margin-top:8px" ${String(draft.repo || '').trim() ? '' : 'disabled'}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
-    <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
-    <div class="notice" style="margin-top:8px" id="featureMutationNotice">${missingRoles.length ? `Blocked: no idle ${missingRoles.join(', ')} workers in base ${base?.id || 'unknown'}.` : 'Ready to execute backend actions.'}</div>
+    ${renderPanelCard({
+      id: 'featureActionsCard',
+      title: 'Actions',
+      open: true,
+      body: `<button id="launchFeatureRunBtn" ${String(draft.repo || '').trim() ? '' : 'disabled'}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
+      <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
+      ${allAgentsCompleted ? `<button id="markFeatureEmptyBtn" style="margin-top:6px" ${freeReady || draft.empty ? '' : 'disabled'}>${freeLabel}</button>` : ''}
+      <div class="notice" style="margin-top:8px" id="featureMutationNotice">${missingRoles.length ? `Blocked: no idle ${missingRoles.join(', ')} workers in base ${base?.id || 'unknown'}.` : 'Ready to execute backend actions.'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'featureSetupCard',
+      title: 'Setup',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(draft.repo)}</div>
+      <div class="kv"><strong>Base scope:</strong> ${esc(base?.id || 'none')}</div>
+      <label class="kv">Worktree path
+        <input id="worktreePath" value="${esc(draft.worktreePath)}" />
+      </label>
+      <div class="kv"><strong>Runtime:</strong> ${runtimeLink(draft.port || 3334)}</div>
+      <div class="kv"><strong>Empty:</strong> ${draft.empty ? 'yes' : 'no'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'featurePromptCard',
+      title: 'Feature prompt',
+      open: true,
+      body: isDraft
+        ? `<button id="openFeaturePromptSheetBtn" class="sheet-open-btn">Open Prompt Editor</button>
+        <div class="notice">Long-form prompt editing opens in a mobile sheet.</div>`
+        : `<div class="build-card" style="margin-top:6px"><div class="prompt-text">${esc(String(draft.prompt || run?.task || ''))}</div></div>`
+    })}
+    ${hasRun ? renderPanelCard({ id: 'featureAgentsCard', title: `Assigned Agents (${runAgents.length})`, open: true, body: renderAgentStatusList(runAgents, run) }) : ''}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
   panel.scrollTop = 0;
 
   document.getElementById('worktreePath').addEventListener('input', e => { draft.worktreePath = e.target.value; queuePersist(); });
+  document.getElementById('openFeaturePromptSheetBtn')?.addEventListener('click', () => {
+    openMobileSheet({
+      title: 'Feature prompt',
+      content: `<label class="kv">Prompt<textarea id="featurePromptSheetInput" rows="12" placeholder="Describe detailed scope, constraints, and acceptance criteria...">${esc(String(draft.prompt || ''))}</textarea></label>
+      <button id="featurePromptSheetSaveBtn">Save Prompt</button>`
+    });
+    document.getElementById('featurePromptSheetSaveBtn')?.addEventListener('click', () => {
+      const ta = document.getElementById('featurePromptSheetInput');
+      draft.prompt = String(ta?.value || '');
+      void postJson('/api/rts/layout/position', {
+        entityType: 'feature',
+        entityId: draft.id,
+        runId: draft.runId || null,
+        repoPath: draft.repo || null,
+        worktreePath: draft.worktreePath || null,
+        x: Number(draft.x || 0),
+        y: Number(draft.y || 0),
+        payload: {
+          baseId: String(draft.baseId || ''),
+          workerAssignments: draft.workerAssignments || {},
+          prompt: String(draft.prompt || '')
+        }
+      }).catch(() => {});
+      queuePersist();
+      closeMobileSheet();
+      renderRunSetupPanel(draft.id);
+    });
+  });
   const featurePromptInput = document.getElementById('featurePrompt');
   if (featurePromptInput) {
     featurePromptInput.addEventListener('input', e => {
@@ -5382,6 +5997,42 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') deleteSelectedStructure();
 });
 
+function touchPointById(event, id){
+  const touches = event?.touches || [];
+  for (const touch of touches) {
+    if (touch.identifier === id) return touch;
+  }
+  const changed = event?.changedTouches || [];
+  for (const touch of changed) {
+    if (touch.identifier === id) return touch;
+  }
+  return touches[0] || changed[0] || null;
+}
+
+function shouldIgnoreTouchWorldGesture(target){
+  if (!(target instanceof Element)) return false;
+  return !!target.closest('button,input,textarea,select,a,label,.palette-card,.panel-toolbar,.mobile-action-tabs,.mobile-status-strip');
+}
+
+function applyPinchZoomFromTouches(touchA, touchB){
+  if (!state.cameraZoom.enabled || !touchA || !touchB) return;
+  const dx = touchA.clientX - touchB.clientX;
+  const dy = touchA.clientY - touchB.clientY;
+  const distance = Math.hypot(dx, dy);
+  if (!Number.isFinite(distance) || distance <= 0) return;
+  if (!Number.isFinite(state.cameraDrag.pinchDistance) || state.cameraDrag.pinchDistance <= 0) {
+    state.cameraDrag.pinchDistance = distance;
+    return;
+  }
+  const ratio = distance / state.cameraDrag.pinchDistance;
+  const nextScale = Math.min(state.cameraZoom.max, Math.max(state.cameraZoom.min, Number(state.cameraZoom.scale || 1) * ratio));
+  if (Math.abs(nextScale - Number(state.cameraZoom.scale || 1)) > 0.001) {
+    state.cameraZoom.scale = nextScale;
+    updateCameraVisuals();
+  }
+  state.cameraDrag.pinchDistance = distance;
+}
+
 const handlePointerMove = (e) => {
   if (state.cameraDrag.active) {
     state.camera.x = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
@@ -5443,6 +6094,79 @@ worldWrapEl.addEventListener('mousedown', (e) => {
     };
   }
 });
+worldWrapEl.addEventListener('touchstart', (e) => {
+  if (state.draggingEntity) return;
+  hideBuildingHoverCard();
+  const target = e.target instanceof Element ? e.target : null;
+  if (shouldIgnoreTouchWorldGesture(target)) return;
+  if (e.touches.length >= 2) {
+    state.cameraDrag.active = false;
+    state.cameraDrag.pointerId = null;
+    state.cameraDrag.viaTouch = true;
+    const first = e.touches[0];
+    const second = e.touches[1];
+    const dx = first.clientX - second.clientX;
+    const dy = first.clientY - second.clientY;
+    state.cameraDrag.pinchDistance = Math.hypot(dx, dy);
+    return;
+  }
+  const touch = e.touches[0];
+  if (!touch) return;
+  if (state.placementMode) {
+    e.preventDefault();
+    const point = localPointInWorld(touch);
+    const snapped = snapPlacement(state.placementMode, point.x, point.y);
+    if (state.placementMode === 'base') placeBaseAt(snapped.x, snapped.y);
+    if (state.placementMode === 'feature') placeFeatureAt(snapped.x, snapped.y);
+    if (state.placementMode === 'research') placeResearchAt(snapped.x, snapped.y);
+    if (state.placementMode === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
+    if (state.placementMode === 'university') placeUniversityAt(snapped.x, snapped.y);
+    if (state.placementMode === 'library') placeLibraryAt(snapped.x, snapped.y);
+    if (state.placementMode === 'power') placePowerAt(snapped.x, snapped.y);
+    state.suppressWorldClick = true;
+    setPlacement(null);
+    return;
+  }
+  const hitEntity = !!target?.closest('.entity');
+  const hitBelt = !!target?.closest('.rts-path');
+  if (hitEntity || hitBelt) return;
+  e.preventDefault();
+  state.cameraDrag = {
+    active:true,
+    startX:touch.clientX,
+    startY:touch.clientY,
+    originX:state.camera.x,
+    originY:state.camera.y,
+    pointerId:touch.identifier,
+    viaTouch:true,
+    pinchDistance:0
+  };
+}, { passive:false });
+
+window.addEventListener('touchmove', (e) => {
+  if (e.touches.length >= 2) {
+    applyPinchZoomFromTouches(e.touches[0], e.touches[1]);
+    return;
+  }
+  if (!state.cameraDrag.active || !state.cameraDrag.viaTouch) return;
+  const touch = touchPointById(e, state.cameraDrag.pointerId);
+  if (!touch) return;
+  e.preventDefault();
+  handlePointerMove(touch);
+}, { passive:false });
+
+window.addEventListener('touchend', () => {
+  state.cameraDrag.active = false;
+  state.cameraDrag.pointerId = null;
+  state.cameraDrag.pinchDistance = 0;
+});
+
+window.addEventListener('touchcancel', () => {
+  state.cameraDrag.active = false;
+  state.cameraDrag.pointerId = null;
+  state.cameraDrag.pinchDistance = 0;
+});
+
 worldWrapEl.addEventListener('contextmenu', (e) => {
   if (state.cameraDrag.active || e.target === worldWrapEl || worldWrapEl.contains(e.target)) e.preventDefault();
 });
@@ -5485,18 +6209,16 @@ worldEl.addEventListener('click', (e) => {
   if (state.selected) clearSelectedEntity();
 });
 
-boot();
+registerServiceWorker();
+initInstallPrompt();
+initMobileLayoutShell();
+initConnectivityMonitoring();
+boot().then(() => {
+  scheduleRuntimePoll(state.runtimePoll.baseDelayMs);
+}).catch(() => {
+  scheduleRuntimePoll(boundedRetryDelayMs(1));
+});
 updateCameraVisuals();
-setInterval(async () => {
-  const runsChanged = await refreshRuntimeState(false);
-  if (!state.liveStream) startLiveStream();
-  if (runsChanged) rebuildScene();
-  else if (Number(state.live?.runningAgentCount || 0) > 0) {
-    ensureMotionLoop();
-    renderUnitsLiveState();
-  } else renderUnitsLiveState();
-  renderLiveConsole();
-}, 2000);
 
 window.addEventListener('beforeunload', () => {
   if (state.motionTimer) {
@@ -5506,6 +6228,10 @@ window.addEventListener('beforeunload', () => {
   if (state.liveStream) {
     try { state.liveStream.close(); } catch {}
     state.liveStream = null;
+  }
+  if (state.runtimePoll?.timer) {
+    clearTimeout(state.runtimePoll.timer);
+    state.runtimePoll.timer = null;
   }
 });
 </script>
