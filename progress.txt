@@ -12,6 +12,7 @@ Started: 2026-02-11 05:47 ET
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
+- Documentation contract checks can be implemented as lightweight `node:test` files that read markdown docs and assert required heading lines via regex
 
 ---
 
@@ -107,4 +108,12 @@ Started: 2026-02-11 05:47 ET
 - Expanded RTS e2e script to run both palette UI regression and existing-repo base flow regression
 - Files changed: `src/server/dashboard.ts`, `tests/rts-base-existing-repo.e2e.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** RTS base creation server contract now explicitly supports existing-local-repo mode through `/api/rts/base/clone`; regression coverage should assert this contract directly.
+---
+## 2026-02-16 18:39 - US-001: Define concrete scope from ambiguous request
+- Added `docs/task-definition.md` with concrete sections: Objective, In Scope, Out of Scope, Constraints, and Acceptance Checklist.
+- Documented a deterministic finalized implementation target in the checklist section for downstream story generation.
+- Added `tests/task-definition.test.ts` to automatically fail if any required section heading is missing.
+- Verified build/typecheck and test execution are passing for the new validation and existing RTS e2e suite.
+- Files changed: `docs/task-definition.md`, `tests/task-definition.test.ts`, `progress.txt`.
+- **Learnings:** Simple markdown-structure contract tests are effective for turning ambiguous requests into enforceable documentation requirements.
 ---
