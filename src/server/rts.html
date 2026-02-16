@@ -3032,71 +3032,29 @@ function startLiveStream(){
 
 function rebuildScene(){
   updateCameraVisuals();
-  const customByRepo = new Map();
-  (state.customBases || []).forEach((cb) => {
-    if (!cb?.repo) return;
-    const repoKey = baseRepoKey(cb.repo);
-    customByRepo.set(repoKey, { ...cb, repo: repoKey, workerPool: normalizeBaseWorkerPool(cb.workerPool || {}) });
-  });
-
-  const runsByRepo = new Map();
-  (state.runs || []).forEach((run) => {
-    const rawRepo = normalizePathKey(getRepo(run));
-    if (!rawRepo) return;
-    const repo = baseRepoKey(rawRepo);
-    if (!runsByRepo.has(repo)) runsByRepo.set(repo, []);
-    runsByRepo.get(repo).push(run);
-  });
-
-  const mergedBases = [];
-  const usedCustomBaseIds = new Set();
-  let autoIndex = 0;
-  runsByRepo.forEach((runs, repo) => {
-    const existingCustom = customByRepo.get(repo);
-    if (existingCustom) {
-      const resolvedPort = Number(existingCustom.port) || getPortForPath(existingCustom.repo) || 3333;
-      if (existingCustom.repo) setPortForPath(existingCustom.repo, resolvedPort);
-      mergedBases.push({
-        ...existingCustom,
-        runs,
-        source:'custom',
-        port: resolvedPort,
-        portLabel: pathLabel(existingCustom.repo),
-        workerPool: normalizeBaseWorkerPool(existingCustom.workerPool || {})
-      });
-      usedCustomBaseIds.add(existingCustom.id);
-      return;
-    }
-    const resolvedPort = getPortForPath(repo) || 3333;
-    setPortForPath(repo, resolvedPort);
-    mergedBases.push({
-      id:`base-run-${autoIndex}`,
-      x: 90 + (autoIndex%3)*320,
-      y: 80 + Math.floor(autoIndex/3)*220,
-      repo,
-      runs,
-      source:'run',
-      port: resolvedPort,
-      portLabel: pathLabel(repo),
-      workerPool: normalizeBaseWorkerPool({})
-    });
-    autoIndex += 1;
-  });
-
-  (state.customBases || []).forEach((cb) => {
-    if (usedCustomBaseIds.has(cb.id)) return;
+  // DB is source-of-truth: map bases must come from persisted custom base rows only.
+  const mergedBases = (state.customBases || []).map((cb) => {
     const repoKey = baseRepoKey(cb.repo);
     const resolvedPort = Number(cb.port) || getPortForPath(repoKey) || 3333;
     if (repoKey) setPortForPath(repoKey, resolvedPort);
-    mergedBases.push({
+    return {
       ...cb,
       repo: repoKey,
-      runs: cb.runs || [],
-      source:'custom',
+      runs: [],
+      source: 'custom',
       port: resolvedPort,
       portLabel: pathLabel(repoKey),
       workerPool: normalizeBaseWorkerPool(cb.workerPool || {})
-    });
+    };
+  });
+
+  (state.runs || []).forEach((run) => {
+    const repo = baseRepoKey(normalizePathKey(getRepo(run)));
+    if (!repo) return;
+    const base = mergedBases.find((b) => baseRepoKey(String(b?.repo || '')) === repo);
+    if (!base) return;
+    if (!Array.isArray(base.runs)) base.runs = [];
+    base.runs.push(run);
   });
 
   const buildings = [];
