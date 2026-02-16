@@ -397,6 +397,33 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .build-card strong { display:block; font-size:12px; margin-bottom:5px; color:#caf4ff; }
 .build-card small { color:var(--muted); font-size:11px; display:block; }
+.structure-tree-card { margin-top:8px; }
+.structure-tree { margin-top:6px; display:grid; gap:5px; }
+.tree-node {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  color:#cbe9ff;
+}
+.tree-child { padding-left:12px; }
+.tree-grandchild { padding-left:24px; }
+.tree-kind {
+  display:inline-flex;
+  align-items:center;
+  min-width:76px;
+  padding:1px 6px;
+  border:1px solid #466a8a;
+  border-radius:999px;
+  color:#97dfff;
+  background:#10253a;
+}
+.tree-kind.university { border-color:#668dd6; color:#b7ccff; }
+.tree-kind.library { border-color:#7bc1ff; color:#c8e5ff; }
+.tree-kind.research { border-color:#4fb99e; color:#9ef8de; }
+.tree-kind.warehouse { border-color:#7ca8b8; color:#c9e7ef; }
+.tree-kind.power { border-color:#d4a467; color:#ffdcae; }
+.tree-kind.feature { border-color:#6bbf75; color:#c2ffd0; }
 .kv { font-size:12px; color:var(--muted); margin-bottom:7px; }
 .kv strong { color:var(--corpus-ice); }
 .entity {
@@ -1189,6 +1216,7 @@ function renderDefaultActionPanel(){
   const panel = document.getElementById('actionPanel');
   if (!panel) return;
   const live = state.live || {};
+  const structureTree = structureTreeMarkup();
   panel.dataset.mode = 'default';
   panel.dataset.featureId = '';
   panel.innerHTML = `
@@ -1197,8 +1225,90 @@ function renderDefaultActionPanel(){
     <div class="kv"><strong>Pending runs:</strong> ${Number(live.pendingRunCount || 0)}</div>
     <div class="kv"><strong>Running agents:</strong> ${Number(live.runningAgentCount || 0)}</div>
     <div class="notice">Place Base, Feature, Research, Warehouse, University, Library, or Power Plant structures from the cards below.</div>
+    <div class="build-card structure-tree-card">
+      <div class="kv"><strong>Structure Tree</strong></div>
+      <div class="structure-tree">${structureTree}</div>
+    </div>
   `;
   wirePanelDeleteButton();
+}
+function distanceBetweenEntities(kindA, itemA, kindB, itemB){
+  const from = centerPointFor(kindA, Number(itemA?.x || 0), Number(itemA?.y || 0));
+  const to = centerPointFor(kindB, Number(itemB?.x || 0), Number(itemB?.y || 0));
+  return Math.hypot(Number(from.x || 0) - Number(to.x || 0), Number(from.y || 0) - Number(to.y || 0));
+}
+function structureNode(kind, label, className = ''){
+  return `<div class="tree-node ${esc(className)}"><span class="tree-kind ${esc(kind)}">${esc(kind)}</span><span>${esc(label)}</span></div>`;
+}
+function structureTreeMarkup(){
+  const bases = (Array.isArray(state.bases) ? state.bases : [])
+    .filter((b) => b && typeof b === 'object' && String(b.id || '').trim())
+    .slice()
+    .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+  if (!bases.length) return '<div class="notice">No base placed yet.</div>';
+  const researchList = Array.isArray(state.researchBuildings) ? state.researchBuildings : [];
+  const warehouseList = Array.isArray(state.warehouseBuildings) ? state.warehouseBuildings : [];
+  const featureList = Array.isArray(state.featureBuildings) ? state.featureBuildings : [];
+  const chunks = [];
+  bases.forEach((base) => {
+    const repoKey = baseRepoKey(String(base.repo || ''));
+    const universities = researchList
+      .filter((rb) => rb.kind === 'university' && baseRepoKey(String(rb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const researchLabs = researchList
+      .filter((rb) => rb.kind === 'research' && baseRepoKey(String(rb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const libraries = warehouseList
+      .filter((wb) => wb.kind === 'library' && baseRepoKey(String(wb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const warehouses = warehouseList
+      .filter((wb) => wb.kind === 'warehouse' && baseRepoKey(String(wb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const powerPlants = warehouseList
+      .filter((wb) => wb.kind === 'power' && baseRepoKey(String(wb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const features = featureList
+      .filter((fb) => baseRepoKey(String(fb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const librariesByUniversity = new Map(universities.map((u) => [String(u.id), []]));
+    const orphanLibraries = [];
+    libraries.forEach((library) => {
+      if (!universities.length) {
+        orphanLibraries.push(library);
+        return;
+      }
+      let nearest = null;
+      universities.forEach((u) => {
+        const dist = distanceBetweenEntities('library', library, 'university', u);
+        if (!nearest || dist < nearest.dist) nearest = { id: String(u.id), dist };
+      });
+      if (!nearest) orphanLibraries.push(library);
+      else librariesByUniversity.get(nearest.id)?.push(library);
+    });
+    const nodes = [
+      structureNode('base', `${String(base.id || 'base')} (${pathLabel(base.repo || '')})`)
+    ];
+    universities.forEach((u) => {
+      nodes.push(structureNode('university', String(u.id || 'university'), 'tree-child'));
+      const attachedLibraries = librariesByUniversity.get(String(u.id)) || [];
+      attachedLibraries.forEach((library) => {
+        nodes.push(structureNode('library', String(library.id || 'library'), 'tree-grandchild'));
+      });
+    });
+    researchLabs.forEach((lab) => nodes.push(structureNode('research', String(lab.id || 'research'), 'tree-child')));
+    orphanLibraries.forEach((library) => nodes.push(structureNode('library', `${String(library.id || 'library')} (unlinked)`, 'tree-child')));
+    warehouses.forEach((warehouse) => nodes.push(structureNode('warehouse', String(warehouse.id || 'warehouse'), 'tree-child')));
+    powerPlants.forEach((plant) => nodes.push(structureNode('power', String(plant.id || 'power'), 'tree-child')));
+    features.forEach((feature) => nodes.push(structureNode('feature', String(feature.id || 'feature'), 'tree-child')));
+    chunks.push(nodes.join(''));
+  });
+  return chunks.join('');
 }
 function isResearchKind(kind){
   return kind === 'research' || kind === 'university';
