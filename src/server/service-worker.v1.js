@@ -1,6 +1,7 @@
 const CACHE_NAME = "antfarm-rts-v1";
 const CORE_ASSETS = [
   "/rts",
+  "/rts-mobile",
   "/manifest.webmanifest",
   "/icon-192.png",
   "/icon-512.png"

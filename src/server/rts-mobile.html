@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Antfarm RTS Mobile</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#081a2d" />
+<style>
+:root { color-scheme: dark; --bg:#060f1c; --panel:#0e2238; --panel-2:#102a45; --edge:#3f6687; --text:#d8eeff; --muted:#9fc2de; --ok:#4df2b3; --warn:#ffd46c; --bad:#ff7f90; }
+* { box-sizing:border-box; }
+body { margin:0; font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto; background: radial-gradient(120% 90% at 20% -10%, #1b4064 0%, #0b2036 38%, var(--bg) 100%); color:var(--text); }
+.app { min-height:100dvh; display:flex; flex-direction:column; padding-top: calc(env(safe-area-inset-top, 0px) + 10px); }
+.top { display:flex; gap:8px; flex-wrap:wrap; padding:0 10px 8px; }
+.chip { border:1px solid #426b8e; background:#0f243a; border-radius:999px; padding:4px 8px; font-size:11px; color:#b7daf3; }
+.main { flex:1; overflow:auto; padding:8px 10px 86px; }
+.title { margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:#9fd4f5; }
+.card { border:1px solid var(--edge); background:linear-gradient(170deg,var(--panel) 0%, #0c1f34 100%); border-radius:12px; padding:11px; margin:0 0 12px; box-shadow:0 8px 22px #020b1466; }
+.row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.h { margin:0; font-size:14px; }
+.notice { margin:6px 0 0; color:var(--muted); font-size:12px; }
+.list { list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.item { width:100%; text-align:left; border:1px solid #4b7396; background:linear-gradient(160deg,var(--panel-2) 0%, #0d2238 100%); color:var(--text); border-radius:10px; padding:10px; }
+.item:hover { border-color:#88c8f0; }
+.progress { margin-top:7px; height:6px; border-radius:999px; border:1px solid #4f7693; overflow:hidden; background:#08101d; }
+.bar { height:100%; background:linear-gradient(90deg,#58ffe4,#66cbff); }
+.plus { width:30px; height:30px; border-radius:999px; border:1px solid #6ba7d5; background:linear-gradient(180deg,#153452 0%, #102840 100%); color:#d7f4ff; font-size:19px; }
+.plus:disabled { opacity:.6; }
+.error { margin-top:8px; color:var(--bad); font-size:12px; }
+.dock { position:fixed; left:10px; right:10px; bottom:calc(env(safe-area-inset-bottom, 0px) + 8px); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.tab { height:54px; border-radius:13px; border:1px solid #3f698b; background:linear-gradient(160deg,#0f2f4e 0%, #0b223b 100%); color:#c8e9ff; font-weight:700; letter-spacing:.4px; }
+.tab.active { border-color:#9ee3ff; box-shadow:0 0 0 1px #95e6ff66 inset, 0 10px 22px #052034b5; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top" id="top"></header>
+  <main class="main" id="main"></main>
+  <nav class="dock">
+    <button class="tab active" data-tab="build">Build</button>
+    <button class="tab" data-tab="runs">Runs</button>
+    <button class="tab" data-tab="intel">Intel</button>
+  </nav>
+</div>
+<script>
+const state = { tab:'build', treeLoading:true, tree:{ bases:[] }, runs:[], live:null, diag:null, inFlightBaseId:'', errors:{} };
+const topEl = document.getElementById('top');
+const mainEl = document.getElementById('main');
+
+function esc(s){ return String(s ?? '').replace(/[&<>\"]/g, (m)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
+async function json(url){ const r=await fetch(url); const d=await r.json(); if(!r.ok) throw new Error(d?.error||`request_failed:${r.status}`); return d; }
+async function postJson(url, body){ const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); const d=await r.json(); if(!r.ok||d?.ok===false) throw new Error(d?.error||`request_failed:${r.status}`); return d; }
+
+function runProgress(run){
+  const steps = Array.isArray(run?.steps) ? run.steps : [];
+  const total = Math.max(1, steps.length || 1);
+  const done = steps.filter((s)=>['done','success','completed','skipped'].includes(String(s?.status||'').toLowerCase())).length;
+  const running = steps.some((s)=>String(s?.status||'').toLowerCase()==='running') ? 0.35 : 0;
+  return Math.max(0, Math.min(100, Math.round(((done + running) / total) * 100)));
+}
+
+function statusTone(status){
+  const s = String(status || '').toLowerCase();
+  if (s === 'done' || s === 'success' || s === 'completed') return 'var(--ok)';
+  if (s === 'failed' || s === 'bad') return 'var(--bad)';
+  return 'var(--warn)';
+}
+
+function renderTop(){
+  const runs = Array.isArray(state.runs) ? state.runs : [];
+  const active = runs.filter((r)=>!['done','failed','cancelled'].includes(String(r?.status||'').toLowerCase())).length;
+  const live = state.live || {};
+  topEl.innerHTML = `
+    <span class="chip">RUNS ${active}/${runs.length}</span>
+    <span class="chip">AGENTS ${Number(live.runningAgentCount||0)}</span>
+    <span class="chip">NET ${navigator.onLine===false?'OFFLINE':'ONLINE'}</span>
+  `;
+}
+
+function renderBuild(){
+  if (state.treeLoading) {
+    mainEl.innerHTML = `<h1 class="title">Mobile Ops</h1><div class="card"><p class="notice">Syncing command state...</p></div>`;
+    return;
+  }
+  const bases = Array.isArray(state.tree?.bases) ? state.tree.bases : [];
+  if (!bases.length) {
+    mainEl.innerHTML = `<h1 class="title">Mobile Ops</h1><div class="card"><p class="notice">No bases yet.</p></div>`;
+    return;
+  }
+  const cards = bases.map((base)=>{
+    const baseId = String(base?.id||'');
+    const baseLabel = String(base?.label||'Base');
+    const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
+    const canCreate = !baseId.startsWith('base:');
+    const rows = buildings.length ? buildings.map((b)=>`<li><button class="item" data-building-id="${esc(String(b?.id||''))}"><div class="row"><strong>${esc(String(b?.label||b?.kind||'Building'))}</strong><span class="notice">${esc(String(b?.kind||''))}</span></div></button></li>`).join('') : '<li class="notice">No buildings</li>';
+    return `
+      <section class="card">
+        <div class="row">
+          <h2 class="h">${esc(baseLabel)}</h2>
+          ${canCreate ? `<button class="plus" data-base-create="${esc(baseId)}" ${state.inFlightBaseId===baseId?'disabled':''}>+</button>` : ''}
+        </div>
+        ${state.errors[baseId] ? `<div class="error">${esc(state.errors[baseId])}</div>` : ''}
+        <ul class="list">${rows}</ul>
+      </section>
+    `;
+  }).join('');
+  mainEl.innerHTML = `<h1 class="title">Mobile Ops</h1>${cards}`;
+}
+
+function renderRuns(){
+  const runs = Array.isArray(state.runs) ? state.runs : [];
+  const cards = runs.length ? runs.map((run)=>{
+    const progress = runProgress(run);
+    const status = String(run?.status || 'idle');
+    return `
+      <section class="card">
+        <div class="row"><h2 class="h">${esc(String(run?.workflow_id||'workflow'))}</h2><span class="notice">${esc(status)}</span></div>
+        <p class="notice">RUN ${esc(String(run?.id||'').slice(0,12))}</p>
+        <div class="progress"><div class="bar" style="width:${progress}%;background:${statusTone(status)}"></div></div>
+      </section>
+    `;
+  }).join('') : `<section class="card"><p class="notice">No runs yet.</p></section>`;
+  mainEl.innerHTML = `<h1 class="title">Active Runs</h1>${cards}`;
+}
+
+function renderIntel(){
+  const live = state.live || {};
+  const diag = state.diag || {};
+  const cronCount = Array.isArray(diag?.cron?.jobs) ? diag.cron.jobs.length : Number(diag?.cron?.matchingCount || 0);
+  mainEl.innerHTML = `
+    <h1 class="title">Mission Intel</h1>
+    <section class="card">
+      <h2 class="h">Runtime</h2>
+      <p class="notice">Active runs: ${Number(live.activeRunCount||0)}</p>
+      <p class="notice">Pending runs: ${Number(live.pendingRunCount||0)}</p>
+      <p class="notice">Running agents: ${Number(live.runningAgentCount||0)}</p>
+      <p class="notice">Cron jobs: ${cronCount}</p>
+    </section>
+  `;
+}
+
+function render(){
+  document.querySelectorAll('.tab').forEach((el)=>el.classList.toggle('active', el.dataset.tab===state.tab));
+  renderTop();
+  if (state.tab === 'build') return renderBuild();
+  if (state.tab === 'runs') return renderRuns();
+  return renderIntel();
+}
+
+async function refreshBuild(){
+  try {
+    const tree = await json('/api/rts/mobile/tree');
+    state.tree = { bases: Array.isArray(tree?.bases) ? tree.bases : [] };
+  } catch { state.tree = { bases: [] }; }
+  state.treeLoading = false;
+}
+
+async function refreshLive(){
+  try {
+    const [runs, live, diag] = await Promise.all([
+      json('/api/runs').catch(()=>[]),
+      json('/api/rts/live').catch(()=>({ live:null })),
+      json('/api/rts/diag?workflow=feature-dev').catch(()=>({ diag:null }))
+    ]);
+    state.runs = Array.isArray(runs) ? runs : [];
+    state.live = live?.live || null;
+    state.diag = diag?.diag || null;
+  } catch {}
+}
+
+async function createFactory(baseId){
+  const id = String(baseId || '').trim();
+  if (!id || state.inFlightBaseId) return;
+  state.inFlightBaseId = id;
+  delete state.errors[id];
+  render();
+  try {
+    await postJson('/api/rts/factory/create', { baseId:id, kind:'factory' });
+    await refreshBuild();
+  } catch (err) {
+    state.errors[id] = `Create failed: ${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    state.inFlightBaseId = '';
+    render();
+  }
+}
+
+document.addEventListener('click', (event)=>{
+  const target = event.target instanceof Element ? event.target : null;
+  const tab = target?.closest('.tab');
+  if (tab) {
+    state.tab = tab.getAttribute('data-tab') || 'build';
+    render();
+    return;
+  }
+  const createBtn = target?.closest('[data-base-create]');
+  if (createBtn) {
+    void createFactory(createBtn.getAttribute('data-base-create'));
+  }
+});
+
+window.addEventListener('online', ()=>renderTop());
+window.addEventListener('offline', ()=>renderTop());
+
+(async function boot(){
+  render();
+  await Promise.all([refreshBuild(), refreshLive()]);
+  render();
+  setInterval(async ()=>{
+    await refreshLive();
+    if (state.tab === 'build') await refreshBuild();
+    render();
+  }, 2000);
+})();
+</script>
+</body>
+</html>

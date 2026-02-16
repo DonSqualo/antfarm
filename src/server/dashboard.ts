@@ -1310,6 +1310,11 @@ function serveHTML(res: http.ServerResponse, fileName = "index.html") {
   res.end(fs.readFileSync(filePath, "utf-8"));
 }
 
+function isLikelyMobileUserAgent(req: http.IncomingMessage): boolean {
+  const ua = String(req.headers["user-agent"] || "").toLowerCase();
+  return /android|iphone|ipad|ipod|mobile|iemobile|opera mini/.test(ua);
+}
+
 function guessMime(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".svg") return "image/svg+xml";
@@ -2669,7 +2674,13 @@ export function startDashboard(port = 3333): http.Server {
 
     // Serve frontend
     if (p === "/" || p === "/rts" || p === "/rts/") {
-      return serveHTML(res, "rts.html");
+      const forcedView = String(url.searchParams.get("view") || "").toLowerCase();
+      if (forcedView === "desktop") return serveHTML(res, "rts.html");
+      if (forcedView === "mobile") return serveHTML(res, "rts-mobile.html");
+      return serveHTML(res, isLikelyMobileUserAgent(req) ? "rts-mobile.html" : "rts.html");
+    }
+    if (p === "/rts-mobile" || p === "/rts-mobile/") {
+      return serveHTML(res, "rts-mobile.html");
     }
     if (p === "/classic" || p === "/index" || p === "/index.html") {
       return serveHTML(res, "index.html");
