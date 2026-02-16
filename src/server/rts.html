@@ -937,6 +937,40 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
   padding:8px 10px;
   font-size:12px;
 }
+.mobile-tree-item-body {
+  display:flex;
+  align-items:flex-start;
+  gap:9px;
+}
+.mobile-tree-item-icon {
+  width:34px;
+  height:34px;
+  border-radius:6px;
+  border:1px solid #4f799f;
+  background-color:#081425;
+  background-size:cover;
+  background-position:center;
+  flex:0 0 34px;
+}
+.mobile-tree-item-meta {
+  min-width:0;
+  flex:1 1 auto;
+}
+.mobile-tree-item-title {
+  font-size:12px;
+  font-weight:600;
+  line-height:1.2;
+  margin:0;
+}
+.mobile-tree-item-sub {
+  font-size:10px;
+  color:#9dc8e5;
+  margin-top:2px;
+}
+.mobile-tree-item .progress {
+  margin-top:6px;
+  height:6px;
+}
 .layout.mobile-list-mode .world-wrap,
 .layout.mobile-list-mode .hud,
 .layout.mobile-list-mode .command-bar {
@@ -2405,14 +2439,134 @@ function markRunRelaunched(runId){
   });
 }
 
-async function refreshMobileTree(){
-  try {
-    const tree = await json('/api/rts/mobile/tree');
-    const bases = Array.isArray(tree?.bases) ? tree.bases : [];
-    state.mobileTree = { bases };
-  } catch {
-    state.mobileTree = { bases: [] };
+function mobileRenderKindForBuilding(building){
+  if (!building) return 'feature';
+  if (isLibraryLike(building)) return 'library';
+  if (building.kind === 'university') return 'university';
+  if (building.kind === 'research') return 'research';
+  if (building.kind === 'warehouse') return 'warehouse';
+  if (building.kind === 'power') return 'power';
+  if (building.kind === 'run') return 'feature';
+  return 'feature';
+}
+
+function mobileSpriteForKind(kind){
+  if (kind === 'base') return '/rts-sprites/base_preview_3-20260213a.png?v=20260213a';
+  if (kind === 'research') return '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k';
+  if (kind === 'warehouse') return '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k';
+  if (kind === 'university') return '/rts-sprites/university_preview-20260212a.webp?v=20260212a';
+  if (kind === 'library') return '/rts-sprites/library_preview-20260212a.webp?v=20260212a';
+  if (kind === 'power') return '/rts-sprites/power_preview-20260212a.webp?v=20260212a';
+  return '/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k';
+}
+
+function mobileBuildingStatusInfo(building){
+  const storageIsLibrary = isLibraryLike(building);
+  const timeoutStep = timedOutStepForRun(building?.run);
+  const status = (building?.kind === 'research' || building?.kind === 'university')
+    ? 'idle'
+    : ((building?.kind === 'warehouse' || building?.kind === 'library' || building?.kind === 'power')
+      ? 'stored'
+      : (timeoutStep ? 'bad' : prettyStatus(getDisplayRunStatus(building?.run, building?.phase, building?.runId || building?.id || 'waiting'))));
+  const color = (status === 'done')
+    ? 'var(--ok)'
+    : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)');
+  const progress = Math.max(0, Math.min(100, Number(building?.progress || 0)));
+  const warehouseCount = Array.isArray(building?.items) ? building.items.length : 0;
+  const cronCount = Array.isArray(state.diag?.cron?.jobs) ? state.diag.cron.jobs.length : Number(state.diag?.cron?.matchingCount || 0);
+  if (building?.kind === 'research' || building?.kind === 'university') return { subtitle: 'Research queue ready', progress, color, showProgress: false };
+  if (building?.kind === 'power') return { subtitle: `Cron jobs: ${cronCount}`, progress, color, showProgress: false };
+  if (building?.kind === 'warehouse' || building?.kind === 'library') {
+    return { subtitle: `${storageIsLibrary ? 'Archived entries' : 'Stored items'}: ${warehouseCount}`, progress, color, showProgress: false };
   }
+  return { subtitle: hoverSummaryForBuilding(building), progress, color, showProgress: true };
+}
+
+function mobileBuildingLabel(building){
+  const task = String(building?.taskTitle || '').trim();
+  if (task) return task;
+  if (building?.kind === 'run') return `Run ${String(building?.runId || building?.id || '').slice(0, 8) || 'pending'}`;
+  if (building?.kind === 'feature') return String(building?.label || 'Feature Forge');
+  if (building?.kind === 'university') return String(building?.label || 'University');
+  if (building?.kind === 'research') return String(building?.label || 'Research Lab');
+  if (isLibraryLike(building)) return String(building?.label || 'Library');
+  if (building?.kind === 'power') return String(building?.label || 'Power Plant');
+  if (building?.kind === 'warehouse') return String(building?.label || 'Warehouse');
+  return String(building?.label || building?.kind || 'Building');
+}
+
+function buildMobileTreeFromScene(){
+  const sourceBases = Array.isArray(state.bases) ? state.bases : [];
+  const sourceBuildings = Array.isArray(state.buildings) ? state.buildings : [];
+  const bases = sourceBases.map((base) => ({
+    id: String(base?.id || ''),
+    label: String(base?.portLabel || pathLabel(base?.repo || '') || base?.id || 'Base'),
+    source: String(base?.source || 'custom'),
+    repo: String(base?.repo || ''),
+    x: Number(base?.x || 0),
+    y: Number(base?.y || 0),
+    buildings: []
+  }));
+  const baseById = new Map(bases.map((base) => [base.id, base]));
+  const repoBuckets = new Map();
+  const appendBase = (base) => {
+    bases.push(base);
+    baseById.set(base.id, base);
+    const repoKey = baseRepoKey(base.repo || '');
+    if (!repoBuckets.has(repoKey)) repoBuckets.set(repoKey, []);
+    repoBuckets.get(repoKey).push(base);
+  };
+  for (const base of bases) {
+    const repoKey = baseRepoKey(base.repo || '');
+    if (!repoKey) continue;
+    if (!repoBuckets.has(repoKey)) repoBuckets.set(repoKey, []);
+    repoBuckets.get(repoKey).push(base);
+  }
+
+  const findTargetBase = (building) => {
+    const explicitBaseId = String(building?.baseId || '');
+    if (explicitBaseId && baseById.has(explicitBaseId)) return baseById.get(explicitBaseId);
+    const repoKey = baseRepoKey(String(building?.repo || ''));
+    const candidates = repoBuckets.get(repoKey) || [];
+    if (!candidates.length) return null;
+    if (candidates.length === 1) return candidates[0];
+    const bx = Number(building?.x || 0);
+    const by = Number(building?.y || 0);
+    return candidates.reduce((best, base) => {
+      const dist = Math.hypot(Number(base.x || 0) - bx, Number(base.y || 0) - by);
+      if (!best || dist < best.dist) return { base, dist };
+      return best;
+    }, null)?.base || candidates[0];
+  };
+
+  for (const building of sourceBuildings) {
+    let targetBase = findTargetBase(building);
+    if (!targetBase) {
+      const repoKey = baseRepoKey(String(building?.repo || ''));
+      const syntheticId = repoKey ? `base:${repoKey}` : 'base:unlinked';
+      const syntheticLabel = repoKey ? pathLabel(repoKey) : 'Unlinked';
+      targetBase = baseById.get(syntheticId);
+      if (!targetBase) {
+        targetBase = {
+          id: syntheticId,
+          label: syntheticLabel || 'Base',
+          source: 'derived',
+          repo: repoKey,
+          x: Number(building?.x || 0),
+          y: Number(building?.y || 0),
+          buildings: []
+        };
+        appendBase(targetBase);
+      }
+    }
+    targetBase.buildings.push(building);
+  }
+
+  return { bases };
+}
+
+async function refreshMobileTree(){
+  state.mobileTree = buildMobileTreeFromScene();
 }
 
 function getMobileBuildingRouteId(){
@@ -2460,8 +2614,11 @@ function renderMobileListMode(){
       return;
     }
     const baseLabel = String(selected.base?.label || 'Base');
-    const buildingLabel = String(selected.building?.label || selected.building?.kind || 'Building');
-    panel.innerHTML = `<h3>Building Detail</h3><article class="mobile-tree-base"><div class="mobile-tree-base-head"><button class="mobile-tree-item" data-mobile-list-back="1">← Back to list</button></div><div class="kv"><strong>${esc(buildingLabel)}</strong></div><div class="notice">ID: ${esc(String(selected.building?.id || ''))}</div><div class="notice">Base: ${esc(baseLabel)}</div><div class="notice">Kind: ${esc(String(selected.building?.kind || 'unknown'))}</div></article>`;
+    const detail = mobileBuildingStatusInfo(selected.building);
+    const buildingLabel = mobileBuildingLabel(selected.building);
+    const renderKind = mobileRenderKindForBuilding(selected.building);
+    const sprite = mobileSpriteForKind(renderKind);
+    panel.innerHTML = `<h3>Building Detail</h3><article class="mobile-tree-base"><div class="mobile-tree-base-head"><button class="mobile-tree-item" data-mobile-list-back="1">← Back to list</button></div><div class="mobile-tree-item-body"><span class="mobile-tree-item-icon" style="background-image:url('${esc(sprite)}')"></span><div class="mobile-tree-item-meta"><p class="mobile-tree-item-title">${esc(buildingLabel)}</p><div class="mobile-tree-item-sub">${esc(detail.subtitle || '')}</div>${detail.showProgress ? `<div class="progress"><div class="bar" style="width:${detail.progress}%;background:${detail.color}"></div></div>` : ''}</div></div><div class="notice">ID: ${esc(String(selected.building?.id || ''))}</div><div class="notice">Base: ${esc(baseLabel)}</div><div class="notice">Kind: ${esc(String(selected.building?.kind || 'unknown'))}</div></article>`;
     return;
   }
   const bases = Array.isArray(state.mobileTree?.bases) ? state.mobileTree.bases : [];
@@ -2473,13 +2630,21 @@ function renderMobileListMode(){
   const errorByBase = (state.mobileFactoryCreate && typeof state.mobileFactoryCreate.errorByBase === 'object') ? state.mobileFactoryCreate.errorByBase : {};
   const baseMarkup = bases.map((base) => {
     const baseId = String(base?.id || '');
+    const canCreateFactory = String(base?.source || '') === 'custom';
     const isCreating = inFlightBaseId === baseId;
     const baseError = String(errorByBase[baseId] || '');
     const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
     const buildingRows = buildings.length
-      ? buildings.map((building) => `<li><button class="mobile-tree-item" data-mobile-building-id="${esc(String(building?.id || ''))}">${esc(String(building?.label || building?.kind || 'Building'))}</button></li>`).join('')
+      ? buildings.map((building) => {
+          const renderKind = mobileRenderKindForBuilding(building);
+          const sprite = mobileSpriteForKind(renderKind);
+          const detail = mobileBuildingStatusInfo(building);
+          const label = mobileBuildingLabel(building);
+          const buildingId = String(building?.id || '');
+          return `<li><button class="mobile-tree-item" data-mobile-building-id="${esc(buildingId)}"><span class="mobile-tree-item-body"><span class="mobile-tree-item-icon" style="background-image:url('${esc(sprite)}')"></span><span class="mobile-tree-item-meta"><span class="mobile-tree-item-title">${esc(label)}</span><span class="mobile-tree-item-sub">${esc(detail.subtitle || '')}</span>${detail.showProgress ? `<span class="progress"><span class="bar" style="width:${detail.progress}%;background:${detail.color}"></span></span>` : ''}</span></span></button></li>`;
+        }).join('')
       : '<li><span class="notice">No buildings</span></li>';
-    return `<article class="mobile-tree-base"><div class="mobile-tree-base-head"><h3>${esc(String(base?.label || 'Base'))}</h3><button class="mobile-base-add-btn" data-mobile-base-create="${esc(baseId)}" aria-label="Create factory under ${esc(String(base?.label || 'Base'))}" title="Create factory" ${isCreating ? 'disabled' : ''}>+</button></div>${baseError ? `<div class="mobile-base-error" role="status">${esc(baseError)}</div>` : ''}<ul>${buildingRows}</ul></article>`;
+    return `<article class="mobile-tree-base"><div class="mobile-tree-base-head"><h3>${esc(String(base?.label || 'Base'))}</h3>${canCreateFactory ? `<button class="mobile-base-add-btn" data-mobile-base-create="${esc(baseId)}" aria-label="Create factory under ${esc(String(base?.label || 'Base'))}" title="Create factory" ${isCreating ? 'disabled' : ''}>+</button>` : ''}</div>${baseError ? `<div class="mobile-base-error" role="status">${esc(baseError)}</div>` : ''}<ul>${buildingRows}</ul></article>`;
   }).join('');
   panel.innerHTML = `<h3>Mobile Ops List</h3>${baseMarkup}`;
 }
@@ -2498,8 +2663,26 @@ async function createFactoryForMobileBase(baseId){
   delete state.mobileFactoryCreate.errorByBase[safeBaseId];
   renderMobileListMode();
   try {
-    await postJson('/api/rts/factory/create', { baseId: safeBaseId, kind: 'factory' });
-    await refreshMobileTree();
+    const payload = await postJson('/api/rts/factory/create', { baseId: safeBaseId, kind: 'factory' });
+    const createdId = String(payload?.buildingId || '').trim();
+    const targetBase = (state.customBases || []).find((base) => String(base?.id || '') === safeBaseId);
+    if (createdId && targetBase && !state.featureBuildings.some((feature) => String(feature?.id || '') === createdId)) {
+      state.featureBuildings.push({
+        id: createdId,
+        kind: 'feature',
+        label: 'Factory',
+        repo: String(targetBase.repo || ''),
+        baseId: safeBaseId,
+        x: Number(targetBase.x || 0) + 120,
+        y: Number(targetBase.y || 0) + 80,
+        committed: false,
+        phase: 'draft',
+        createdAt: new Date().toISOString()
+      });
+      rebuildScene();
+    } else {
+      await refreshMobileTree();
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err || 'request_failed');
     state.mobileFactoryCreate.errorByBase[safeBaseId] = `Create failed: ${message}`;
@@ -2693,7 +2876,6 @@ function startLiveStream(){
 
 function rebuildScene(){
   updateCameraVisuals();
-  if (state.mobileListMode) renderMobileListMode();
   const customByRepo = new Map();
   (state.customBases || []).forEach((cb) => {
     if (!cb?.repo) return;
@@ -2950,6 +3132,8 @@ function rebuildScene(){
     if (fresh) state.selected = { type:'base', data:fresh };
     else state.selected = null;
   }
+  state.mobileTree = buildMobileTreeFromScene();
+  if (state.mobileListMode) renderMobileListMode();
 
   renderWorld();
   if (Number(state.live?.runningAgentCount || 0) > 0) ensureMotionLoop();
