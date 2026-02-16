@@ -557,9 +557,7 @@ function readLibraryMarkdownFile(absPathRaw: string): { path: string; content: s
 }
 
 function getRtsState(): Record<string, unknown> {
-  // RTS consistency invariant:
-  // UI state must reflect authoritative Antfarm runtime state on this machine.
-  // Any layout/state rows that reference missing runs are reconciled away here.
+  // Keep this path read-only and cheap: it is called on every dashboard boot.
   const db = getDb();
   ensureRtsTables(db);
   const row = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
@@ -592,24 +590,11 @@ function getRtsState(): Record<string, unknown> {
   const researchBuildings: Array<Record<string, unknown>> = [];
   const warehouseBuildings: Array<Record<string, unknown>> = [];
   const runLayoutOverrides: Record<string, { x: number; y: number }> = {};
-  const runs = db.prepare("SELECT id, status, context FROM runs").all() as Array<{ id: string; status: string; context: string }>;
+  const runs = db.prepare("SELECT id, status FROM runs").all() as Array<{ id: string; status: string }>;
   const runIdSet = new Set(runs.map((r) => r.id));
   const runByWorktree = new Map<string, { id: string; status: string; worktree: string }>();
   const runByWorktreeBase = new Map<string, { id: string; status: string; worktree: string }>();
-  for (const run of runs) {
-    let ctx: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(run.context || "{}");
-      if (parsed && typeof parsed === "object") ctx = parsed as Record<string, unknown>;
-    } catch {}
-    const baseRepo = String(ctx.baseRepoPath || ctx.repoPath || ctx.repo || "");
-    const wt = absolutizePath(String(ctx.worktreePath || ""), baseRepo);
-    if (wt) {
-      runByWorktree.set(wt, { id: run.id, status: run.status, worktree: wt });
-      const bn = path.basename(wt);
-      if (bn && !runByWorktreeBase.has(bn)) runByWorktreeBase.set(bn, { id: run.id, status: run.status, worktree: wt });
-    }
-  }
+  let needsRunWorktreeInference = false;
   const seenFeatureKeys = new Set<string>();
   for (const r of rows) {
     let payload: Record<string, unknown> = {};
@@ -638,6 +623,25 @@ function getRtsState(): Record<string, unknown> {
         resolvedRunId = null;
       }
       if (!resolvedRunId && worktreePath) {
+        needsRunWorktreeInference = true;
+      }
+      if (needsRunWorktreeInference && runByWorktree.size === 0) {
+        const runsWithContext = db.prepare("SELECT id, status, context FROM runs").all() as Array<{ id: string; status: string; context: string }>;
+        for (const run of runsWithContext) {
+          let ctx: Record<string, unknown> = {};
+          try {
+            const parsed = JSON.parse(run.context || "{}");
+            if (parsed && typeof parsed === "object") ctx = parsed as Record<string, unknown>;
+          } catch {}
+          const baseRepo = String(ctx.baseRepoPath || ctx.repoPath || ctx.repo || "");
+          const wt = absolutizePath(String(ctx.worktreePath || ""), baseRepo);
+          if (!wt) continue;
+          runByWorktree.set(wt, { id: run.id, status: run.status, worktree: wt });
+          const bn = path.basename(wt);
+          if (bn && !runByWorktreeBase.has(bn)) runByWorktreeBase.set(bn, { id: run.id, status: run.status, worktree: wt });
+        }
+      }
+      if (!resolvedRunId && worktreePath && runByWorktree.size) {
         const inferred = runByWorktree.get(worktreePath) || runByWorktreeBase.get(path.basename(worktreePath));
         if (inferred) {
           resolvedRunId = inferred.id;
@@ -948,17 +952,7 @@ function saveRtsState(nextState: unknown): Record<string, unknown> {
 }
 
 function getRtsLiveStatus(): Record<string, unknown> {
-  const workerTotal = (() => {
-    try {
-      const jobsPath = path.join(os.homedir(), ".openclaw", "cron", "jobs.json");
-      if (!fs.existsSync(jobsPath)) return 0;
-      const raw = JSON.parse(fs.readFileSync(jobsPath, "utf-8")) as { jobs?: Array<{ name?: string; enabled?: boolean }> };
-      const jobs = Array.isArray(raw.jobs) ? raw.jobs : [];
-      return jobs.filter((j) => j.enabled !== false && String(j.name || "").startsWith("antfarm/")).length;
-    } catch {
-      return 0;
-    }
-  })();
+  const workerTotal = readCronJobsSnapshot().workerTotal;
 
   const db = getDb();
   const runningAgentCount = Number((db.prepare("SELECT COUNT(*) AS c FROM steps WHERE status = 'running'").get() as { c: number }).c || 0);
@@ -984,12 +978,44 @@ function getRtsLiveStatus(): Record<string, unknown> {
 }
 
 function listCronJobsSummary(): Array<Record<string, unknown>> {
+  return readCronJobsSnapshot().jobs;
+}
+
+const cronJobsSnapshotCache: {
+  checkedAtMs: number;
+  mtimeMs: number;
+  workerTotal: number;
+  jobs: Array<Record<string, unknown>>;
+} = {
+  checkedAtMs: 0,
+  mtimeMs: -1,
+  workerTotal: 0,
+  jobs: [],
+};
+
+function readCronJobsSnapshot(maxAgeMs = 750): { workerTotal: number; jobs: Array<Record<string, unknown>> } {
+  const now = Date.now();
+  if ((now - cronJobsSnapshotCache.checkedAtMs) < maxAgeMs) {
+    return { workerTotal: cronJobsSnapshotCache.workerTotal, jobs: cronJobsSnapshotCache.jobs };
+  }
+  cronJobsSnapshotCache.checkedAtMs = now;
   try {
     const jobsPath = path.join(os.homedir(), ".openclaw", "cron", "jobs.json");
-    if (!fs.existsSync(jobsPath)) return [];
+    if (!fs.existsSync(jobsPath)) {
+      cronJobsSnapshotCache.mtimeMs = -1;
+      cronJobsSnapshotCache.workerTotal = 0;
+      cronJobsSnapshotCache.jobs = [];
+      return { workerTotal: 0, jobs: [] };
+    }
+    const st = fs.statSync(jobsPath);
+    const mtimeMs = Number(st.mtimeMs || 0);
+    if (mtimeMs === cronJobsSnapshotCache.mtimeMs) {
+      return { workerTotal: cronJobsSnapshotCache.workerTotal, jobs: cronJobsSnapshotCache.jobs };
+    }
+    cronJobsSnapshotCache.mtimeMs = mtimeMs;
     const raw = JSON.parse(fs.readFileSync(jobsPath, "utf-8")) as { jobs?: Array<Record<string, unknown>> };
     const jobs = Array.isArray(raw.jobs) ? raw.jobs : [];
-    return jobs.map((job) => {
+    const summary = jobs.map((job) => {
       const state = (job.state && typeof job.state === "object") ? job.state as Record<string, unknown> : {};
       return {
         name: String(job.name || ""),
@@ -1000,8 +1026,11 @@ function listCronJobsSummary(): Array<Record<string, unknown>> {
         lastStatus: String(state.lastStatus || ""),
       };
     });
+    cronJobsSnapshotCache.jobs = summary;
+    cronJobsSnapshotCache.workerTotal = summary.filter((j) => j.enabled !== false && String(j.name || "").startsWith("antfarm/")).length;
+    return { workerTotal: cronJobsSnapshotCache.workerTotal, jobs: cronJobsSnapshotCache.jobs };
   } catch {
-    return [];
+    return { workerTotal: cronJobsSnapshotCache.workerTotal, jobs: cronJobsSnapshotCache.jobs };
   }
 }
 
@@ -1989,7 +2018,13 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/rts/live" && method === "GET") {
-      return json(res, { ok: true, live: getRtsLiveStatus() });
+      const started = Date.now();
+      const live = getRtsLiveStatus();
+      const elapsed = Date.now() - started;
+      if (elapsed >= 80) {
+        try { console.warn(`[rts:slow] /api/rts/live ${elapsed}ms`); } catch {}
+      }
+      return json(res, { ok: true, live });
     }
 
     if (p === "/api/rts/live/stream" && method === "GET") {
@@ -2016,7 +2051,12 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/rts/diag" && method === "GET") {
+      const started = Date.now();
       const cronJobs = listCronJobsSummary();
+      const elapsed = Date.now() - started;
+      if (elapsed >= 80) {
+        try { console.warn(`[rts:slow] /api/rts/diag ${elapsed}ms jobs=${cronJobs.length}`); } catch {}
+      }
       return json(res, {
         ok: true,
         diag: {
