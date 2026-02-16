@@ -16,6 +16,14 @@ const pidFile = daemonKey === "main"
 fs.mkdirSync(pidDir, { recursive: true });
 fs.writeFileSync(pidFile, String(process.pid));
 
+process.on("uncaughtException", (err) => {
+  try { console.error("[daemon:uncaughtException]", err); } catch {}
+});
+
+process.on("unhandledRejection", (reason) => {
+  try { console.error("[daemon:unhandledRejection]", reason); } catch {}
+});
+
 process.on("SIGTERM", () => {
   try { fs.unlinkSync(pidFile); } catch {}
   process.exit(0);

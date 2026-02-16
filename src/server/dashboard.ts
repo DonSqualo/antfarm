@@ -2101,18 +2101,19 @@ async function generateResearchPlans(repoPath: string, maxPlansRaw: number): Pro
 
 export function startDashboard(port = 3333): http.Server {
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-    const p = url.pathname;
-    const method = req.method ?? "GET";
+    try {
+      const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+      const p = url.pathname;
+      const method = req.method ?? "GET";
 
-    if (method === "OPTIONS") {
-      res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      });
-      return res.end();
-    }
+      if (method === "OPTIONS") {
+        res.writeHead(204, {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        });
+        return res.end();
+      }
 
     if (p === "/api/workflows") {
       return json(res, loadWorkflows());

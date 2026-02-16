@@ -1248,6 +1248,10 @@ const state = {
   liveDeployNotice: '',
   diag: null,
   liveStream: null,
+  liveStreamRetryTimer: null,
+  liveStreamBackoffMs: 0,
+  pollFailCount: 0,
+  pollRetryUntilMs: 0,
   runSig: '',
   selected: null,
   persistTimer: null,
@@ -2979,12 +2983,28 @@ function initConnectivityMonitoring(){
 }
 
 function startLiveStream(){
+  if (state.liveStreamRetryTimer) {
+    clearTimeout(state.liveStreamRetryTimer);
+    state.liveStreamRetryTimer = null;
+  }
   if (state.liveStream) {
     try { state.liveStream.close(); } catch {}
     state.liveStream = null;
   }
+  const scheduleRetry = () => {
+    const next = state.liveStreamBackoffMs ? Math.min(10000, Math.round(state.liveStreamBackoffMs * 1.7)) : 500;
+    state.liveStreamBackoffMs = next;
+    if (state.liveStreamRetryTimer) clearTimeout(state.liveStreamRetryTimer);
+    state.liveStreamRetryTimer = setTimeout(() => {
+      state.liveStreamRetryTimer = null;
+      if (!state.liveStream) startLiveStream();
+    }, next);
+  };
   try {
     const es = new EventSource('/api/rts/live/stream');
+    es.onopen = () => {
+      state.liveStreamBackoffMs = 0;
+    };
     es.addEventListener('live', (evt) => {
       try {
         const payload = JSON.parse(evt.data || '{}');
@@ -3001,10 +3021,12 @@ function startLiveStream(){
     es.onerror = () => {
       try { es.close(); } catch {}
       state.liveStream = null;
+      scheduleRetry();
     };
     state.liveStream = es;
   } catch {
     state.liveStream = null;
+    scheduleRetry();
   }
 }
 
@@ -6799,6 +6821,29 @@ boot().then(() => {
   scheduleRuntimePoll(boundedRetryDelayMs(1));
 });
 updateCameraVisuals();
+<<<<<<< HEAD
+=======
+setInterval(async () => {
+  if (Date.now() < Number(state.pollRetryUntilMs || 0)) {
+    if (!state.liveStream && !state.liveStreamRetryTimer) startLiveStream();
+    return;
+  }
+  const refreshResult = await refreshRuntimeState(false);
+  const runsChanged = refreshResult === true;
+  if (refreshResult === null) {
+    state.pollFailCount = Math.max(0, Number(state.pollFailCount || 0) + 1);
+    const backoff = Math.min(30000, 1000 * (2 ** Math.min(state.pollFailCount, 5)));
+    state.pollRetryUntilMs = Date.now() + backoff;
+  }
+  if (!state.liveStream) startLiveStream();
+  if (runsChanged) rebuildScene();
+  else if (Number(state.live?.runningAgentCount || 0) > 0) {
+    ensureMotionLoop();
+    renderUnitsLiveState();
+  } else renderUnitsLiveState();
+  renderLiveConsole();
+}, 2000);
+>>>>>>> e79e9ec (fix: harden dashboard against transient stream and request failures)
 
 window.addEventListener('beforeunload', () => {
   if (state.motionTimer) {
