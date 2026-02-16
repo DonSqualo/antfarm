@@ -153,6 +153,9 @@ function ensureRtsTables(db = getDb()): void {
     "updated_at TEXT NOT NULL" +
     ")"
   );
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rts_layout_entities_updated_at ON rts_layout_entities(updated_at DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rts_layout_entities_entity_type ON rts_layout_entities(entity_type)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rts_layout_entities_run_id ON rts_layout_entities(run_id)");
 }
 
 function normalizePathKey(raw: string): string {
@@ -633,22 +636,12 @@ function getRtsState(): Record<string, unknown> {
       if (resolvedRunId && !runIdSet.has(resolvedRunId)) {
         // Layout pointed at a deleted run: heal to draft mode immediately.
         resolvedRunId = null;
-        try {
-          db.prepare("UPDATE rts_layout_entities SET run_id = NULL, updated_at = ? WHERE id = ?")
-            .run(new Date().toISOString(), r.id);
-        } catch {}
       }
       if (!resolvedRunId && worktreePath) {
         const inferred = runByWorktree.get(worktreePath) || runByWorktreeBase.get(path.basename(worktreePath));
         if (inferred) {
           resolvedRunId = inferred.id;
           resolvedStatus = inferred.status;
-          const canonicalWorktreePath = inferred.worktree || worktreePath;
-          // Heal stale layout row directly in DB when we can infer the run id.
-          try {
-            db.prepare("UPDATE rts_layout_entities SET run_id = ?, worktree_path = ?, updated_at = ? WHERE id = ?")
-              .run(inferred.id, canonicalWorktreePath, new Date().toISOString(), r.id);
-          } catch {}
         }
       }
       const dedupeKey = resolvedRunId ? `run:${resolvedRunId}` : `draft:${worktreePath || r.id}`;
@@ -703,10 +696,7 @@ function getRtsState(): Record<string, unknown> {
     if (r.entity_type === "run") {
       const runId = r.run_id || (String(r.id || "").startsWith("run:") ? String(r.id).slice(4) : String(r.id || ""));
       if (!runId) continue;
-      if (!runIdSet.has(runId)) {
-        try { db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(r.id); } catch {}
-        continue;
-      }
+      if (!runIdSet.has(runId)) continue;
       runLayoutOverrides[runId] = { x: Number(r.x), y: Number(r.y) };
     }
   }
@@ -1973,7 +1963,18 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/rts/state" && method === "GET") {
-      return json(res, { ok: true, state: getRtsState() });
+      const started = Date.now();
+      const state = getRtsState();
+      const elapsed = Date.now() - started;
+      if (elapsed >= 80) {
+        try {
+          const db = getDb();
+          const runCount = Number((db.prepare("SELECT COUNT(*) AS c FROM runs").get() as { c?: number } | undefined)?.c || 0);
+          const layoutCount = Number((db.prepare("SELECT COUNT(*) AS c FROM rts_layout_entities").get() as { c?: number } | undefined)?.c || 0);
+          console.warn(`[rts:slow] /api/rts/state ${elapsed}ms runs=${runCount} layout=${layoutCount}`);
+        } catch {}
+      }
+      return json(res, { ok: true, state });
     }
 
     if (p === "/api/rts/state" && method === "POST") {

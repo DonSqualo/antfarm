@@ -1315,8 +1315,13 @@ function scheduleIdleSpritePrefetch(){
   window.addEventListener('load', run, { once: true });
 }
 async function json(url){
+  const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   const r = await fetch(url);
   const data = await r.json();
+  const elapsed = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+  if (String(url || '').startsWith('/api/rts/') && elapsed > 80) {
+    try { console.warn(`[net:slow] GET ${url} ${Math.round(elapsed)}ms status=${r.status}`); } catch {}
+  }
   if (!r.ok) throw new Error(data?.error || `request_failed:${r.status}`);
   return data;
 }
