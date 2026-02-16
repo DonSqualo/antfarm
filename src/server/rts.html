@@ -870,6 +870,81 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 }
 .unit.live-running { filter:saturate(1.1) brightness(1.05); }
 .unit.live-stale { filter:hue-rotate(-30deg) saturate(1.2); }
+.mobile-list-panel {
+  display:none;
+  position:absolute;
+  inset:0;
+  z-index:260;
+  overflow:auto;
+  padding:12px;
+  background:linear-gradient(180deg,#09172d 0%, #071223 100%);
+}
+.mobile-list-panel h3 {
+  font-family:Orbitron,sans-serif;
+  font-size:13px;
+  letter-spacing:.5px;
+  color:var(--corpus-teal);
+  margin-bottom:8px;
+}
+.mobile-tree-base {
+  border:1px solid var(--panel-edge);
+  background:#0b1a2dcc;
+  border-radius:8px;
+  padding:10px;
+  margin-bottom:10px;
+}
+.mobile-tree-base-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.mobile-base-add-btn {
+  border:1px solid #4f799f;
+  background:#0b1b30;
+  color:var(--corpus-teal);
+  border-radius:999px;
+  width:28px;
+  height:28px;
+  font-size:18px;
+  line-height:1;
+  cursor:pointer;
+}
+.mobile-base-add-btn:disabled {
+  opacity:.6;
+  cursor:progress;
+}
+.mobile-base-error {
+  margin-top:6px;
+  font-size:11px;
+  color:#ff8b8b;
+}
+.mobile-tree-base > ul {
+  margin-top:8px;
+  list-style:none;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.mobile-tree-item {
+  display:block;
+  width:100%;
+  text-align:left;
+  border:1px solid #4f799f;
+  background:#0b1b30;
+  color:var(--corpus-ice);
+  border-radius:8px;
+  padding:8px 10px;
+  font-size:12px;
+}
+.layout.mobile-list-mode .world-wrap,
+.layout.mobile-list-mode .hud,
+.layout.mobile-list-mode .command-bar {
+  display:none;
+}
+.layout.mobile-list-mode .mobile-list-panel {
+  display:block;
+}
 @media (max-width:1180px) {
   :root { --dock-w:min(280px, 30vw); --command-h:128px; --panel-gutter:var(--dock-w); }
   .hud-right { width:100%; max-height:100%; }
@@ -1020,6 +1095,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
       <div id="pathLayer" class="world path-layer"></div>
       <div id="placementLayer" class="world placement-layer"></div>
     </div>
+    <section id="mobileListPanel" class="mobile-list-panel" aria-label="Mobile base and building list"></section>
     <div class="hud">
       <div class="hud-right">
         <div class="panel" id="livePanel">
@@ -1120,6 +1196,11 @@ const state = {
   camera: { x: 0, y: 0 },
   cameraZoom: { enabled:false, scale:1, min:0.8, max:1.4 },
   cameraDrag: { active:false, startX:0, startY:0, originX:0, originY:0, pointerId:null, viaTouch:false },
+  mobileListMode: false,
+  mobileTree: { bases: [] },
+  mobileFactoryCreate: { inFlightBaseId: '', errorByBase: {} },
+  mobileMediaQuery: null,
+  mobileRouteSyncing: false,
   draggingEntity: null,
   draggingMoved: false,
   suppressWorldClick: false,
@@ -1148,6 +1229,7 @@ const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
 const SERVICE_WORKER_URL = '/service-worker.v1.js';
 let deferredInstallPrompt = null;
 let mobileActiveTab = 'build';
+const MOBILE_LIST_BREAKPOINT = 900;
 
 function isMobileViewport(){
   return window.matchMedia('(max-width: 760px)').matches;
@@ -1312,7 +1394,6 @@ function registerServiceWorker(){
     }
   });
 }
-
 const RTS_SPRITE_URLS = [
   '/rts-sprites/bg-space-tile-20260212b.png?v=20260212b',
   '/rts-sprites/base_sprite-20260212a.png?v=20260212a',
@@ -1811,6 +1892,20 @@ function snapshotPersistableState(){
   return {
     camera: state.camera || { x:0, y:0 },
     hiddenBelts: (state.hiddenBelts && typeof state.hiddenBelts === 'object') ? state.hiddenBelts : {},
+    customBases: Array.isArray(state.customBases)
+      ? state.customBases.map((base) => ({
+          ...base,
+          id: String(base?.id || ''),
+          repo: String(base?.repo || ''),
+          x: Number(base?.x || 0),
+          y: Number(base?.y || 0),
+          source: 'custom',
+          workerPool: normalizeBaseWorkerPool(base?.workerPool || {}),
+        }))
+      : [],
+    featureBuildings: Array.isArray(state.featureBuildings)
+      ? state.featureBuildings.map((building) => normalizeFeatureDraft(building))
+      : [],
     // Persist research/warehouse payloads (plans/items) via rts_layout_entities.
     researchBuildings: Array.isArray(state.researchBuildings)
       ? state.researchBuildings.map((rb) => normalizeResearchBuilding(rb))
@@ -2310,9 +2405,139 @@ function markRunRelaunched(runId){
   });
 }
 
+async function refreshMobileTree(){
+  try {
+    const tree = await json('/api/rts/mobile/tree');
+    const bases = Array.isArray(tree?.bases) ? tree.bases : [];
+    state.mobileTree = { bases };
+  } catch {
+    state.mobileTree = { bases: [] };
+  }
+}
+
+function getMobileBuildingRouteId(){
+  const raw = String(window.location.hash || '').trim();
+  const match = raw.match(/^#mobile-building\/(.+)$/i);
+  if (!match) return '';
+  try { return decodeURIComponent(match[1] || '').trim(); } catch { return String(match[1] || '').trim(); }
+}
+
+function setMobileBuildingRoute(buildingId, { replace = false } = {}){
+  const safeId = String(buildingId || '').trim();
+  const url = new URL(window.location.href);
+  const nextHash = safeId ? `#mobile-building/${encodeURIComponent(safeId)}` : '';
+  if (url.hash === nextHash) return;
+  state.mobileRouteSyncing = true;
+  if (replace) {
+    url.hash = nextHash;
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } else {
+    window.location.hash = nextHash;
+  }
+  state.mobileRouteSyncing = false;
+}
+
+function findMobileBuildingById(buildingId){
+  const safeId = String(buildingId || '').trim();
+  if (!safeId) return null;
+  const bases = Array.isArray(state.mobileTree?.bases) ? state.mobileTree.bases : [];
+  for (const base of bases) {
+    const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
+    const building = buildings.find((item) => String(item?.id || '').trim() === safeId);
+    if (building) return { base, building };
+  }
+  return null;
+}
+
+function renderMobileListMode(){
+  const panel = document.getElementById('mobileListPanel');
+  if (!panel) return;
+  const routeBuildingId = getMobileBuildingRouteId();
+  const selected = routeBuildingId ? findMobileBuildingById(routeBuildingId) : null;
+  if (routeBuildingId) {
+    if (!selected) {
+      panel.innerHTML = `<h3>Building Detail</h3><article class="mobile-tree-base"><div class="mobile-tree-base-head"><button class="mobile-tree-item" data-mobile-list-back="1">← Back to list</button></div><div class="notice">Building not found for ID: ${esc(routeBuildingId)}</div></article>`;
+      return;
+    }
+    const baseLabel = String(selected.base?.label || 'Base');
+    const buildingLabel = String(selected.building?.label || selected.building?.kind || 'Building');
+    panel.innerHTML = `<h3>Building Detail</h3><article class="mobile-tree-base"><div class="mobile-tree-base-head"><button class="mobile-tree-item" data-mobile-list-back="1">← Back to list</button></div><div class="kv"><strong>${esc(buildingLabel)}</strong></div><div class="notice">ID: ${esc(String(selected.building?.id || ''))}</div><div class="notice">Base: ${esc(baseLabel)}</div><div class="notice">Kind: ${esc(String(selected.building?.kind || 'unknown'))}</div></article>`;
+    return;
+  }
+  const bases = Array.isArray(state.mobileTree?.bases) ? state.mobileTree.bases : [];
+  if (!bases.length) {
+    panel.innerHTML = `<h3>Mobile Ops List</h3><div class="notice">No bases yet. Switch to desktop view to place your first base.</div>`;
+    return;
+  }
+  const inFlightBaseId = String(state.mobileFactoryCreate?.inFlightBaseId || '');
+  const errorByBase = (state.mobileFactoryCreate && typeof state.mobileFactoryCreate.errorByBase === 'object') ? state.mobileFactoryCreate.errorByBase : {};
+  const baseMarkup = bases.map((base) => {
+    const baseId = String(base?.id || '');
+    const isCreating = inFlightBaseId === baseId;
+    const baseError = String(errorByBase[baseId] || '');
+    const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
+    const buildingRows = buildings.length
+      ? buildings.map((building) => `<li><button class="mobile-tree-item" data-mobile-building-id="${esc(String(building?.id || ''))}">${esc(String(building?.label || building?.kind || 'Building'))}</button></li>`).join('')
+      : '<li><span class="notice">No buildings</span></li>';
+    return `<article class="mobile-tree-base"><div class="mobile-tree-base-head"><h3>${esc(String(base?.label || 'Base'))}</h3><button class="mobile-base-add-btn" data-mobile-base-create="${esc(baseId)}" aria-label="Create factory under ${esc(String(base?.label || 'Base'))}" title="Create factory" ${isCreating ? 'disabled' : ''}>+</button></div>${baseError ? `<div class="mobile-base-error" role="status">${esc(baseError)}</div>` : ''}<ul>${buildingRows}</ul></article>`;
+  }).join('');
+  panel.innerHTML = `<h3>Mobile Ops List</h3>${baseMarkup}`;
+}
+
+async function createFactoryForMobileBase(baseId){
+  const safeBaseId = String(baseId || '').trim();
+  if (!safeBaseId) return;
+  if (String(state.mobileFactoryCreate?.inFlightBaseId || '')) return;
+  if (!state.mobileFactoryCreate || typeof state.mobileFactoryCreate !== 'object') {
+    state.mobileFactoryCreate = { inFlightBaseId: '', errorByBase: {} };
+  }
+  if (!state.mobileFactoryCreate.errorByBase || typeof state.mobileFactoryCreate.errorByBase !== 'object') {
+    state.mobileFactoryCreate.errorByBase = {};
+  }
+  state.mobileFactoryCreate.inFlightBaseId = safeBaseId;
+  delete state.mobileFactoryCreate.errorByBase[safeBaseId];
+  renderMobileListMode();
+  try {
+    await postJson('/api/rts/factory/create', { baseId: safeBaseId, kind: 'factory' });
+    await refreshMobileTree();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err || 'request_failed');
+    state.mobileFactoryCreate.errorByBase[safeBaseId] = `Create failed: ${message}`;
+  } finally {
+    state.mobileFactoryCreate.inFlightBaseId = '';
+    renderMobileListMode();
+  }
+}
+
+async function setMobileListMode(active){
+
+  const enabled = !!active;
+  if (state.mobileListMode === enabled) return;
+  state.mobileListMode = enabled;
+  const layout = document.querySelector('.layout');
+  if (layout) layout.classList.toggle('mobile-list-mode', enabled);
+  if (enabled) {
+    state.cameraDrag.active = false;
+    state.draggingEntity = null;
+    setPlacement(null);
+    hidePlacementGhost();
+    await refreshMobileTree();
+  }
+  renderMobileListMode();
+}
+
+function syncMobileListMode(){
+  const query = state.mobileMediaQuery || window.matchMedia(`(max-width: ${MOBILE_LIST_BREAKPOINT}px)`);
+  state.mobileMediaQuery = query;
+  void setMobileListMode(query.matches);
+}
+
 async function boot(){
   // Warm sprite decode/cache so first placement/select doesn't pop in images.
   void preloadRtsSprites();
+  state.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_LIST_BREAKPOINT}px)`);
+  if (typeof state.mobileMediaQuery?.addEventListener === 'function') state.mobileMediaQuery.addEventListener('change', syncMobileListMode);
+  else if (typeof state.mobileMediaQuery?.addListener === 'function') state.mobileMediaQuery.addListener(syncMobileListMode);
   await hydratePersistedState();
   state.workflows = await json('/api/workflows');
   try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
@@ -2321,6 +2546,38 @@ async function boot(){
   rebuildScene();
   renderLiveConsole();
   startLiveStream();
+  const mobileListPanel = document.getElementById('mobileListPanel');
+  mobileListPanel?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const backBtn = target?.closest('[data-mobile-list-back]');
+    if (backBtn) {
+      event.preventDefault();
+      setMobileBuildingRoute('', { replace: true });
+      renderMobileListMode();
+      return;
+    }
+    const buildingBtn = target?.closest('[data-mobile-building-id]');
+    if (buildingBtn) {
+      event.preventDefault();
+      const buildingId = String(buildingBtn.getAttribute('data-mobile-building-id') || '').trim();
+      if (!buildingId) return;
+      setMobileBuildingRoute(buildingId);
+      renderMobileListMode();
+      return;
+    }
+    const createBtn = target?.closest('[data-mobile-base-create]');
+    if (!createBtn) return;
+    event.preventDefault();
+    const baseId = String(createBtn.getAttribute('data-mobile-base-create') || '').trim();
+    if (!baseId) return;
+    void createFactoryForMobileBase(baseId);
+  });
+  window.addEventListener('hashchange', () => {
+    if (state.mobileRouteSyncing) return;
+    if (!state.mobileListMode) return;
+    renderMobileListMode();
+  });
+  syncMobileListMode();
   queuePersist();
 }
 
@@ -2436,6 +2693,7 @@ function startLiveStream(){
 
 function rebuildScene(){
   updateCameraVisuals();
+  if (state.mobileListMode) renderMobileListMode();
   const customByRepo = new Map();
   (state.customBases || []).forEach((cb) => {
     if (!cb?.repo) return;
@@ -3143,6 +3401,7 @@ function localPointInWorld(event){
 }
 
 function edgeAutoPan(clientX, clientY, margin = 36, speed = 18){
+  if (state.mobileListMode) return false;
   // Use wrapper bounds; worldEl is camera-transformed and skews edge detection.
   const rect = worldWrapEl.getBoundingClientRect();
   if (!rect || rect.width <= 0 || rect.height <= 0) return false;
@@ -3893,7 +4152,7 @@ function renderWorld(){
   }
 
   state.bases.forEach(base => {
-    const movable = true;
+    const movable = !state.mobileListMode;
     const basePort = Number(base.port) || getPortForPath(base.repo || '') || 3333;
     const baseLabel = base.portLabel || pathLabel(base.repo || '');
     const entityKey = `base:${String(base.id)}`;
@@ -3948,6 +4207,7 @@ function renderWorld(){
       }
     });
     el.onmousedown = (e) => {
+      if (state.mobileListMode) return;
       if (e.button !== 0) return;
       if (state.placementMode) return;
       e.stopPropagation();
@@ -3979,7 +4239,7 @@ function renderWorld(){
     const color = (status === 'done')
       ? 'var(--ok)'
       : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)');
-    const movable = true;
+    const movable = !state.mobileListMode;
     const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';
     const className = ['building', featureVisualClass, movable ? 'movable' : '', selectedBuildingId === String(b.id) ? 'is-selected' : ''].filter(Boolean).join(' ');
     const buildPort = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
@@ -6034,6 +6294,7 @@ function applyPinchZoomFromTouches(touchA, touchB){
 }
 
 const handlePointerMove = (e) => {
+  if (state.mobileListMode) return;
   if (state.cameraDrag.active) {
     state.camera.x = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
     state.camera.y = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
@@ -6079,6 +6340,7 @@ window.addEventListener('mousemove', handlePointerMove);
 worldWrapEl.addEventListener('mouseleave', hidePlacementGhost);
 
 worldWrapEl.addEventListener('mousedown', (e) => {
+  if (state.mobileListMode) return;
   const target = e.target instanceof Element ? e.target : null;
   const hitEntity = !!target?.closest('.entity');
   const hitBelt = !!target?.closest('.rts-path');
