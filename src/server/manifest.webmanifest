@@ -1,0 +1,20 @@
+{
+  "name": "Antfarm RTS Dashboard",
+  "short_name": "Antfarm RTS",
+  "display": "standalone",
+  "start_url": "/rts",
+  "theme_color": "#0a1224",
+  "background_color": "#050b16",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

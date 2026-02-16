@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#081427" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Antfarm RTS" />
+<link rel="manifest" href="/manifest.webmanifest" />
 <title>Antfarm RTS Command Grid</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -56,6 +62,52 @@ body {
     linear-gradient(165deg,var(--bg-c) 0%,var(--bg-b) 45%,var(--bg-a) 100%);
 }
 .notice { font-size:11px; color:var(--muted); }
+.install-app-cta {
+  position:fixed;
+  right:calc(var(--dock-w) + 14px);
+  bottom:calc(var(--command-h) + 14px);
+  z-index:260;
+  border:1px solid #86d7ff;
+  border-radius:999px;
+  background:linear-gradient(160deg,#0d3155 0%,#0a233d 100%);
+  color:#dff6ff;
+  font-weight:600;
+  letter-spacing:.2px;
+  box-shadow:0 10px 28px #02101f99;
+}
+.install-app-cta[hidden] { display:none !important; }
+.connectivity-banner {
+  position:fixed;
+  left:12px;
+  right:calc(var(--dock-w) + 14px);
+  top:10px;
+  z-index:285;
+  padding:7px 10px;
+  border-radius:10px;
+  border:1px solid #5fa5d655;
+  background:#081427de;
+  color:#cfefff;
+  font-size:11px;
+  letter-spacing:.2px;
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(-4px);
+  transition:opacity .2s ease, transform .2s ease;
+}
+.connectivity-banner.is-visible {
+  opacity:1;
+  transform:translateY(0);
+}
+.connectivity-banner[data-state="offline"] {
+  border-color:#ff8aa577;
+  color:#ffd8e1;
+  background:#2a0f18e6;
+}
+.connectivity-banner[data-state="reconnecting"] {
+  border-color:#ffd06b88;
+  color:#ffe8b9;
+  background:#2b2010e6;
+}
 button,select,input,textarea {
   border:1px solid #4f799f;
   background:#0b1b30;
@@ -66,6 +118,10 @@ button,select,input,textarea {
 button { cursor:pointer; }
 button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .layout { position:relative; width:100vw; height:100vh; }
+.mobile-status-strip,
+.mobile-action-tabs {
+  display:none;
+}
 .world-wrap {
   position:relative;
   inset:0;
@@ -73,11 +129,12 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   height:100%;
   overflow:hidden;
   background:#050913;
+  touch-action:none;
 }
 .world-bg {
   position:absolute; inset:0;
   z-index:0;
-  background-image:url('/rts-sprites/bg-space-tile-20260212b.png?v=20260212b');
+  background-image:var(--world-bg-image, none);
   background-repeat:repeat;
   background-size:128px 128px;
   background-position:calc(var(--cam-x, 0px) * -0.75) calc(var(--cam-y, 0px) * -0.75);
@@ -88,7 +145,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   position:absolute;
   inset:0;
   z-index:2;
-  transform:translate3d(calc(var(--cam-x, 0px) * -1), calc(var(--cam-y, 0px) * -1), 0);
+  transform:translate3d(calc(var(--cam-x, 0px) * -1), calc(var(--cam-y, 0px) * -1), 0) scale(var(--cam-scale, 1));
   will-change:transform;
 }
 .path-layer {
@@ -202,7 +259,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .hud-right { display:flex; gap:0; pointer-events:auto; flex-direction:column; width:100%; height:100%; max-height:100%; overflow:hidden; }
 #livePanel,
-#selectionPanel { display:none !important; }
+#selectionPanel { display:none; }
 #actionPanel {
   background:linear-gradient(180deg,#0a1b31f2 0%, #081427f2 100%);
   min-height:100%;
@@ -397,6 +454,33 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .build-card strong { display:block; font-size:12px; margin-bottom:5px; color:#caf4ff; }
 .build-card small { color:var(--muted); font-size:11px; display:block; }
+.structure-tree-card { margin-top:8px; }
+.structure-tree { margin-top:6px; display:grid; gap:5px; }
+.tree-node {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  color:#cbe9ff;
+}
+.tree-child { padding-left:12px; }
+.tree-grandchild { padding-left:24px; }
+.tree-kind {
+  display:inline-flex;
+  align-items:center;
+  min-width:76px;
+  padding:1px 6px;
+  border:1px solid #466a8a;
+  border-radius:999px;
+  color:#97dfff;
+  background:#10253a;
+}
+.tree-kind.university { border-color:#668dd6; color:#b7ccff; }
+.tree-kind.library { border-color:#7bc1ff; color:#c8e5ff; }
+.tree-kind.research { border-color:#4fb99e; color:#9ef8de; }
+.tree-kind.warehouse { border-color:#7ca8b8; color:#c9e7ef; }
+.tree-kind.power { border-color:#d4a467; color:#ffdcae; }
+.tree-kind.feature { border-color:#6bbf75; color:#c2ffd0; }
 .kv { font-size:12px; color:var(--muted); margin-bottom:7px; }
 .kv strong { color:var(--corpus-ice); }
 .entity {
@@ -478,7 +562,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .unit {
   position:absolute;
   width:32px; height:32px;
-  background:url('/rts-sprites/unit-cephalon-test.png?v=20260212b') center/contain no-repeat;
+  background:url('/rts-sprites/unit-cephalon-test.webp?v=20260212b') center/contain no-repeat;
   filter:none;
   cursor:pointer;
   animation:float-unit 1.8s ease-in-out infinite alternate;
@@ -504,7 +588,7 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 .subunit {
   position:absolute;
   width:16px; height:16px;
-  background:url('/rts-sprites/subunit-cephalon-test.png?v=20260212b') center/contain no-repeat;
+  background:url('/rts-sprites/subunit-cephalon-test.webp?v=20260212b') center/contain no-repeat;
   filter:none;
   image-rendering:pixelated;
   image-rendering:crisp-edges;
@@ -534,6 +618,55 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   color:#ffd4e2;
 }
 .panel-delete:hover { border-color:#cf7fa2; }
+.panel-card {
+  margin-top:8px;
+  border:1px solid #345671;
+  border-radius:10px;
+  background:#09192b;
+  overflow:hidden;
+}
+.panel-card > summary {
+  list-style:none;
+  cursor:pointer;
+  padding:9px 10px;
+  font-size:11px;
+  font-weight:600;
+  color:#d2eeff;
+  background:#0d2035;
+  border-bottom:1px solid #28455e;
+}
+.panel-card > summary::-webkit-details-marker { display:none; }
+.panel-card .panel-card-body { padding:9px 10px 10px; }
+.panel-card[open] > summary { border-bottom-color:#3d6b8f; }
+.sheet-open-btn { width:100%; margin-top:8px; }
+.mobile-sheet {
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  z-index:1300;
+  border:1px solid #4c7698;
+  border-bottom:0;
+  border-radius:14px 14px 0 0;
+  background:linear-gradient(160deg,#0b1a2e 0%,#071423 100%);
+  box-shadow:0 -18px 36px #00000099;
+  max-height:min(78vh, 620px);
+  display:flex;
+  flex-direction:column;
+}
+.mobile-sheet[hidden] { display:none; }
+.mobile-sheet-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:10px 12px;
+  border-bottom:1px solid #33556f;
+}
+.mobile-sheet-body {
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  overflow:auto;
+}
 .library-modal {
   position:fixed;
   inset:2vh 2vw;
@@ -610,7 +743,12 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   background:#040b14;
 }
 @media (max-width: 900px) {
-  .library-modal { inset:1vh 1vw; }
+  .library-modal {
+    inset:auto 0 0 0;
+    border-radius:14px 14px 0 0;
+    border-bottom:0;
+    max-height:80vh;
+  }
   .library-modal-body { grid-template-columns:1fr; }
 }
 .building-hover {
@@ -759,25 +897,225 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 }
 .unit.live-running { filter:saturate(1.1) brightness(1.05); }
 .unit.live-stale { filter:hue-rotate(-30deg) saturate(1.2); }
+.mobile-list-panel {
+  display:none;
+  position:absolute;
+  inset:0;
+  z-index:260;
+  overflow:auto;
+  padding:58px 12px 94px;
+  background:
+    radial-gradient(120% 90% at 20% -10%, #1b4064 0%, #0b2036 38%, #070f1d 100%),
+    linear-gradient(180deg,#09172d 0%, #071223 100%);
+}
+.mobile-list-panel h3 {
+  font-family:Orbitron,sans-serif;
+  font-size:12px;
+  letter-spacing:.7px;
+  text-transform:uppercase;
+  color:var(--corpus-teal);
+  margin-bottom:10px;
+}
+.mobile-tree-base {
+  border:1px solid #3f6584;
+  background:linear-gradient(170deg,#0e243aeb 0%, #0a1a2be8 100%);
+  border-radius:12px;
+  padding:11px;
+  margin-bottom:12px;
+  box-shadow:0 10px 24px #03101f66;
+}
+.mobile-tree-base-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.mobile-base-add-btn {
+  border:1px solid #6ba7d5;
+  background:linear-gradient(180deg,#153452 0%, #102840 100%);
+  color:#d7f4ff;
+  border-radius:999px;
+  width:30px;
+  height:30px;
+  font-size:19px;
+  line-height:1;
+  cursor:pointer;
+}
+.mobile-base-add-btn:disabled {
+  opacity:.6;
+  cursor:progress;
+}
+.mobile-base-error {
+  margin-top:6px;
+  font-size:11px;
+  color:#ff8b8b;
+}
+.mobile-tree-base > ul {
+  margin-top:8px;
+  list-style:none;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.mobile-tree-item {
+  display:block;
+  width:100%;
+  text-align:left;
+  border:1px solid #4a7397;
+  background:linear-gradient(170deg,#112d48 0%, #0d2238 100%);
+  color:var(--corpus-ice);
+  border-radius:10px;
+  padding:9px 10px;
+  font-size:12px;
+}
+.mobile-tree-item-body {
+  display:flex;
+  align-items:flex-start;
+  gap:9px;
+}
+.mobile-tree-item-icon {
+  width:34px;
+  height:34px;
+  border-radius:6px;
+  border:1px solid #4f799f;
+  background-color:#081425;
+  background-size:cover;
+  background-position:center;
+  flex:0 0 34px;
+}
+.mobile-tree-item-meta {
+  min-width:0;
+  flex:1 1 auto;
+}
+.mobile-tree-item-title {
+  font-size:12px;
+  font-weight:600;
+  line-height:1.2;
+  margin:0;
+}
+.mobile-tree-item-sub {
+  font-size:10px;
+  color:#9dc8e5;
+  margin-top:2px;
+}
+.mobile-tree-item .progress {
+  margin-top:6px;
+  height:6px;
+}
+.layout.mobile-list-mode .world-wrap,
+.layout.mobile-list-mode .hud,
+.layout.mobile-list-mode .command-bar {
+  display:none;
+}
+.layout.mobile-list-mode .mobile-list-panel {
+  display:block;
+}
+.layout.mobile-native-app .mobile-action-tabs {
+  display:grid;
+}
 @media (max-width:1180px) {
   :root { --dock-w:min(280px, 30vw); --command-h:128px; --panel-gutter:var(--dock-w); }
   .hud-right { width:100%; max-height:100%; }
   .camera-hint { bottom:170px; }
 }
 @media (max-width:760px) {
-  :root { --dock-w:min(250px, 68vw); --command-h:118px; --screen-pad:8px; --panel-gutter:var(--screen-pad); }
-  .hud {
-    top:0;
-    bottom:0;
-    left:auto;
+  :root { --dock-w:min(250px, 96vw); --command-h:118px; --screen-pad:8px; --panel-gutter:var(--screen-pad); }
+  .layout {
+    padding-top:44px;
+    padding-bottom:168px;
+    box-sizing:border-box;
+  }
+  .world-wrap,
+  .entity,
+  .hud-right,
+  .mobile-action-tabs button.active,
+  .unit,
+  .subunit {
+    box-shadow:none !important;
+    filter:none !important;
+  }
+  .connectivity-banner {
+    left:var(--screen-pad);
+    right:var(--screen-pad);
+    top:40px;
+    font-size:10px;
+  }
+  .mobile-status-strip {
+    position:fixed;
+    top:env(safe-area-inset-top, 0px);
+    left:0;
     right:0;
-    width:var(--dock-w);
-    height:auto;
+    height:40px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:6px 10px;
+    background:linear-gradient(180deg,#050f1eef 0%,#081426ea 100%);
+    border-bottom:1px solid #5fa5d633;
+    z-index:280;
+    font-family:'Geist Mono', monospace;
+    font-size:10px;
+    color:#a9e8ff;
+    letter-spacing:.3px;
+  }
+  .mobile-action-tabs {
+    position:fixed;
+    left:10px;
+    right:10px;
+    bottom:calc(env(safe-area-inset-bottom, 0px) + 8px);
+    height:56px;
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0,1fr));
+    gap:8px;
+    z-index:291;
+  }
+  .mobile-action-tabs button {
+    border-radius:13px;
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:.5px;
+    border:1px solid #3e698c;
+    background:linear-gradient(160deg,#0f2f4e 0%, #0b223b 100%);
+    box-shadow:0 10px 20px #03101f73;
+  }
+  .mobile-action-tabs button.active {
+    border-color:#9ee3ff;
+    box-shadow:0 0 0 1px #95e6ff66 inset, 0 0 18px #4ccff744, 0 10px 22px #052034b5;
+  }
+  .hud {
+    top:auto;
+    bottom:calc(var(--command-h) + 44px);
+    left:var(--screen-pad);
+    right:var(--screen-pad);
+    width:auto;
+    height:31vh;
+    min-height:180px;
+    max-height:45vh;
   }
   .hud-right {
     width:100%;
     max-height:100%;
+    border:1px solid var(--panel-edge);
+    background:linear-gradient(180deg,#0a1b31f2 0%, #081427f2 100%);
   }
+  #actionPanel,
+  #selectionPanel,
+  #livePanel {
+    min-height:100%;
+    height:100%;
+    overflow-y:auto;
+    border:0;
+  }
+  .layout.mobile-tab-build #actionPanel { display:block; }
+  .layout.mobile-tab-build #livePanel,
+  .layout.mobile-tab-build #selectionPanel { display:none; }
+  .layout.mobile-tab-runs #livePanel { display:block; }
+  .layout.mobile-tab-runs #actionPanel,
+  .layout.mobile-tab-runs #selectionPanel { display:none; }
+  .layout.mobile-tab-intel #selectionPanel { display:block; }
+  .layout.mobile-tab-intel #actionPanel,
+  .layout.mobile-tab-intel #livePanel { display:none; }
   .command-bar {
     left:calc(var(--panel-gutter) - 1px) !important;
     right:calc(var(--panel-gutter) - 1px);
@@ -804,17 +1142,45 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     max-height:260px;
     font-size:12px;
   }
+  .layout.mobile-native-app {
+    padding-top:0;
+    padding-bottom:0;
+  }
+  .layout.mobile-list-mode .mobile-list-panel {
+    display:block;
+    padding-top:calc(env(safe-area-inset-top, 0px) + 52px);
+    padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 78px);
+  }
+  .layout.mobile-list-mode .connectivity-banner {
+    top:calc(env(safe-area-inset-top, 0px) + 42px);
+  }
+  .layout.mobile-list-mode .mobile-action-tabs {
+    display:grid;
+  }
 }
 </style>
 </head>
 <body>
   <div class="layout">
+    <div id="connectivityBanner" class="connectivity-banner" data-state="online" role="status" aria-live="polite" hidden></div>
+    <div id="mobileStatusStrip" class="mobile-status-strip" aria-label="Mobile status strip">
+      <span id="mobileStatusRuns">RUNS 0/0</span>
+      <span id="mobileStatusSelection">SELECT NONE</span>
+      <span id="mobileStatusAgents">AGENTS 0</span>
+      <span id="mobileStatusNet">NET ONLINE</span>
+    </div>
+    <div id="mobileActionTabs" class="mobile-action-tabs" role="tablist" aria-label="Mobile action dock tabs">
+      <button id="mobileTabBuild" type="button" role="tab" aria-selected="true">Build</button>
+      <button id="mobileTabRuns" type="button" role="tab" aria-selected="false">Runs</button>
+      <button id="mobileTabIntel" type="button" role="tab" aria-selected="false">Intel</button>
+    </div>
     <div class="world-wrap" id="worldWrap">
       <div class="world-bg"></div>
       <div id="world" class="world"></div>
       <div id="pathLayer" class="world path-layer"></div>
       <div id="placementLayer" class="world placement-layer"></div>
     </div>
+    <section id="mobileListPanel" class="mobile-list-panel" aria-label="Mobile base and building list"></section>
     <div class="hud">
       <div class="hud-right">
         <div class="panel" id="livePanel">
@@ -834,7 +1200,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
 
     <section class="command-bar">
       <div class="command-grid">
-        <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)" style="--palette-bg:url('/rts-sprites/base_preview_3-20260213a.png?v=20260213a');">
+        <button class="palette-card" draggable="true" data-building="base" title="Base Core (B)" style="--palette-bg:url('/rts-sprites/base_preview_3-20260213a.webp?v=20260213a');">
           <span class="palette-tooltip" role="tooltip">
             <span class="tooltip-title">Base Core</span>
             <span class="tooltip-copy">Main command hub. Place first to anchor routing and runtime links.</span>
@@ -887,6 +1253,7 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
     </section>
   </div>
   <div id="buildingHoverCard" class="building-hover" aria-hidden="true"></div>
+  <button id="installAppBtn" class="install-app-cta" type="button" hidden aria-live="polite">Install App</button>
 
 <script>
 const state = {
@@ -908,11 +1275,23 @@ const state = {
   liveDeployNotice: '',
   diag: null,
   liveStream: null,
+  liveStreamRetryTimer: null,
+  liveStreamBackoffMs: 0,
+  pollFailCount: 0,
+  pollRetryUntilMs: 0,
   runSig: '',
   selected: null,
   persistTimer: null,
   camera: { x: 0, y: 0 },
-  cameraDrag: { active:false, startX:0, startY:0, originX:0, originY:0 },
+  cameraZoom: { enabled:false, scale:1, min:0.8, max:1.4 },
+  cameraDrag: { active:false, startX:0, startY:0, originX:0, originY:0, pointerId:null, viaTouch:false },
+  mobileListMode: false,
+  mobileTree: { bases: [] },
+  mobileTreeLoading: false,
+  mobileFactoryCreate: { inFlightBaseId: '', errorByBase: {} },
+  mobileMediaQuery: null,
+  mobileRouteSyncing: false,
+  mobileFastPath: false,
   draggingEntity: null,
   draggingMoved: false,
   suppressWorldClick: false,
@@ -931,30 +1310,211 @@ const state = {
   streamSelectionByRun: {},
   featureMode: false,
   runStatusOverrides: {},
-  libraryBrowser: { role: 'all', tag: 'all', q: '', selectedPath: '' }
+  libraryBrowser: { role: 'all', tag: 'all', q: '', selectedPath: '' },
+  keyboardSafeViewportBound: false,
+  connectivity: { state: (typeof navigator !== 'undefined' && navigator.onLine === false) ? 'offline' : 'online', detail: 'Connected', changedAt: Date.now() },
+  runtimePoll: { timer: null, failures: 0, inFlight: false, baseDelayMs: 2000, maxDelayMs: 20000 }
 };
 // Manually bump this when changing Command Console UI so refresh state is obvious.
 const COMMAND_CONSOLE_VERSION = 'v2026.02.12.5';
+const SERVICE_WORKER_URL = '/service-worker.v1.js';
+const WORLD_BG_IMAGE = "url('/rts-sprites/bg-space-tile-20260212b.webp?v=20260212b')";
+let deferredInstallPrompt = null;
+let mobileActiveTab = 'build';
+const MOBILE_LIST_BREAKPOINT = 900;
+
+function isMobileViewport(){
+  return window.matchMedia('(max-width: 760px)').matches;
+}
+
+function setWorldBackgroundEnabled(enabled){
+  document.documentElement.style.setProperty('--world-bg-image', enabled ? WORLD_BG_IMAGE : 'none');
+}
+
+function applyMobilePanelVisibility(){
+  const layout = document.querySelector('.layout');
+  const actionPanel = document.getElementById('actionPanel');
+  const livePanel = document.getElementById('livePanel');
+  const selectionPanel = document.getElementById('selectionPanel');
+  if (!(layout instanceof HTMLElement) || !(actionPanel instanceof HTMLElement) || !(livePanel instanceof HTMLElement) || !(selectionPanel instanceof HTMLElement)) return;
+
+  if (!isMobileViewport()) {
+    layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel', 'mobile-native-app');
+    actionPanel.style.display = 'block';
+    livePanel.style.display = 'none';
+    selectionPanel.style.display = 'none';
+    return;
+  }
+
+  layout.classList.add('mobile-native-app');
+  layout.classList.remove('mobile-tab-build', 'mobile-tab-runs', 'mobile-tab-intel');
+  layout.classList.add(`mobile-tab-${mobileActiveTab}`);
+
+  const tabs = [
+    ['build', document.getElementById('mobileTabBuild')],
+    ['runs', document.getElementById('mobileTabRuns')],
+    ['intel', document.getElementById('mobileTabIntel')],
+  ];
+  tabs.forEach(([name, el]) => {
+    if (!(el instanceof HTMLButtonElement)) return;
+    const active = mobileActiveTab === name;
+    el.classList.toggle('active', active);
+    el.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function setMobileTab(tab){
+  if (!['build', 'runs', 'intel'].includes(tab)) return;
+  mobileActiveTab = tab;
+  applyMobilePanelVisibility();
+  if (state.mobileListMode) renderMobileListMode();
+}
+
+function updateMobileStatusStrip(){
+  const runsEl = document.getElementById('mobileStatusRuns');
+  const selectionEl = document.getElementById('mobileStatusSelection');
+  const agentsEl = document.getElementById('mobileStatusAgents');
+  const netEl = document.getElementById('mobileStatusNet');
+  if (!(runsEl instanceof HTMLElement) || !(selectionEl instanceof HTMLElement) || !(agentsEl instanceof HTMLElement) || !(netEl instanceof HTMLElement)) return;
+
+  const runs = Array.isArray(state.runs) ? state.runs : [];
+  const activeCount = runs.filter((run) => run && !['done', 'failed', 'cancelled'].includes(String(run.status || '').toLowerCase())).length;
+  runsEl.textContent = `RUNS ${activeCount}/${runs.length}`;
+
+  const selectedType = state.selected?.type ? String(state.selected.type).toUpperCase() : 'NONE';
+  selectionEl.textContent = `SELECT ${selectedType}`;
+  agentsEl.textContent = `AGENTS ${Number(state.live?.runningAgentCount || 0)}`;
+  netEl.textContent = `NET ${String(state.connectivity?.state || 'online').toUpperCase()}`;
+}
+
+function connectivityLabel(mode){
+  if (mode === 'offline') return 'Offline mode · using cached shell';
+  if (mode === 'reconnecting') return 'Reconnecting · retrying sync';
+  return 'Online · live sync active';
+}
+
+function renderConnectivityNotice(){
+  const banner = document.getElementById('connectivityBanner');
+  if (!(banner instanceof HTMLElement)) return;
+  const mode = String(state.connectivity?.state || 'online');
+  const detail = String(state.connectivity?.detail || connectivityLabel(mode));
+  banner.dataset.state = mode;
+  banner.textContent = detail;
+  const visible = mode !== 'online';
+  banner.hidden = !visible;
+  banner.classList.toggle('is-visible', visible);
+  updateMobileStatusStrip();
+}
+
+function setConnectivityState(mode, detail = ''){
+  const normalized = mode === 'offline' || mode === 'reconnecting' ? mode : 'online';
+  state.connectivity = {
+    state: normalized,
+    detail: detail || connectivityLabel(normalized),
+    changedAt: Date.now()
+  };
+  renderConnectivityNotice();
+}
+
+function boundedRetryDelayMs(failures){
+  const attempt = Math.max(0, Number(failures) || 0);
+  const exp = Math.min(attempt, 4);
+  const delay = state.runtimePoll.baseDelayMs * (2 ** exp);
+  return Math.min(state.runtimePoll.maxDelayMs, delay);
+}
+
+function initMobileLayoutShell(){
+  const buildBtn = document.getElementById('mobileTabBuild');
+  const runsBtn = document.getElementById('mobileTabRuns');
+  const intelBtn = document.getElementById('mobileTabIntel');
+  if (buildBtn instanceof HTMLButtonElement) buildBtn.addEventListener('click', () => setMobileTab('build'));
+  if (runsBtn instanceof HTMLButtonElement) runsBtn.addEventListener('click', () => setMobileTab('runs'));
+  if (intelBtn instanceof HTMLButtonElement) intelBtn.addEventListener('click', () => setMobileTab('intel'));
+  window.addEventListener('resize', applyMobilePanelVisibility);
+  applyMobilePanelVisibility();
+  updateMobileStatusStrip();
+  renderConnectivityNotice();
+}
+
+function renderInstallPromptState(){
+  const installBtn = document.getElementById('installAppBtn');
+  if (!(installBtn instanceof HTMLButtonElement)) return;
+  installBtn.hidden = !deferredInstallPrompt;
+}
+
+function initInstallPrompt(){
+  const installBtn = document.getElementById('installAppBtn');
+  if (installBtn instanceof HTMLButtonElement) {
+    installBtn.addEventListener('click', async () => {
+      const promptEvent = deferredInstallPrompt;
+      if (!promptEvent) return;
+      deferredInstallPrompt = null;
+      renderInstallPromptState();
+      try {
+        promptEvent.prompt();
+        await promptEvent.userChoice;
+      } catch {}
+    });
+  }
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    renderInstallPromptState();
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    renderInstallPromptState();
+  });
+  renderInstallPromptState();
+}
+
+function registerServiceWorker(){
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', async () => {
+    try {
+      const registration = await navigator.serviceWorker.register(SERVICE_WORKER_URL, { scope: '/' });
+      const watchInstallingWorker = (installingWorker) => {
+        if (!installingWorker) return;
+        installingWorker.addEventListener('statechange', () => {
+          if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            registration.update().catch(() => {});
+          }
+        });
+      };
+      watchInstallingWorker(registration.installing);
+      registration.addEventListener('updatefound', () => watchInstallingWorker(registration.installing));
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') registration.update().catch(() => {});
+      });
+      window.addEventListener('focus', () => registration.update().catch(() => {}));
+    } catch (error) {
+      console.warn('Service worker registration failed:', error);
+    }
+  });
+}
 const RTS_SPRITE_URLS = [
-  '/rts-sprites/bg-space-tile-20260212b.png?v=20260212b',
-  '/rts-sprites/base_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/feature_factory_sprite.png?v=20260212v',
-  '/rts-sprites/research_lab_sprite.png?v=20260212v',
-  '/rts-sprites/warehouse_sprite.png?v=20260212v',
-  '/rts-sprites/university_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/library_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/power_sprite-20260212a.png?v=20260212a',
-  '/rts-sprites/base_preview_3-20260213a.png?v=20260213a',
+  '/rts-sprites/bg-space-tile-20260212b.webp?v=20260212b',
+  '/rts-sprites/base_sprite-20260212a.webp?v=20260212a',
+  '/rts-sprites/feature_factory_sprite.webp?v=20260212v',
+  '/rts-sprites/research_lab_sprite.webp?v=20260212v',
+  '/rts-sprites/warehouse_sprite.webp?v=20260212v',
+  '/rts-sprites/university_sprite-20260212a.webp?v=20260212a',
+  '/rts-sprites/library_sprite-20260212a.webp?v=20260212a',
+  '/rts-sprites/power_sprite-20260212a.webp?v=20260212a',
+  '/rts-sprites/base_preview_3-20260213a.webp?v=20260213a',
   '/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k',
   '/rts-sprites/university_preview-20260212a.webp?v=20260212a',
   '/rts-sprites/library_preview-20260212a.webp?v=20260212a',
   '/rts-sprites/power_preview-20260212a.webp?v=20260212a',
-  '/rts-sprites/unit-cephalon-test.png?v=20260212b',
-  '/rts-sprites/subunit-cephalon-test.png?v=20260212b'
+  '/rts-sprites/unit-cephalon-test.webp?v=20260212b',
+  '/rts-sprites/subunit-cephalon-test.webp?v=20260212b'
 ];
 let spritesPreloadPromise = null;
+const spritePreloadByUrl = new Map();
+let visualFrameHandle = 0;
+let cameraVisualsDirty = false;
 
 const skillTrees = {
   architect: ['System Mapping','Dependency Radar','Design Sync','API Stability'],
@@ -1191,10 +1751,66 @@ function wirePanelDeleteButton(){
   if (!btn) return;
   btn.addEventListener('click', () => deleteSelectedStructure());
 }
+function renderPanelCard({ id, title, body, open = false }){
+  return `<details class="panel-card" ${open ? 'open' : ''} id="${esc(id)}"><summary>${esc(title)}</summary><div class="panel-card-body">${body}</div></details>`;
+}
+function ensureMobileSheet(){
+  let sheet = document.getElementById('mobileDetailSheet');
+  if (sheet) return sheet;
+  sheet = document.createElement('div');
+  sheet.id = 'mobileDetailSheet';
+  sheet.className = 'mobile-sheet';
+  sheet.hidden = true;
+  document.body.appendChild(sheet);
+  return sheet;
+}
+function openMobileSheet({ title, content }){
+  const sheet = ensureMobileSheet();
+  sheet.hidden = false;
+  sheet.innerHTML = `
+    <div class="mobile-sheet-header">
+      <strong>${esc(title || 'Details')}</strong>
+      <button id="mobileSheetCloseBtn" class="ghost">Close</button>
+    </div>
+    <div class="mobile-sheet-body">${content || ''}</div>
+  `;
+  document.getElementById('mobileSheetCloseBtn')?.addEventListener('click', () => closeMobileSheet());
+}
+function closeMobileSheet(){
+  const sheet = document.getElementById('mobileDetailSheet');
+  if (sheet) sheet.hidden = true;
+}
+function wireKeyboardSafeFormControls(scopeEl){
+  if (!(scopeEl instanceof HTMLElement)) return;
+  const focusSelector = 'input, textarea, select';
+  scopeEl.querySelectorAll(focusSelector).forEach((el) => {
+    el.addEventListener('focus', () => {
+      setTimeout(() => {
+        try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch {}
+      }, 40);
+    });
+  });
+  if (!isMobileViewport() || !window.visualViewport) return;
+  const panel = document.getElementById('actionPanel');
+  if (!(panel instanceof HTMLElement)) return;
+  const syncInset = () => {
+    const vv = window.visualViewport;
+    const keyboardInset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+    panel.style.paddingBottom = `${Math.max(10, keyboardInset + 10)}px`;
+  };
+  syncInset();
+  if (!state.keyboardSafeViewportBound) {
+    state.keyboardSafeViewportBound = true;
+    window.visualViewport.addEventListener('resize', syncInset, { passive: true });
+    window.visualViewport.addEventListener('scroll', syncInset, { passive: true });
+  }
+}
 function renderDefaultActionPanel(){
+  closeMobileSheet();
   const panel = document.getElementById('actionPanel');
   if (!panel) return;
   const live = state.live || {};
+  const structureTree = structureTreeMarkup();
   panel.dataset.mode = 'default';
   panel.dataset.featureId = '';
   panel.innerHTML = `
@@ -1203,8 +1819,90 @@ function renderDefaultActionPanel(){
     <div class="kv"><strong>Pending runs:</strong> ${Number(live.pendingRunCount || 0)}</div>
     <div class="kv"><strong>Running agents:</strong> ${Number(live.runningAgentCount || 0)}</div>
     <div class="notice">Place Base, Feature, Research, Warehouse, University, Library, or Power Plant structures from the cards below.</div>
+    <div class="build-card structure-tree-card">
+      <div class="kv"><strong>Structure Tree</strong></div>
+      <div class="structure-tree">${structureTree}</div>
+    </div>
   `;
   wirePanelDeleteButton();
+}
+function distanceBetweenEntities(kindA, itemA, kindB, itemB){
+  const from = centerPointFor(kindA, Number(itemA?.x || 0), Number(itemA?.y || 0));
+  const to = centerPointFor(kindB, Number(itemB?.x || 0), Number(itemB?.y || 0));
+  return Math.hypot(Number(from.x || 0) - Number(to.x || 0), Number(from.y || 0) - Number(to.y || 0));
+}
+function structureNode(kind, label, className = ''){
+  return `<div class="tree-node ${esc(className)}"><span class="tree-kind ${esc(kind)}">${esc(kind)}</span><span>${esc(label)}</span></div>`;
+}
+function structureTreeMarkup(){
+  const bases = (Array.isArray(state.bases) ? state.bases : [])
+    .filter((b) => b && typeof b === 'object' && String(b.id || '').trim())
+    .slice()
+    .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+  if (!bases.length) return '<div class="notice">No base placed yet.</div>';
+  const researchList = Array.isArray(state.researchBuildings) ? state.researchBuildings : [];
+  const warehouseList = Array.isArray(state.warehouseBuildings) ? state.warehouseBuildings : [];
+  const featureList = Array.isArray(state.featureBuildings) ? state.featureBuildings : [];
+  const chunks = [];
+  bases.forEach((base) => {
+    const repoKey = baseRepoKey(String(base.repo || ''));
+    const universities = researchList
+      .filter((rb) => rb.kind === 'university' && baseRepoKey(String(rb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const researchLabs = researchList
+      .filter((rb) => rb.kind === 'research' && baseRepoKey(String(rb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const libraries = warehouseList
+      .filter((wb) => wb.kind === 'library' && baseRepoKey(String(wb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const warehouses = warehouseList
+      .filter((wb) => wb.kind === 'warehouse' && baseRepoKey(String(wb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const powerPlants = warehouseList
+      .filter((wb) => wb.kind === 'power' && baseRepoKey(String(wb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const features = featureList
+      .filter((fb) => baseRepoKey(String(fb.repo || '')) === repoKey)
+      .slice()
+      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    const librariesByUniversity = new Map(universities.map((u) => [String(u.id), []]));
+    const orphanLibraries = [];
+    libraries.forEach((library) => {
+      if (!universities.length) {
+        orphanLibraries.push(library);
+        return;
+      }
+      let nearest = null;
+      universities.forEach((u) => {
+        const dist = distanceBetweenEntities('library', library, 'university', u);
+        if (!nearest || dist < nearest.dist) nearest = { id: String(u.id), dist };
+      });
+      if (!nearest) orphanLibraries.push(library);
+      else librariesByUniversity.get(nearest.id)?.push(library);
+    });
+    const nodes = [
+      structureNode('base', `${String(base.id || 'base')} (${pathLabel(base.repo || '')})`)
+    ];
+    universities.forEach((u) => {
+      nodes.push(structureNode('university', String(u.id || 'university'), 'tree-child'));
+      const attachedLibraries = librariesByUniversity.get(String(u.id)) || [];
+      attachedLibraries.forEach((library) => {
+        nodes.push(structureNode('library', String(library.id || 'library'), 'tree-grandchild'));
+      });
+    });
+    researchLabs.forEach((lab) => nodes.push(structureNode('research', String(lab.id || 'research'), 'tree-child')));
+    orphanLibraries.forEach((library) => nodes.push(structureNode('library', `${String(library.id || 'library')} (unlinked)`, 'tree-child')));
+    warehouses.forEach((warehouse) => nodes.push(structureNode('warehouse', String(warehouse.id || 'warehouse'), 'tree-child')));
+    powerPlants.forEach((plant) => nodes.push(structureNode('power', String(plant.id || 'power'), 'tree-child')));
+    features.forEach((feature) => nodes.push(structureNode('feature', String(feature.id || 'feature'), 'tree-child')));
+    chunks.push(nodes.join(''));
+  });
+  return chunks.join('');
 }
 function isResearchKind(kind){
   return kind === 'research' || kind === 'university';
@@ -1296,22 +1994,72 @@ function closeLibraryModal(){
   const modal = document.getElementById('libraryModal');
   if (modal) modal.hidden = true;
 }
-function preloadRtsSprites(){
-  if (spritesPreloadPromise) return spritesPreloadPromise;
-  const load = (url) => new Promise((resolve) => {
+function parseCssUrl(raw){
+  const text = String(raw || '').trim();
+  const match = text.match(/^url\((?:['"]?)(.+?)(?:['"]?)\)$/i);
+  return match ? match[1] : '';
+}
+
+function preloadSpriteOnce(url){
+  const key = String(url || '').trim();
+  if (!key) return Promise.resolve(false);
+  const cached = spritePreloadByUrl.get(key);
+  if (cached) return cached;
+  const request = new Promise((resolve) => {
     const img = new Image();
     img.decoding = 'async';
     img.loading = 'eager';
     img.onload = () => resolve(true);
     img.onerror = () => resolve(false);
-    img.src = url;
+    img.src = key;
   });
-  spritesPreloadPromise = Promise.all(RTS_SPRITE_URLS.map(load)).catch(() => []);
+  spritePreloadByUrl.set(key, request);
+  return request;
+}
+
+function collectVisibleSpriteUrls(){
+  const urls = new Set();
+  const worldSprites = worldEl?.querySelectorAll?.('.building-sprite');
+  worldSprites?.forEach?.((img) => {
+    const src = img?.getAttribute?.('src') || '';
+    if (src) urls.add(src);
+  });
+  const paletteCards = document.querySelectorAll('.palette-card');
+  paletteCards.forEach((card) => {
+    const styleUrl = card instanceof HTMLElement ? card.style.getPropertyValue('--palette-bg') : '';
+    const parsed = parseCssUrl(styleUrl);
+    if (parsed) urls.add(parsed);
+  });
+  urls.add('/rts-sprites/bg-space-tile-20260212b.webp?v=20260212b');
+  return [...urls];
+}
+
+function preloadRtsSprites(){
+  if (spritesPreloadPromise) return spritesPreloadPromise;
+  const visibleFirst = collectVisibleSpriteUrls();
+  const visibleSet = new Set(visibleFirst);
+  const deferred = RTS_SPRITE_URLS.filter((url) => !visibleSet.has(url));
+  const preloadDeferred = () => Promise.all(deferred.map((url) => preloadSpriteOnce(url)));
+  spritesPreloadPromise = Promise.all(visibleFirst.map((url) => preloadSpriteOnce(url)))
+    .then((critical) => {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => { void preloadDeferred(); }, { timeout: 1200 });
+      } else {
+        setTimeout(() => { void preloadDeferred(); }, 120);
+      }
+      return critical;
+    })
+    .catch(() => []);
   return spritesPreloadPromise;
 }
 async function json(url){
+  const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   const r = await fetch(url);
   const data = await r.json();
+  const elapsed = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+  if (String(url || '').startsWith('/api/rts/') && elapsed > 80) {
+    try { console.warn(`[net:slow] GET ${url} ${Math.round(elapsed)}ms status=${r.status}`); } catch {}
+  }
   if (!r.ok) throw new Error(data?.error || `request_failed:${r.status}`);
   return data;
 }
@@ -1330,6 +2078,20 @@ function snapshotPersistableState(){
   return {
     camera: state.camera || { x:0, y:0 },
     hiddenBelts: (state.hiddenBelts && typeof state.hiddenBelts === 'object') ? state.hiddenBelts : {},
+    customBases: Array.isArray(state.customBases)
+      ? state.customBases.map((base) => ({
+          ...base,
+          id: String(base?.id || ''),
+          repo: String(base?.repo || ''),
+          x: Number(base?.x || 0),
+          y: Number(base?.y || 0),
+          source: 'custom',
+          workerPool: normalizeBaseWorkerPool(base?.workerPool || {}),
+        }))
+      : [],
+    featureBuildings: Array.isArray(state.featureBuildings)
+      ? state.featureBuildings.map((building) => normalizeFeatureDraft(building))
+      : [],
     // Persist research/warehouse payloads (plans/items) via rts_layout_entities.
     researchBuildings: Array.isArray(state.researchBuildings)
       ? state.researchBuildings.map((rb) => normalizeResearchBuilding(rb))
@@ -1829,18 +2591,420 @@ function markRunRelaunched(runId){
   });
 }
 
+function mobileRenderKindForBuilding(building){
+  if (!building) return 'feature';
+  if (isLibraryLike(building)) return 'library';
+  if (building.kind === 'university') return 'university';
+  if (building.kind === 'research') return 'research';
+  if (building.kind === 'warehouse') return 'warehouse';
+  if (building.kind === 'power') return 'power';
+  if (building.kind === 'run') return 'feature';
+  return 'feature';
+}
+
+function mobileSpriteForKind(kind){
+  if (kind === 'base') return '/rts-sprites/base_preview_3-20260213a.webp?v=20260213a';
+  if (kind === 'research') return '/rts-sprites/research-lab-ogame-preview-20260212k.webp?v=20260212k';
+  if (kind === 'warehouse') return '/rts-sprites/warehouse-ogame-preview-20260212k.webp?v=20260212k';
+  if (kind === 'university') return '/rts-sprites/university_preview-20260212a.webp?v=20260212a';
+  if (kind === 'library') return '/rts-sprites/library_preview-20260212a.webp?v=20260212a';
+  if (kind === 'power') return '/rts-sprites/power_preview-20260212a.webp?v=20260212a';
+  return '/rts-sprites/feature-forge-ogame-preview-20260212k.webp?v=20260212k';
+}
+
+function mobileBuildingStatusInfo(building){
+  const storageIsLibrary = isLibraryLike(building);
+  const timeoutStep = timedOutStepForRun(building?.run);
+  const status = (building?.kind === 'research' || building?.kind === 'university')
+    ? 'idle'
+    : ((building?.kind === 'warehouse' || building?.kind === 'library' || building?.kind === 'power')
+      ? 'stored'
+      : (timeoutStep ? 'bad' : prettyStatus(getDisplayRunStatus(building?.run, building?.phase, building?.runId || building?.id || 'waiting'))));
+  const color = (status === 'done')
+    ? 'var(--ok)'
+    : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)');
+  const progress = Math.max(0, Math.min(100, Number(building?.progress || 0)));
+  const warehouseCount = Array.isArray(building?.items) ? building.items.length : 0;
+  const cronCount = Array.isArray(state.diag?.cron?.jobs) ? state.diag.cron.jobs.length : Number(state.diag?.cron?.matchingCount || 0);
+  if (building?.kind === 'research' || building?.kind === 'university') return { subtitle: 'Research queue ready', progress, color, showProgress: false };
+  if (building?.kind === 'power') return { subtitle: `Cron jobs: ${cronCount}`, progress, color, showProgress: false };
+  if (building?.kind === 'warehouse' || building?.kind === 'library') {
+    return { subtitle: `${storageIsLibrary ? 'Archived entries' : 'Stored items'}: ${warehouseCount}`, progress, color, showProgress: false };
+  }
+  return { subtitle: hoverSummaryForBuilding(building), progress, color, showProgress: true };
+}
+
+function mobileBuildingLabel(building){
+  const task = String(building?.taskTitle || '').trim();
+  if (task) return task;
+  if (building?.kind === 'run') return `Run ${String(building?.runId || building?.id || '').slice(0, 8) || 'pending'}`;
+  if (building?.kind === 'feature') return String(building?.label || 'Feature Forge');
+  if (building?.kind === 'university') return String(building?.label || 'University');
+  if (building?.kind === 'research') return String(building?.label || 'Research Lab');
+  if (isLibraryLike(building)) return String(building?.label || 'Library');
+  if (building?.kind === 'power') return String(building?.label || 'Power Plant');
+  if (building?.kind === 'warehouse') return String(building?.label || 'Warehouse');
+  return String(building?.label || building?.kind || 'Building');
+}
+
+function buildMobileTreeFromScene(){
+  const sourceBases = Array.isArray(state.bases) ? state.bases : [];
+  const sourceBuildings = Array.isArray(state.buildings) ? state.buildings : [];
+  const bases = sourceBases.map((base) => ({
+    id: String(base?.id || ''),
+    label: String(base?.portLabel || pathLabel(base?.repo || '') || base?.id || 'Base'),
+    source: String(base?.source || 'custom'),
+    repo: String(base?.repo || ''),
+    x: Number(base?.x || 0),
+    y: Number(base?.y || 0),
+    buildings: []
+  }));
+  const baseById = new Map(bases.map((base) => [base.id, base]));
+  const repoBuckets = new Map();
+  const appendBase = (base) => {
+    bases.push(base);
+    baseById.set(base.id, base);
+    const repoKey = baseRepoKey(base.repo || '');
+    if (!repoBuckets.has(repoKey)) repoBuckets.set(repoKey, []);
+    repoBuckets.get(repoKey).push(base);
+  };
+  for (const base of bases) {
+    const repoKey = baseRepoKey(base.repo || '');
+    if (!repoKey) continue;
+    if (!repoBuckets.has(repoKey)) repoBuckets.set(repoKey, []);
+    repoBuckets.get(repoKey).push(base);
+  }
+
+  const findTargetBase = (building) => {
+    const explicitBaseId = String(building?.baseId || '');
+    if (explicitBaseId && baseById.has(explicitBaseId)) return baseById.get(explicitBaseId);
+    const repoKey = baseRepoKey(String(building?.repo || ''));
+    const candidates = repoBuckets.get(repoKey) || [];
+    if (!candidates.length) return null;
+    if (candidates.length === 1) return candidates[0];
+    const bx = Number(building?.x || 0);
+    const by = Number(building?.y || 0);
+    return candidates.reduce((best, base) => {
+      const dist = Math.hypot(Number(base.x || 0) - bx, Number(base.y || 0) - by);
+      if (!best || dist < best.dist) return { base, dist };
+      return best;
+    }, null)?.base || candidates[0];
+  };
+
+  for (const building of sourceBuildings) {
+    let targetBase = findTargetBase(building);
+    if (!targetBase) {
+      const repoKey = baseRepoKey(String(building?.repo || ''));
+      const syntheticId = repoKey ? `base:${repoKey}` : 'base:unlinked';
+      const syntheticLabel = repoKey ? pathLabel(repoKey) : 'Unlinked';
+      targetBase = baseById.get(syntheticId);
+      if (!targetBase) {
+        targetBase = {
+          id: syntheticId,
+          label: syntheticLabel || 'Base',
+          source: 'derived',
+          repo: repoKey,
+          x: Number(building?.x || 0),
+          y: Number(building?.y || 0),
+          buildings: []
+        };
+        appendBase(targetBase);
+      }
+    }
+    targetBase.buildings.push(building);
+  }
+
+  return { bases };
+}
+
+async function refreshMobileTree(){
+  const noSceneData = !Array.isArray(state.buildings) || state.buildings.length === 0;
+  if (state.mobileListMode && (state.mobileFastPath || noSceneData)) {
+    try {
+      const tree = await json('/api/rts/mobile/tree');
+      const bases = Array.isArray(tree?.bases) ? tree.bases : [];
+      state.mobileTree = { bases };
+      return;
+    } catch {}
+  }
+  state.mobileTree = buildMobileTreeFromScene();
+}
+
+function getMobileBuildingRouteId(){
+  const raw = String(window.location.hash || '').trim();
+  const match = raw.match(/^#mobile-building\/(.+)$/i);
+  if (!match) return '';
+  try { return decodeURIComponent(match[1] || '').trim(); } catch { return String(match[1] || '').trim(); }
+}
+
+function setMobileBuildingRoute(buildingId, { replace = false } = {}){
+  const safeId = String(buildingId || '').trim();
+  const url = new URL(window.location.href);
+  const nextHash = safeId ? `#mobile-building/${encodeURIComponent(safeId)}` : '';
+  if (url.hash === nextHash) return;
+  state.mobileRouteSyncing = true;
+  if (replace) {
+    url.hash = nextHash;
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } else {
+    window.location.hash = nextHash;
+  }
+  state.mobileRouteSyncing = false;
+}
+
+function findMobileBuildingById(buildingId){
+  const safeId = String(buildingId || '').trim();
+  if (!safeId) return null;
+  const bases = Array.isArray(state.mobileTree?.bases) ? state.mobileTree.bases : [];
+  for (const base of bases) {
+    const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
+    const building = buildings.find((item) => String(item?.id || '').trim() === safeId);
+    if (building) return { base, building };
+  }
+  return null;
+}
+
+function mobileRunCardsMarkup(){
+  const runs = Array.isArray(state.runs) ? state.runs : [];
+  if (!runs.length) return `<div class="notice">No runs yet.</div>`;
+  const cards = runs.map((run) => {
+    const status = prettyStatus(getDisplayRunStatus(run, String(run?.status || ''), String(run?.id || '')));
+    const progress = Math.max(0, Math.min(100, Number(runProgress(run) || 0)));
+    const color = status === 'done' ? 'var(--ok)' : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)');
+    const runId = String(run?.id || '');
+    const wf = String(run?.workflow_id || 'workflow');
+    return `<article class="mobile-tree-base"><div class="mobile-tree-base-head"><h3>${esc(wf)}</h3><span class="notice">${esc(status)}</span></div><div class="notice">RUN ${esc(runId.slice(0, 12)) || 'pending'}</div><div class="progress"><div class="bar" style="width:${progress}%;background:${color}"></div></div></article>`;
+  }).join('');
+  return cards;
+}
+
+function mobileIntelCardsMarkup(){
+  const live = state.live || {};
+  const diag = state.diag || {};
+  const activeAgents = Array.isArray(live.activeAgents) ? live.activeAgents : [];
+  const cronCount = Array.isArray(diag?.cron?.jobs) ? diag.cron.jobs.length : Number(diag?.cron?.matchingCount || 0);
+  const selected = state.selected?.type ? String(state.selected.type).toUpperCase() : 'NONE';
+  return `
+    <article class="mobile-tree-base">
+      <div class="mobile-tree-base-head"><h3>Runtime</h3><span class="notice">${esc(String(state.connectivity?.state || 'online').toUpperCase())}</span></div>
+      <div class="notice">Active runs: ${Number(live.activeRunCount || 0)}</div>
+      <div class="notice">Pending runs: ${Number(live.pendingRunCount || 0)}</div>
+      <div class="notice">Running agents: ${Number(live.runningAgentCount || 0)}</div>
+      <div class="notice">Cron jobs: ${cronCount}</div>
+    </article>
+    <article class="mobile-tree-base">
+      <div class="mobile-tree-base-head"><h3>Focus</h3><span class="notice">${esc(selected)}</span></div>
+      <div class="notice">Selected: ${esc(selected)}</div>
+      <div class="notice">Visible agents: ${activeAgents.length}</div>
+    </article>
+  `;
+}
+
+function renderMobileListMode(){
+  const panel = document.getElementById('mobileListPanel');
+  if (!panel) return;
+  if (mobileActiveTab === 'build' && state.mobileTreeLoading) {
+    panel.innerHTML = `<h3>Mobile Ops List</h3><div class="notice">Syncing command state...</div>`;
+    return;
+  }
+  if (mobileActiveTab === 'runs') {
+    panel.innerHTML = `<h3>Active Runs</h3>${mobileRunCardsMarkup()}`;
+    return;
+  }
+  if (mobileActiveTab === 'intel') {
+    panel.innerHTML = `<h3>Mission Intel</h3>${mobileIntelCardsMarkup()}`;
+    return;
+  }
+  const routeBuildingId = getMobileBuildingRouteId();
+  const selected = routeBuildingId ? findMobileBuildingById(routeBuildingId) : null;
+  if (routeBuildingId) {
+    if (!selected) {
+      panel.innerHTML = `<h3>Building Detail</h3><article class="mobile-tree-base"><div class="mobile-tree-base-head"><button class="mobile-tree-item" data-mobile-list-back="1">← Back to list</button></div><div class="notice">Building not found for ID: ${esc(routeBuildingId)}</div></article>`;
+      return;
+    }
+    const baseLabel = String(selected.base?.label || 'Base');
+    const detail = mobileBuildingStatusInfo(selected.building);
+    const buildingLabel = mobileBuildingLabel(selected.building);
+    const renderKind = mobileRenderKindForBuilding(selected.building);
+    const sprite = mobileSpriteForKind(renderKind);
+    panel.innerHTML = `<h3>Building Detail</h3><article class="mobile-tree-base"><div class="mobile-tree-base-head"><button class="mobile-tree-item" data-mobile-list-back="1">← Back to list</button></div><div class="mobile-tree-item-body"><span class="mobile-tree-item-icon" style="background-image:url('${esc(sprite)}')"></span><div class="mobile-tree-item-meta"><p class="mobile-tree-item-title">${esc(buildingLabel)}</p><div class="mobile-tree-item-sub">${esc(detail.subtitle || '')}</div>${detail.showProgress ? `<div class="progress"><div class="bar" style="width:${detail.progress}%;background:${detail.color}"></div></div>` : ''}</div></div><div class="notice">ID: ${esc(String(selected.building?.id || ''))}</div><div class="notice">Base: ${esc(baseLabel)}</div><div class="notice">Kind: ${esc(String(selected.building?.kind || 'unknown'))}</div></article>`;
+    return;
+  }
+  const bases = Array.isArray(state.mobileTree?.bases) ? state.mobileTree.bases : [];
+  if (!bases.length) {
+    panel.innerHTML = `<h3>Mobile Ops List</h3><div class="notice">No bases yet. Switch to desktop view to place your first base.</div>`;
+    return;
+  }
+  const inFlightBaseId = String(state.mobileFactoryCreate?.inFlightBaseId || '');
+  const errorByBase = (state.mobileFactoryCreate && typeof state.mobileFactoryCreate.errorByBase === 'object') ? state.mobileFactoryCreate.errorByBase : {};
+  const baseMarkup = bases.map((base) => {
+    const baseId = String(base?.id || '');
+    const baseSource = String(base?.source || '').trim().toLowerCase();
+    const canCreateFactory = baseSource
+      ? baseSource === 'custom'
+      : !baseId.startsWith('base:');
+    const isCreating = inFlightBaseId === baseId;
+    const baseError = String(errorByBase[baseId] || '');
+    const buildings = Array.isArray(base?.buildings) ? base.buildings : [];
+    const buildingRows = buildings.length
+      ? buildings.map((building) => {
+          const renderKind = mobileRenderKindForBuilding(building);
+          const sprite = mobileSpriteForKind(renderKind);
+          const detail = mobileBuildingStatusInfo(building);
+          const label = mobileBuildingLabel(building);
+          const buildingId = String(building?.id || '');
+          return `<li><button class="mobile-tree-item" data-mobile-building-id="${esc(buildingId)}"><span class="mobile-tree-item-body"><span class="mobile-tree-item-icon" style="background-image:url('${esc(sprite)}')"></span><span class="mobile-tree-item-meta"><span class="mobile-tree-item-title">${esc(label)}</span><span class="mobile-tree-item-sub">${esc(detail.subtitle || '')}</span>${detail.showProgress ? `<span class="progress"><span class="bar" style="width:${detail.progress}%;background:${detail.color}"></span></span>` : ''}</span></span></button></li>`;
+        }).join('')
+      : '<li><span class="notice">No buildings</span></li>';
+    return `<article class="mobile-tree-base"><div class="mobile-tree-base-head"><h3>${esc(String(base?.label || 'Base'))}</h3>${canCreateFactory ? `<button class="mobile-base-add-btn" data-mobile-base-create="${esc(baseId)}" aria-label="Create factory under ${esc(String(base?.label || 'Base'))}" title="Create factory" ${isCreating ? 'disabled' : ''}>+</button>` : ''}</div>${baseError ? `<div class="mobile-base-error" role="status">${esc(baseError)}</div>` : ''}<ul>${buildingRows}</ul></article>`;
+  }).join('');
+  panel.innerHTML = `<h3>Mobile Ops List</h3>${baseMarkup}`;
+}
+
+async function createFactoryForMobileBase(baseId){
+  const safeBaseId = String(baseId || '').trim();
+  if (!safeBaseId) return;
+  if (String(state.mobileFactoryCreate?.inFlightBaseId || '')) return;
+  if (!state.mobileFactoryCreate || typeof state.mobileFactoryCreate !== 'object') {
+    state.mobileFactoryCreate = { inFlightBaseId: '', errorByBase: {} };
+  }
+  if (!state.mobileFactoryCreate.errorByBase || typeof state.mobileFactoryCreate.errorByBase !== 'object') {
+    state.mobileFactoryCreate.errorByBase = {};
+  }
+  state.mobileFactoryCreate.inFlightBaseId = safeBaseId;
+  delete state.mobileFactoryCreate.errorByBase[safeBaseId];
+  renderMobileListMode();
+  try {
+    const payload = await postJson('/api/rts/factory/create', { baseId: safeBaseId, kind: 'factory' });
+    const createdId = String(payload?.buildingId || '').trim();
+    const targetBase = (state.customBases || []).find((base) => String(base?.id || '') === safeBaseId);
+    if (!state.mobileFastPath && createdId && targetBase && !state.featureBuildings.some((feature) => String(feature?.id || '') === createdId)) {
+      state.featureBuildings.push({
+        id: createdId,
+        kind: 'feature',
+        label: 'Factory',
+        repo: String(targetBase.repo || ''),
+        baseId: safeBaseId,
+        x: Number(targetBase.x || 0) + 120,
+        y: Number(targetBase.y || 0) + 80,
+        committed: false,
+        phase: 'draft',
+        createdAt: new Date().toISOString()
+      });
+      rebuildScene();
+    } else {
+      await refreshMobileTree();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err || 'request_failed');
+    state.mobileFactoryCreate.errorByBase[safeBaseId] = `Create failed: ${message}`;
+  } finally {
+    state.mobileFactoryCreate.inFlightBaseId = '';
+    renderMobileListMode();
+  }
+}
+
+async function setMobileListMode(active){
+
+  const enabled = !!active;
+  if (state.mobileListMode === enabled) return;
+  state.mobileListMode = enabled;
+  const layout = document.querySelector('.layout');
+  if (layout) layout.classList.toggle('mobile-list-mode', enabled);
+  if (enabled) {
+    state.mobileFastPath = true;
+    state.cameraDrag.active = false;
+    state.draggingEntity = null;
+    setPlacement(null);
+    hidePlacementGhost();
+    setWorldBackgroundEnabled(false);
+    await refreshMobileTree();
+  } else {
+    setWorldBackgroundEnabled(true);
+  }
+  applyMobilePanelVisibility();
+  renderMobileListMode();
+}
+
+function syncMobileListMode(){
+  const query = state.mobileMediaQuery || window.matchMedia(`(max-width: ${MOBILE_LIST_BREAKPOINT}px)`);
+  state.mobileMediaQuery = query;
+  void setMobileListMode(query.matches);
+}
+
 async function boot(){
-  // Warm sprite decode/cache so first placement/select doesn't pop in images.
-  void preloadRtsSprites();
-  await hydratePersistedState();
-  state.workflows = await json('/api/workflows');
-  try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
-  try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
-  await refreshRuntimeState(true);
-  rebuildScene();
-  renderLiveConsole();
-  startLiveStream();
-  queuePersist();
+  state.mobileMediaQuery = window.matchMedia(`(max-width: ${MOBILE_LIST_BREAKPOINT}px)`);
+  if (typeof state.mobileMediaQuery?.addEventListener === 'function') state.mobileMediaQuery.addEventListener('change', syncMobileListMode);
+  else if (typeof state.mobileMediaQuery?.addListener === 'function') state.mobileMediaQuery.addListener(syncMobileListMode);
+  const initialMobile = !!state.mobileMediaQuery?.matches;
+  state.mobileFastPath = initialMobile;
+  setWorldBackgroundEnabled(!initialMobile);
+  if (initialMobile) {
+    const layout = document.querySelector('.layout');
+    if (layout) layout.classList.add('mobile-list-mode');
+    state.mobileListMode = true;
+    state.mobileTreeLoading = true;
+    applyMobilePanelVisibility();
+    renderMobileListMode();
+  }
+  if (!initialMobile) {
+    // Warm sprite decode/cache so first placement/select doesn't pop in images.
+    void preloadRtsSprites();
+    await hydratePersistedState();
+  }
+  if (initialMobile) {
+    void (async () => {
+      try { state.workflows = await json('/api/workflows'); } catch { state.workflows = []; }
+      try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
+      try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
+      try { await refreshRuntimeState(false); } catch {}
+      await refreshMobileTree();
+      state.mobileTreeLoading = false;
+      renderMobileListMode();
+      renderLiveConsole();
+    })();
+  } else {
+    state.workflows = await json('/api/workflows');
+    try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
+    try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
+    await refreshRuntimeState(true);
+    rebuildScene();
+    renderLiveConsole();
+    startLiveStream();
+  }
+  const mobileListPanel = document.getElementById('mobileListPanel');
+  mobileListPanel?.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const backBtn = target?.closest('[data-mobile-list-back]');
+    if (backBtn) {
+      event.preventDefault();
+      setMobileBuildingRoute('', { replace: true });
+      renderMobileListMode();
+      return;
+    }
+    const buildingBtn = target?.closest('[data-mobile-building-id]');
+    if (buildingBtn) {
+      event.preventDefault();
+      const buildingId = String(buildingBtn.getAttribute('data-mobile-building-id') || '').trim();
+      if (!buildingId) return;
+      setMobileBuildingRoute(buildingId);
+      renderMobileListMode();
+      return;
+    }
+    const createBtn = target?.closest('[data-mobile-base-create]');
+    if (!createBtn) return;
+    event.preventDefault();
+    const baseId = String(createBtn.getAttribute('data-mobile-base-create') || '').trim();
+    if (!baseId) return;
+    void createFactoryForMobileBase(baseId);
+  });
+  window.addEventListener('hashchange', () => {
+    if (state.mobileRouteSyncing) return;
+    if (!state.mobileListMode) return;
+    renderMobileListMode();
+  });
+  syncMobileListMode();
+  if (!initialMobile) queuePersist();
 }
 
 async function refreshRuntimeState(throwOnError = false){
@@ -1865,20 +3029,92 @@ async function refreshRuntimeState(throwOnError = false){
     }
     state.live = (liveRes && liveRes.live) ? liveRes.live : state.live;
     state.diag = (diagRes && diagRes.diag) ? diagRes.diag : state.diag;
+    state.runtimePoll.failures = 0;
+    if (state.connectivity?.state !== 'online') {
+      setConnectivityState('online', 'Reconnected · live updates restored');
+    }
     return runsChanged;
   } catch (err) {
     if (throwOnError) throw err;
+    state.runtimePoll.failures = Number(state.runtimePoll.failures || 0) + 1;
+    const retryMs = boundedRetryDelayMs(state.runtimePoll.failures);
+    if (navigator.onLine === false) {
+      setConnectivityState('offline', `Offline mode · retry in ${Math.ceil(retryMs / 1000)}s`);
+    } else {
+      setConnectivityState('reconnecting', `Connection unstable · retry ${state.runtimePoll.failures} in ${Math.ceil(retryMs / 1000)}s`);
+    }
     return false;
   }
 }
 
+function scheduleRuntimePoll(delayMs = state.runtimePoll.baseDelayMs){
+  if (state.runtimePoll.timer) clearTimeout(state.runtimePoll.timer);
+  const nextDelay = Math.max(0, Number(delayMs) || 0);
+  state.runtimePoll.timer = setTimeout(() => {
+    void runRuntimePoll();
+  }, nextDelay);
+}
+
+async function runRuntimePoll(){
+  if (state.runtimePoll.inFlight) return;
+  state.runtimePoll.inFlight = true;
+  const runsChanged = await refreshRuntimeState(false);
+  if (!state.mobileListMode && !state.liveStream && navigator.onLine !== false) startLiveStream();
+  if (runsChanged && !state.mobileListMode) rebuildScene();
+  else if (runsChanged && state.mobileListMode) {
+    await refreshMobileTree();
+    renderMobileListMode();
+  }
+  else if (!state.mobileListMode && Number(state.live?.runningAgentCount || 0) > 0) {
+    ensureMotionLoop();
+    renderUnitsLiveState();
+  } else if (!state.mobileListMode) renderUnitsLiveState();
+  else renderMobileListMode();
+  renderLiveConsole();
+  state.runtimePoll.inFlight = false;
+  const delay = state.runtimePoll.failures ? boundedRetryDelayMs(state.runtimePoll.failures) : state.runtimePoll.baseDelayMs;
+  scheduleRuntimePoll(delay);
+}
+
+function initConnectivityMonitoring(){
+  renderConnectivityNotice();
+  window.addEventListener('offline', () => {
+    setConnectivityState('offline', 'Offline mode · using cached shell');
+    if (state.liveStream) {
+      try { state.liveStream.close(); } catch {}
+      state.liveStream = null;
+    }
+  });
+  window.addEventListener('online', () => {
+    setConnectivityState('reconnecting', 'Network restored · syncing now');
+    state.runtimePoll.failures = 0;
+    scheduleRuntimePoll(0);
+  });
+}
+
 function startLiveStream(){
+  if (state.liveStreamRetryTimer) {
+    clearTimeout(state.liveStreamRetryTimer);
+    state.liveStreamRetryTimer = null;
+  }
   if (state.liveStream) {
     try { state.liveStream.close(); } catch {}
     state.liveStream = null;
   }
+  const scheduleRetry = () => {
+    const next = state.liveStreamBackoffMs ? Math.min(10000, Math.round(state.liveStreamBackoffMs * 1.7)) : 500;
+    state.liveStreamBackoffMs = next;
+    if (state.liveStreamRetryTimer) clearTimeout(state.liveStreamRetryTimer);
+    state.liveStreamRetryTimer = setTimeout(() => {
+      state.liveStreamRetryTimer = null;
+      if (!state.liveStream) startLiveStream();
+    }, next);
+  };
   try {
     const es = new EventSource('/api/rts/live/stream');
+    es.onopen = () => {
+      state.liveStreamBackoffMs = 0;
+    };
     es.addEventListener('live', (evt) => {
       try {
         const payload = JSON.parse(evt.data || '{}');
@@ -1895,80 +3131,40 @@ function startLiveStream(){
     es.onerror = () => {
       try { es.close(); } catch {}
       state.liveStream = null;
+      scheduleRetry();
     };
     state.liveStream = es;
   } catch {
     state.liveStream = null;
+    scheduleRetry();
   }
 }
 
 function rebuildScene(){
   updateCameraVisuals();
-  const customByRepo = new Map();
-  (state.customBases || []).forEach((cb) => {
-    if (!cb?.repo) return;
-    const repoKey = baseRepoKey(cb.repo);
-    customByRepo.set(repoKey, { ...cb, repo: repoKey, workerPool: normalizeBaseWorkerPool(cb.workerPool || {}) });
-  });
-
-  const runsByRepo = new Map();
-  (state.runs || []).forEach((run) => {
-    const rawRepo = normalizePathKey(getRepo(run));
-    if (!rawRepo) return;
-    const repo = baseRepoKey(rawRepo);
-    if (!runsByRepo.has(repo)) runsByRepo.set(repo, []);
-    runsByRepo.get(repo).push(run);
-  });
-
-  const mergedBases = [];
-  const usedCustomBaseIds = new Set();
-  let autoIndex = 0;
-  runsByRepo.forEach((runs, repo) => {
-    const existingCustom = customByRepo.get(repo);
-    if (existingCustom) {
-      const resolvedPort = Number(existingCustom.port) || getPortForPath(existingCustom.repo) || 3333;
-      if (existingCustom.repo) setPortForPath(existingCustom.repo, resolvedPort);
-      mergedBases.push({
-        ...existingCustom,
-        runs,
-        source:'custom',
-        port: resolvedPort,
-        portLabel: pathLabel(existingCustom.repo),
-        workerPool: normalizeBaseWorkerPool(existingCustom.workerPool || {})
-      });
-      usedCustomBaseIds.add(existingCustom.id);
-      return;
-    }
-    const resolvedPort = getPortForPath(repo) || 3333;
-    setPortForPath(repo, resolvedPort);
-    mergedBases.push({
-      id:`base-run-${autoIndex}`,
-      x: 90 + (autoIndex%3)*320,
-      y: 80 + Math.floor(autoIndex/3)*220,
-      repo,
-      runs,
-      source:'run',
-      port: resolvedPort,
-      portLabel: pathLabel(repo),
-      workerPool: normalizeBaseWorkerPool({})
-    });
-    autoIndex += 1;
-  });
-
-  (state.customBases || []).forEach((cb) => {
-    if (usedCustomBaseIds.has(cb.id)) return;
+  // DB is source-of-truth: map bases must come from persisted custom base rows only.
+  const mergedBases = (state.customBases || []).map((cb) => {
     const repoKey = baseRepoKey(cb.repo);
     const resolvedPort = Number(cb.port) || getPortForPath(repoKey) || 3333;
     if (repoKey) setPortForPath(repoKey, resolvedPort);
-    mergedBases.push({
+    return {
       ...cb,
       repo: repoKey,
-      runs: cb.runs || [],
-      source:'custom',
+      runs: [],
+      source: 'custom',
       port: resolvedPort,
       portLabel: pathLabel(repoKey),
       workerPool: normalizeBaseWorkerPool(cb.workerPool || {})
-    });
+    };
+  });
+
+  (state.runs || []).forEach((run) => {
+    const repo = baseRepoKey(normalizePathKey(getRepo(run)));
+    if (!repo) return;
+    const base = mergedBases.find((b) => baseRepoKey(String(b?.repo || '')) === repo);
+    if (!base) return;
+    if (!Array.isArray(base.runs)) base.runs = [];
+    base.runs.push(run);
   });
 
   const buildings = [];
@@ -2160,9 +3356,11 @@ function rebuildScene(){
     if (fresh) state.selected = { type:'base', data:fresh };
     else state.selected = null;
   }
+  state.mobileTree = buildMobileTreeFromScene();
+  if (state.mobileListMode) renderMobileListMode();
 
-  renderWorld();
-  if (Number(state.live?.runningAgentCount || 0) > 0) ensureMotionLoop();
+  if (!state.mobileListMode) renderWorld();
+  if (!state.mobileListMode && Number(state.live?.runningAgentCount || 0) > 0) ensureMotionLoop();
   if (state.selected) renderSelection();
   if (state.selected?.type === 'building' && !isEditingActionPanel()) {
     if (state.selected.data?.kind === 'feature') renderRunSetupPanel(state.selected.data.id);
@@ -2512,27 +3710,27 @@ function placePowerAt(x,y){
 
 function structureMarkup(kind, variant = ''){
   if (kind === 'base') {
-    return `<img class="building-sprite" src="/rts-sprites/base_sprite-20260212a.png?v=20260212a" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/base_sprite-20260212a.webp?v=20260212a" alt="" />`;
   }
   if (kind === 'feature') {
-    return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.png?v=20260212v" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.webp?v=20260212v" alt="" />`;
   }
   if (kind === 'university' || (kind === 'research' && String(variant || '') === 'university')) {
-    return `<img class="building-sprite" src="/rts-sprites/university_sprite-20260212a.png?v=20260212a" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/university_sprite-20260212a.webp?v=20260212a" alt="" />`;
   }
   if (kind === 'research') {
-    return `<img class="building-sprite" src="/rts-sprites/research_lab_sprite.png?v=20260212v" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/research_lab_sprite.webp?v=20260212v" alt="" />`;
   }
   if (kind === 'library' || (kind === 'warehouse' && String(variant || '') === 'library')) {
-    return `<img class="building-sprite" src="/rts-sprites/library_sprite-20260212a.png?v=20260212a" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/library_sprite-20260212a.webp?v=20260212a" alt="" />`;
   }
   if (kind === 'power' || (kind === 'warehouse' && String(variant || '') === 'power')) {
-    return `<img class="building-sprite" src="/rts-sprites/power_sprite-20260212a.png?v=20260212a" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/power_sprite-20260212a.webp?v=20260212a" alt="" />`;
   }
   if (kind === 'warehouse') {
-    return `<img class="building-sprite" src="/rts-sprites/warehouse_sprite.png?v=20260212v" alt="" />`;
+    return `<img class="building-sprite" src="/rts-sprites/warehouse_sprite.webp?v=20260212v" alt="" />`;
   }
-  return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.png?v=20260212v" alt="" />`;
+  return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.webp?v=20260212v" alt="" />`;
 }
 
 function snapPlacement(kind, worldX, worldY){
@@ -2566,9 +3764,23 @@ function screenToWorld(clientX, clientY){
   return { sx, sy, x: sx + state.camera.x, y: sy + state.camera.y };
 }
 
-function updateCameraVisuals(){
+function flushVisualFrame(){
+  visualFrameHandle = 0;
+  if (!cameraVisualsDirty) return;
+  cameraVisualsDirty = false;
   worldWrapEl.style.setProperty('--cam-x', `${state.camera.x}px`);
   worldWrapEl.style.setProperty('--cam-y', `${state.camera.y}px`);
+  worldWrapEl.style.setProperty('--cam-scale', `${Number(state.cameraZoom?.scale || 1)}`);
+}
+
+function scheduleVisualFrame(){
+  if (visualFrameHandle) return;
+  visualFrameHandle = window.requestAnimationFrame(flushVisualFrame);
+}
+
+function updateCameraVisuals(){
+  cameraVisualsDirty = true;
+  scheduleVisualFrame();
 }
 
 function showPlacementGhost(kind, worldX, worldY){
@@ -2597,6 +3809,7 @@ function localPointInWorld(event){
 }
 
 function edgeAutoPan(clientX, clientY, margin = 36, speed = 18){
+  if (state.mobileListMode) return false;
   // Use wrapper bounds; worldEl is camera-transformed and skews edge detection.
   const rect = worldWrapEl.getBoundingClientRect();
   if (!rect || rect.width <= 0 || rect.height <= 0) return false;
@@ -3236,6 +4449,8 @@ function renderWorld(){
     ? `${String(state.selected?.data?.runId || '')}:${String(state.selected?.data?.full || '')}`
     : '';
 
+  updateMobileStatusStrip();
+
   const runTargets = runTargetCenterMap();
   const activeMap = activeRunAgentMap();
   if (pathLayer) {
@@ -3345,7 +4560,7 @@ function renderWorld(){
   }
 
   state.bases.forEach(base => {
-    const movable = true;
+    const movable = !state.mobileListMode;
     const basePort = Number(base.port) || getPortForPath(base.repo || '') || 3333;
     const baseLabel = base.portLabel || pathLabel(base.repo || '');
     const entityKey = `base:${String(base.id)}`;
@@ -3400,6 +4615,7 @@ function renderWorld(){
       }
     });
     el.onmousedown = (e) => {
+      if (state.mobileListMode) return;
       if (e.button !== 0) return;
       if (state.placementMode) return;
       e.stopPropagation();
@@ -3431,7 +4647,7 @@ function renderWorld(){
     const color = (status === 'done')
       ? 'var(--ok)'
       : ((status === 'failed' || status === 'bad') ? 'var(--bad)' : 'var(--warn)');
-    const movable = true;
+    const movable = !state.mobileListMode;
     const featureVisualClass = b.kind === 'feature' ? featureStructureClassName(b) : '';
     const className = ['building', featureVisualClass, movable ? 'movable' : '', selectedBuildingId === String(b.id) ? 'is-selected' : ''].filter(Boolean).join(' ');
     const buildPort = Number(b.port) || getPortForPath(b.worktreePath || b.repo || '') || 3334;
@@ -4367,33 +5583,50 @@ function renderResearchLabPanel(targetLabId){
   }
   panel.innerHTML = `
     ${panelToolbar(isUni ? 'University Console' : 'Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
-    <div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
-    <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
-    <button id="runResearchBtn">Research</button>
-    <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>
-    <div class="build-card" style="margin-top:8px">
-      <div class="kv"><strong>Generated Plans</strong></div>
-      <div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
-        <div class="agent-row research-plan" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '' : 'draggable="true"'} data-plan-id="${esc(plan.id)}">
+    ${renderPanelCard({
+      id: 'researchSourceCard',
+      title: 'Source',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
+      <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
+      <button id="runResearchBtn">Research</button>
+      <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'researchPlanCard',
+      title: `Generated Plans (${plans.length})`,
+      open: true,
+      body: `<div id="researchPlanList">${plans.length ? plans.map((plan, idx) => `
+        <div class="agent-row research-plan" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '' : 'draggable="true"'} data-plan-id="${esc(plan.id)}" data-plan-title="${esc(plan.title || `Plan ${idx + 1}`)}" data-plan-summary="${esc(plan.summary || '')}">
           <div class="agent-meta">
             <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
             ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? '<span class="badge">WONT FIX</span>' : ''}
             <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Plan ${idx + 1}`)}</span>
           </div>
           <div class="agent-actions">
+            <button class="agent-restart" data-plan-open-sheet="${esc(plan.id)}">view</button>
             <button class="agent-restart" data-plan-deploy="${esc(plan.id)}" ${String(plan.disposition || 'OPEN').toUpperCase() === 'WONT_FIX' ? 'disabled' : ''}>deploy</button>
             <button class="agent-restart" data-plan-wont-fix="${esc(plan.id)}" title="Mark WONT FIX">delete</button>
           </div>
         </div>
       `).join('') : '<div class="notice">No plans yet. Press Research.</div>'}</div>
-      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in ${isUni ? 'Library or Warehouse' : 'Warehouse'}.</div>
-    </div>
+      <div class="notice" style="margin-top:8px">Drag a plan onto the map to create a Feature draft, or deploy to store it in ${isUni ? 'Library or Warehouse' : 'Warehouse'}.</div>`
+    })}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
   const notice = document.getElementById('researchNotice');
   const refreshPlanInteractions = () => {
     const list = document.getElementById('researchPlanList');
     if (!list) return;
+    list.querySelectorAll('[data-plan-open-sheet]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.research-plan');
+        const title = String(row?.getAttribute('data-plan-title') || 'Plan details');
+        const summary = String(row?.getAttribute('data-plan-summary') || 'No summary provided.');
+        openMobileSheet({ title, content: `<div class="build-card"><div class="prompt-text">${esc(summary)}</div></div>` });
+      });
+    });
     list.querySelectorAll('[data-plan-deploy]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-plan-deploy');
@@ -4516,24 +5749,32 @@ function renderWarehousePanel(targetWarehouseId){
 
   panel.innerHTML = `
     ${panelToolbar('Warehouse Console', String(repoKey || 'unlinked'))}
-    <div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
-    <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
-    <div class="kv"><strong>Input:</strong> ${esc(nearestLab ? `Research Lab ${nearestLab.id}` : 'none')}</div>
-    <div class="kv"><strong>Output:</strong> ${esc(nearestFeature ? `Feature ${nearestFeature.id}` : 'none')}</div>
-    <div class="notice" id="warehouseNotice">When a feature is marked EMPTY (after PR merge), it pulls the most important stored item.</div>
-    <div class="build-card" style="margin-top:8px">
-      <div class="kv"><strong>Stored Items</strong></div>
-      <div>${items.length ? items.map((plan, idx) => `
+    ${renderPanelCard({
+      id: 'warehouseRouteCard',
+      title: 'Routing',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(repoKey || 'unlinked')}</div>
+      <div class="kv"><strong>Worktree:</strong> ${esc(String(warehouse.worktreePath || repoKey || '-'))}</div>
+      <div class="kv"><strong>Input:</strong> ${esc(nearestLab ? `Research Lab ${nearestLab.id}` : 'none')}</div>
+      <div class="kv"><strong>Output:</strong> ${esc(nearestFeature ? `Feature ${nearestFeature.id}` : 'none')}</div>
+      <div class="notice" id="warehouseNotice">When a feature is marked EMPTY (after PR merge), it pulls the most important stored item.</div>`
+    })}
+    ${renderPanelCard({
+      id: 'warehouseItemsCard',
+      title: `Stored Items (${items.length})`,
+      open: true,
+      body: `<div>${items.length ? items.map((plan, idx) => `
         <div class="agent-row">
           <div class="agent-meta">
             <span class="badge">${esc(String(plan.type || 'feature').toUpperCase())}</span>
             <span class="agent-name" title="${esc(plan.summary || '')}">${esc(plan.title || `Item ${idx + 1}`)}</span>
           </div>
         </div>
-      `).join('') : '<div class="notice">Warehouse is empty.</div>'}</div>
-    </div>
+      `).join('') : '<div class="notice">Warehouse is empty.</div>'}</div>`
+    })}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
 }
 
 async function renderPowerPlantPanel(targetWarehouseId){
@@ -4841,29 +6082,71 @@ function renderRunSetupPanel(targetDraftId){
 
   panel.innerHTML = `
     ${panelToolbar(isDraft ? 'Feature Draft Setup' : 'Feature Run Console', String(draft.id || ''))}
-    <div class="kv"><strong>Repo:</strong> ${esc(draft.repo)}</div>
-    <div class="kv"><strong>Base scope:</strong> ${esc(base?.id || 'none')}</div>
-    ${allAgentsCompleted ? `<button id="markFeatureEmptyBtn" style="margin:4px 0 8px 0" ${freeReady || draft.empty ? '' : 'disabled'}>${freeLabel}</button>` : ''}
-    <label class="kv">Worktree path
-      <input id="worktreePath" value="${esc(draft.worktreePath)}" />
-    </label>
-    <div class="kv"><strong>Runtime:</strong> ${runtimeLink(draft.port || 3334)}</div>
-    <div class="kv"><strong>Empty:</strong> ${draft.empty ? 'yes' : 'no'}</div>
-    ${isDraft
-      ? `<label class="kv">Feature prompt
-      <textarea id="featurePrompt" rows="8" placeholder="Describe detailed scope, constraints, and acceptance criteria...">${esc(draft.prompt)}</textarea>
-    </label>`
-      : `<div class="kv"><strong>Feature prompt:</strong></div>
-    <div class="build-card" style="margin-top:6px"><div class="prompt-text">${esc(String(draft.prompt || run?.task || ''))}</div></div>`}
-    ${hasRun ? renderAgentStatusList(runAgents, run) : ''}
-    <button id="launchFeatureRunBtn" style="margin-top:8px" ${String(draft.repo || '').trim() ? '' : 'disabled'}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
-    <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
-    <div class="notice" style="margin-top:8px" id="featureMutationNotice">${missingRoles.length ? `Blocked: no idle ${missingRoles.join(', ')} workers in base ${base?.id || 'unknown'}.` : 'Ready to execute backend actions.'}</div>
+    ${renderPanelCard({
+      id: 'featureActionsCard',
+      title: 'Actions',
+      open: true,
+      body: `<button id="launchFeatureRunBtn" ${String(draft.repo || '').trim() ? '' : 'disabled'}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
+      <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
+      ${allAgentsCompleted ? `<button id="markFeatureEmptyBtn" style="margin-top:6px" ${freeReady || draft.empty ? '' : 'disabled'}>${freeLabel}</button>` : ''}
+      <div class="notice" style="margin-top:8px" id="featureMutationNotice">${missingRoles.length ? `Blocked: no idle ${missingRoles.join(', ')} workers in base ${base?.id || 'unknown'}.` : 'Ready to execute backend actions.'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'featureSetupCard',
+      title: 'Setup',
+      open: true,
+      body: `<div class="kv"><strong>Repo:</strong> ${esc(draft.repo)}</div>
+      <div class="kv"><strong>Base scope:</strong> ${esc(base?.id || 'none')}</div>
+      <label class="kv">Worktree path
+        <input id="worktreePath" value="${esc(draft.worktreePath)}" />
+      </label>
+      <div class="kv"><strong>Runtime:</strong> ${runtimeLink(draft.port || 3334)}</div>
+      <div class="kv"><strong>Empty:</strong> ${draft.empty ? 'yes' : 'no'}</div>`
+    })}
+    ${renderPanelCard({
+      id: 'featurePromptCard',
+      title: 'Feature prompt',
+      open: true,
+      body: isDraft
+        ? `<button id="openFeaturePromptSheetBtn" class="sheet-open-btn">Open Prompt Editor</button>
+        <div class="notice">Long-form prompt editing opens in a mobile sheet.</div>`
+        : `<div class="build-card" style="margin-top:6px"><div class="prompt-text">${esc(String(draft.prompt || run?.task || ''))}</div></div>`
+    })}
+    ${hasRun ? renderPanelCard({ id: 'featureAgentsCard', title: `Assigned Agents (${runAgents.length})`, open: true, body: renderAgentStatusList(runAgents, run) }) : ''}
   `;
   wirePanelDeleteButton();
+  wireKeyboardSafeFormControls(panel);
   panel.scrollTop = 0;
 
   document.getElementById('worktreePath').addEventListener('input', e => { draft.worktreePath = e.target.value; queuePersist(); });
+  document.getElementById('openFeaturePromptSheetBtn')?.addEventListener('click', () => {
+    openMobileSheet({
+      title: 'Feature prompt',
+      content: `<label class="kv">Prompt<textarea id="featurePromptSheetInput" rows="12" placeholder="Describe detailed scope, constraints, and acceptance criteria...">${esc(String(draft.prompt || ''))}</textarea></label>
+      <button id="featurePromptSheetSaveBtn">Save Prompt</button>`
+    });
+    document.getElementById('featurePromptSheetSaveBtn')?.addEventListener('click', () => {
+      const ta = document.getElementById('featurePromptSheetInput');
+      draft.prompt = String(ta?.value || '');
+      void postJson('/api/rts/layout/position', {
+        entityType: 'feature',
+        entityId: draft.id,
+        runId: draft.runId || null,
+        repoPath: draft.repo || null,
+        worktreePath: draft.worktreePath || null,
+        x: Number(draft.x || 0),
+        y: Number(draft.y || 0),
+        payload: {
+          baseId: String(draft.baseId || ''),
+          workerAssignments: draft.workerAssignments || {},
+          prompt: String(draft.prompt || '')
+        }
+      }).catch(() => {});
+      queuePersist();
+      closeMobileSheet();
+      renderRunSetupPanel(draft.id);
+    });
+  });
   const featurePromptInput = document.getElementById('featurePrompt');
   if (featurePromptInput) {
     featurePromptInput.addEventListener('input', e => {
@@ -5382,7 +6665,44 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Delete' || e.key === 'Backspace') deleteSelectedStructure();
 });
 
+function touchPointById(event, id){
+  const touches = event?.touches || [];
+  for (const touch of touches) {
+    if (touch.identifier === id) return touch;
+  }
+  const changed = event?.changedTouches || [];
+  for (const touch of changed) {
+    if (touch.identifier === id) return touch;
+  }
+  return touches[0] || changed[0] || null;
+}
+
+function shouldIgnoreTouchWorldGesture(target){
+  if (!(target instanceof Element)) return false;
+  return !!target.closest('button,input,textarea,select,a,label,.palette-card,.panel-toolbar,.mobile-action-tabs,.mobile-status-strip');
+}
+
+function applyPinchZoomFromTouches(touchA, touchB){
+  if (!state.cameraZoom.enabled || !touchA || !touchB) return;
+  const dx = touchA.clientX - touchB.clientX;
+  const dy = touchA.clientY - touchB.clientY;
+  const distance = Math.hypot(dx, dy);
+  if (!Number.isFinite(distance) || distance <= 0) return;
+  if (!Number.isFinite(state.cameraDrag.pinchDistance) || state.cameraDrag.pinchDistance <= 0) {
+    state.cameraDrag.pinchDistance = distance;
+    return;
+  }
+  const ratio = distance / state.cameraDrag.pinchDistance;
+  const nextScale = Math.min(state.cameraZoom.max, Math.max(state.cameraZoom.min, Number(state.cameraZoom.scale || 1) * ratio));
+  if (Math.abs(nextScale - Number(state.cameraZoom.scale || 1)) > 0.001) {
+    state.cameraZoom.scale = nextScale;
+    updateCameraVisuals();
+  }
+  state.cameraDrag.pinchDistance = distance;
+}
+
 const handlePointerMove = (e) => {
+  if (state.mobileListMode) return;
   if (state.cameraDrag.active) {
     state.camera.x = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
     state.camera.y = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
@@ -5428,6 +6748,7 @@ window.addEventListener('mousemove', handlePointerMove);
 worldWrapEl.addEventListener('mouseleave', hidePlacementGhost);
 
 worldWrapEl.addEventListener('mousedown', (e) => {
+  if (state.mobileListMode) return;
   const target = e.target instanceof Element ? e.target : null;
   const hitEntity = !!target?.closest('.entity');
   const hitBelt = !!target?.closest('.rts-path');
@@ -5443,6 +6764,79 @@ worldWrapEl.addEventListener('mousedown', (e) => {
     };
   }
 });
+worldWrapEl.addEventListener('touchstart', (e) => {
+  if (state.draggingEntity) return;
+  hideBuildingHoverCard();
+  const target = e.target instanceof Element ? e.target : null;
+  if (shouldIgnoreTouchWorldGesture(target)) return;
+  if (e.touches.length >= 2) {
+    state.cameraDrag.active = false;
+    state.cameraDrag.pointerId = null;
+    state.cameraDrag.viaTouch = true;
+    const first = e.touches[0];
+    const second = e.touches[1];
+    const dx = first.clientX - second.clientX;
+    const dy = first.clientY - second.clientY;
+    state.cameraDrag.pinchDistance = Math.hypot(dx, dy);
+    return;
+  }
+  const touch = e.touches[0];
+  if (!touch) return;
+  if (state.placementMode) {
+    e.preventDefault();
+    const point = localPointInWorld(touch);
+    const snapped = snapPlacement(state.placementMode, point.x, point.y);
+    if (state.placementMode === 'base') placeBaseAt(snapped.x, snapped.y);
+    if (state.placementMode === 'feature') placeFeatureAt(snapped.x, snapped.y);
+    if (state.placementMode === 'research') placeResearchAt(snapped.x, snapped.y);
+    if (state.placementMode === 'warehouse') placeWarehouseAt(snapped.x, snapped.y);
+    if (state.placementMode === 'university') placeUniversityAt(snapped.x, snapped.y);
+    if (state.placementMode === 'library') placeLibraryAt(snapped.x, snapped.y);
+    if (state.placementMode === 'power') placePowerAt(snapped.x, snapped.y);
+    state.suppressWorldClick = true;
+    setPlacement(null);
+    return;
+  }
+  const hitEntity = !!target?.closest('.entity');
+  const hitBelt = !!target?.closest('.rts-path');
+  if (hitEntity || hitBelt) return;
+  e.preventDefault();
+  state.cameraDrag = {
+    active:true,
+    startX:touch.clientX,
+    startY:touch.clientY,
+    originX:state.camera.x,
+    originY:state.camera.y,
+    pointerId:touch.identifier,
+    viaTouch:true,
+    pinchDistance:0
+  };
+}, { passive:false });
+
+window.addEventListener('touchmove', (e) => {
+  if (e.touches.length >= 2) {
+    applyPinchZoomFromTouches(e.touches[0], e.touches[1]);
+    return;
+  }
+  if (!state.cameraDrag.active || !state.cameraDrag.viaTouch) return;
+  const touch = touchPointById(e, state.cameraDrag.pointerId);
+  if (!touch) return;
+  e.preventDefault();
+  handlePointerMove(touch);
+}, { passive:false });
+
+window.addEventListener('touchend', () => {
+  state.cameraDrag.active = false;
+  state.cameraDrag.pointerId = null;
+  state.cameraDrag.pinchDistance = 0;
+});
+
+window.addEventListener('touchcancel', () => {
+  state.cameraDrag.active = false;
+  state.cameraDrag.pointerId = null;
+  state.cameraDrag.pinchDistance = 0;
+});
+
 worldWrapEl.addEventListener('contextmenu', (e) => {
   if (state.cameraDrag.active || e.target === worldWrapEl || worldWrapEl.contains(e.target)) e.preventDefault();
 });
@@ -5485,18 +6879,16 @@ worldEl.addEventListener('click', (e) => {
   if (state.selected) clearSelectedEntity();
 });
 
-boot();
+registerServiceWorker();
+initInstallPrompt();
+initMobileLayoutShell();
+initConnectivityMonitoring();
+boot().then(() => {
+  scheduleRuntimePoll(state.runtimePoll.baseDelayMs);
+}).catch(() => {
+  scheduleRuntimePoll(boundedRetryDelayMs(1));
+});
 updateCameraVisuals();
-setInterval(async () => {
-  const runsChanged = await refreshRuntimeState(false);
-  if (!state.liveStream) startLiveStream();
-  if (runsChanged) rebuildScene();
-  else if (Number(state.live?.runningAgentCount || 0) > 0) {
-    ensureMotionLoop();
-    renderUnitsLiveState();
-  } else renderUnitsLiveState();
-  renderLiveConsole();
-}, 2000);
 
 window.addEventListener('beforeunload', () => {
   if (state.motionTimer) {
@@ -5506,6 +6898,10 @@ window.addEventListener('beforeunload', () => {
   if (state.liveStream) {
     try { state.liveStream.close(); } catch {}
     state.liveStream = null;
+  }
+  if (state.runtimePoll?.timer) {
+    clearTimeout(state.runtimePoll.timer);
+    state.runtimePoll.timer = null;
   }
 });
 </script>

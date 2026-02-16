@@ -95,6 +95,9 @@ function ensureRtsTables(db = getDb()): void {
     "updated_at TEXT NOT NULL" +
     ")"
   );
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rts_layout_entities_updated_at ON rts_layout_entities(updated_at DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rts_layout_entities_entity_type ON rts_layout_entities(entity_type)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rts_layout_entities_run_id ON rts_layout_entities(run_id)");
 }
 
 function normalizePathKey(raw: string): string {
@@ -495,10 +498,262 @@ function readLibraryMarkdownFile(absPathRaw: string): { path: string; content: s
   return { path: absPath, content, size: Number(st.size || 0), mtimeMs: Number(st.mtimeMs || 0) };
 }
 
+function asDisplayLabel(raw: unknown, fallback: string): string {
+  const text = String(raw ?? "").trim();
+  return text || fallback;
+}
+
+function titleFromKind(kind: string): string {
+  if (kind === "feature") return "Factory";
+  if (kind === "research") return "Research Lab";
+  if (kind === "university") return "University";
+  if (kind === "warehouse") return "Warehouse";
+  if (kind === "library") return "Library";
+  if (kind === "power") return "Power Plant";
+  return "Building";
+}
+
+function deriveBaseLabel(base: Record<string, unknown>): string {
+  const repoName = path.basename(String(base.repo ?? "").trim()) || "Base";
+  return asDisplayLabel(base.label ?? base.name ?? base.title, repoName);
+}
+
+function deriveBuildingLabel(building: Record<string, unknown>, kind: string): string {
+  const repo = String(building.repo ?? "").trim();
+  const repoName = path.basename(repo) || titleFromKind(kind);
+  const worktree = String(building.worktreePath ?? "").trim();
+  const worktreeName = path.basename(worktree) || "";
+  const fallback = worktreeName || repoName || titleFromKind(kind);
+  return asDisplayLabel(
+    building.label ?? building.name ?? building.title ?? building.taskTitle ?? building.branchName ?? building.prompt,
+    fallback
+  );
+}
+
+function centerFor(entity: Record<string, unknown>): { x: number; y: number } {
+  return { x: Number(entity.x ?? 0), y: Number(entity.y ?? 0) };
+}
+
+export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record<string, unknown>> } {
+  const rawBases = Array.isArray(state.customBases) ? state.customBases as Array<Record<string, unknown>> : [];
+  const rawFeature = Array.isArray(state.featureBuildings) ? state.featureBuildings as Array<Record<string, unknown>> : [];
+  const rawResearch = Array.isArray(state.researchBuildings) ? state.researchBuildings as Array<Record<string, unknown>> : [];
+  const rawWarehouse = Array.isArray(state.warehouseBuildings) ? state.warehouseBuildings as Array<Record<string, unknown>> : [];
+
+  const bases: Array<Record<string, unknown>> = [];
+  const baseById = new Map<string, Record<string, unknown>>();
+  for (const base of rawBases) {
+    const id = String(base.id ?? "").trim();
+    if (!id || baseById.has(id)) continue;
+    const repo = String(base.repo ?? "").trim();
+    const node: Record<string, unknown> = {
+      id,
+      kind: "base",
+      label: deriveBaseLabel(base),
+      repo,
+      buildings: [],
+      x: Number(base.x ?? 0),
+      y: Number(base.y ?? 0),
+    };
+    baseById.set(id, node);
+    bases.push(node);
+  }
+
+  const attachBuilding = (kind: string, building: Record<string, unknown>) => {
+    const rawKind = String(kind || "").toLowerCase();
+    const normalizedKind = rawKind === "university"
+      ? "university"
+      : (rawKind === "library"
+        ? "library"
+        : (rawKind === "power"
+          ? "power"
+          : (rawKind === "research"
+            ? "research"
+            : (rawKind === "warehouse"
+              ? "warehouse"
+              : "feature"))));
+    const buildingId = String(building.id ?? "").trim();
+    if (!buildingId) return;
+    const repo = String(building.repo ?? "").trim();
+    const explicitBaseId = String(building.baseId ?? "").trim();
+    let targetBase: Record<string, unknown> | null = null;
+
+    if (explicitBaseId) {
+      targetBase = baseById.get(explicitBaseId) ?? null;
+    }
+
+    if (!targetBase && repo) {
+      const repoKey = normalizePathKey(repo);
+      const candidates = bases.filter((b) => normalizePathKey(String(b.repo ?? "")) === repoKey);
+      if (candidates.length === 1) targetBase = candidates[0];
+      else if (candidates.length > 1) {
+        const center = centerFor(building);
+        targetBase = candidates.reduce((best, candidate) => {
+          const c = centerFor(candidate);
+          const dist = Math.hypot(c.x - center.x, c.y - center.y);
+          if (!best || dist < best.dist) return { base: candidate, dist };
+          return best;
+        }, null as null | { base: Record<string, unknown>; dist: number })?.base ?? candidates[0];
+      }
+    }
+
+    if (!targetBase && bases.length > 0) {
+      const center = centerFor(building);
+      targetBase = bases.reduce((best, candidate) => {
+        const c = centerFor(candidate);
+        const dist = Math.hypot(c.x - center.x, c.y - center.y);
+        if (!best || dist < best.dist) return { base: candidate, dist };
+        return best;
+      }, null as null | { base: Record<string, unknown>; dist: number })?.base ?? bases[0];
+    }
+
+    if (!targetBase) return;
+
+    const buildingNode = {
+      id: buildingId,
+      kind: normalizedKind,
+      label: deriveBuildingLabel(building, normalizedKind),
+      baseId: String(targetBase.id),
+      repo,
+      x: Number(building.x ?? 0),
+      y: Number(building.y ?? 0),
+    };
+    const buildings = Array.isArray(targetBase.buildings) ? targetBase.buildings as Array<Record<string, unknown>> : [];
+    buildings.push(buildingNode);
+    targetBase.buildings = buildings;
+  };
+
+  rawFeature.forEach((b) => attachBuilding("feature", b));
+  rawResearch.forEach((b) => attachBuilding(String(b.kind ?? b.variant ?? "research"), b));
+  rawWarehouse.forEach((b) => attachBuilding(String(b.kind ?? b.variant ?? "warehouse"), b));
+
+  return {
+    bases: bases.map((base) => ({
+      id: String(base.id ?? ""),
+      kind: "base",
+      label: asDisplayLabel(base.label, "Base"),
+      repo: String(base.repo ?? ""),
+      buildings: (() => {
+        const all = Array.isArray(base.buildings) ? base.buildings as Array<Record<string, unknown>> : [];
+        const universities = all.filter((b) => String(b.kind ?? "") === "university");
+        const libraries = all.filter((b) => String(b.kind ?? "") === "library");
+        const assignedLibraries = new Set<string>();
+        const nestedLibraries = new Map<string, Array<Record<string, unknown>>>();
+        universities.forEach((u) => nestedLibraries.set(String(u.id ?? ""), []));
+        libraries.forEach((library) => {
+          if (!universities.length) return;
+          const center = centerFor(library);
+          const nearest = universities.reduce((best, u) => {
+            const c = centerFor(u);
+            const dist = Math.hypot(c.x - center.x, c.y - center.y);
+            if (!best || dist < best.dist) return { id: String(u.id ?? ""), dist };
+            return best;
+          }, null as null | { id: string; dist: number });
+          if (!nearest?.id) return;
+          nestedLibraries.get(nearest.id)?.push({
+            ...library,
+            parentId: nearest.id,
+            parentLabel: String(universities.find((u) => String(u.id ?? "") === nearest.id)?.label ?? "University"),
+            level: 2,
+          });
+          assignedLibraries.add(String(library.id ?? ""));
+        });
+        const out: Array<Record<string, unknown>> = [];
+        universities
+          .slice()
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((u) => {
+            out.push({ ...u, level: 1 });
+            const children = (nestedLibraries.get(String(u.id ?? "")) || [])
+              .slice()
+              .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+            children.forEach((c) => out.push(c));
+          });
+        all
+          .filter((b) => String(b.kind ?? "") === "research")
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        all
+          .filter((b) => String(b.kind ?? "") === "library" && !assignedLibraries.has(String(b.id ?? "")))
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        all
+          .filter((b) => String(b.kind ?? "") === "warehouse")
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        all
+          .filter((b) => String(b.kind ?? "") === "power")
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        all
+          .filter((b) => String(b.kind ?? "") === "feature")
+          .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")))
+          .forEach((b) => out.push({ ...b, level: 1 }));
+        return out;
+      })(),
+    })),
+  };
+}
+
+interface CreateBaseScopedFactoryInput {
+  baseId: string;
+  kind: string;
+}
+
+interface CreateBaseScopedFactoryResult {
+  state: Record<string, unknown>;
+  buildingId: string;
+  baseId: string;
+  kind: "feature";
+}
+
+export function createBaseScopedFactory(
+  state: Record<string, unknown>,
+  input: CreateBaseScopedFactoryInput,
+): CreateBaseScopedFactoryResult {
+  const baseId = String(input.baseId || "").trim();
+  const requestedKind = String(input.kind || "").trim().toLowerCase();
+  if (!baseId) throw new Error("baseId is required");
+  if (requestedKind !== "feature" && requestedKind !== "factory") {
+    throw new Error("kind must be one of: feature|factory");
+  }
+
+  const customBases = Array.isArray(state.customBases) ? state.customBases as Array<Record<string, unknown>> : [];
+  let base = customBases.find((candidate) => String(candidate?.id || "").trim() === baseId) ?? null;
+  if (!base) throw new Error(`baseId not found: ${baseId}`);
+
+  const featureBuildings = Array.isArray(state.featureBuildings)
+    ? [...state.featureBuildings as Array<Record<string, unknown>>]
+    : [];
+  const id = `feature-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const x = Number(base.x ?? 0) + 120;
+  const y = Number(base.y ?? 0) + 80;
+  featureBuildings.push({
+    id,
+    kind: "feature",
+    label: "Factory",
+    repo: String(base.repo ?? ""),
+    baseId,
+    x,
+    y,
+    committed: false,
+    phase: "draft",
+    createdAt: new Date().toISOString(),
+  });
+
+  return {
+    state: {
+      ...state,
+      featureBuildings,
+    },
+    buildingId: id,
+    baseId,
+    kind: "feature",
+  };
+}
+
 function getRtsState(): Record<string, unknown> {
-  // RTS consistency invariant:
-  // UI state must reflect authoritative Antfarm runtime state on this machine.
-  // Any layout/state rows that reference missing runs are reconciled away here.
+  // Keep this path read-only and cheap: it is called on every dashboard boot.
   const db = getDb();
   ensureRtsTables(db);
   const row = db.prepare("SELECT state_json FROM rts_state WHERE id = 1").get() as { state_json: string } | undefined;
@@ -531,24 +786,11 @@ function getRtsState(): Record<string, unknown> {
   const researchBuildings: Array<Record<string, unknown>> = [];
   const warehouseBuildings: Array<Record<string, unknown>> = [];
   const runLayoutOverrides: Record<string, { x: number; y: number }> = {};
-  const runs = db.prepare("SELECT id, status, context FROM runs").all() as Array<{ id: string; status: string; context: string }>;
+  const runs = db.prepare("SELECT id, status FROM runs").all() as Array<{ id: string; status: string }>;
   const runIdSet = new Set(runs.map((r) => r.id));
   const runByWorktree = new Map<string, { id: string; status: string; worktree: string }>();
   const runByWorktreeBase = new Map<string, { id: string; status: string; worktree: string }>();
-  for (const run of runs) {
-    let ctx: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(run.context || "{}");
-      if (parsed && typeof parsed === "object") ctx = parsed as Record<string, unknown>;
-    } catch {}
-    const baseRepo = String(ctx.baseRepoPath || ctx.repoPath || ctx.repo || "");
-    const wt = absolutizePath(String(ctx.worktreePath || ""), baseRepo);
-    if (wt) {
-      runByWorktree.set(wt, { id: run.id, status: run.status, worktree: wt });
-      const bn = path.basename(wt);
-      if (bn && !runByWorktreeBase.has(bn)) runByWorktreeBase.set(bn, { id: run.id, status: run.status, worktree: wt });
-    }
-  }
+  let needsRunWorktreeInference = false;
   const seenFeatureKeys = new Set<string>();
   for (const r of rows) {
     let payload: Record<string, unknown> = {};
@@ -575,22 +817,31 @@ function getRtsState(): Record<string, unknown> {
       if (resolvedRunId && !runIdSet.has(resolvedRunId)) {
         // Layout pointed at a deleted run: heal to draft mode immediately.
         resolvedRunId = null;
-        try {
-          db.prepare("UPDATE rts_layout_entities SET run_id = NULL, updated_at = ? WHERE id = ?")
-            .run(new Date().toISOString(), r.id);
-        } catch {}
       }
       if (!resolvedRunId && worktreePath) {
+        needsRunWorktreeInference = true;
+      }
+      if (needsRunWorktreeInference && runByWorktree.size === 0) {
+        const runsWithContext = db.prepare("SELECT id, status, context FROM runs").all() as Array<{ id: string; status: string; context: string }>;
+        for (const run of runsWithContext) {
+          let ctx: Record<string, unknown> = {};
+          try {
+            const parsed = JSON.parse(run.context || "{}");
+            if (parsed && typeof parsed === "object") ctx = parsed as Record<string, unknown>;
+          } catch {}
+          const baseRepo = String(ctx.baseRepoPath || ctx.repoPath || ctx.repo || "");
+          const wt = absolutizePath(String(ctx.worktreePath || ""), baseRepo);
+          if (!wt) continue;
+          runByWorktree.set(wt, { id: run.id, status: run.status, worktree: wt });
+          const bn = path.basename(wt);
+          if (bn && !runByWorktreeBase.has(bn)) runByWorktreeBase.set(bn, { id: run.id, status: run.status, worktree: wt });
+        }
+      }
+      if (!resolvedRunId && worktreePath && runByWorktree.size) {
         const inferred = runByWorktree.get(worktreePath) || runByWorktreeBase.get(path.basename(worktreePath));
         if (inferred) {
           resolvedRunId = inferred.id;
           resolvedStatus = inferred.status;
-          const canonicalWorktreePath = inferred.worktree || worktreePath;
-          // Heal stale layout row directly in DB when we can infer the run id.
-          try {
-            db.prepare("UPDATE rts_layout_entities SET run_id = ?, worktree_path = ?, updated_at = ? WHERE id = ?")
-              .run(inferred.id, canonicalWorktreePath, new Date().toISOString(), r.id);
-          } catch {}
         }
       }
       const dedupeKey = resolvedRunId ? `run:${resolvedRunId}` : `draft:${worktreePath || r.id}`;
@@ -645,10 +896,7 @@ function getRtsState(): Record<string, unknown> {
     if (r.entity_type === "run") {
       const runId = r.run_id || (String(r.id || "").startsWith("run:") ? String(r.id).slice(4) : String(r.id || ""));
       if (!runId) continue;
-      if (!runIdSet.has(runId)) {
-        try { db.prepare("DELETE FROM rts_layout_entities WHERE id = ?").run(r.id); } catch {}
-        continue;
-      }
+      if (!runIdSet.has(runId)) continue;
       runLayoutOverrides[runId] = { x: Number(r.x), y: Number(r.y) };
     }
   }
@@ -773,7 +1021,9 @@ function upsertLayoutEntitiesFromState(nextState: Record<string, unknown>): void
       const x = Number.isFinite(existing?.x) ? Number(existing!.x) : (Number.isFinite(incomingX) ? incomingX : 0);
       const y = Number.isFinite(existing?.y) ? Number(existing!.y) : (Number.isFinite(incomingY) ? incomingY : 0);
       const worktreePath = absolutizePath(String(research?.worktreePath ?? ""), repoPath) || repoPath || null;
-      const payload = { ...research, kind: "research", repo: repoPath, worktreePath, x, y };
+      const rawKind = String(research?.kind ?? research?.variant ?? "research").toLowerCase();
+      const kind = rawKind === "university" ? "university" : "research";
+      const payload = { ...research, kind, repo: repoPath, worktreePath, x, y };
       upsert.run(id, "research", null, repoPath || null, worktreePath, x, y, JSON.stringify(payload), now);
     }
     for (const warehouse of warehouseBuildings) {
@@ -888,17 +1138,7 @@ function saveRtsState(nextState: unknown): Record<string, unknown> {
 }
 
 function getRtsLiveStatus(): Record<string, unknown> {
-  const workerTotal = (() => {
-    try {
-      const jobsPath = path.join(os.homedir(), ".openclaw", "cron", "jobs.json");
-      if (!fs.existsSync(jobsPath)) return 0;
-      const raw = JSON.parse(fs.readFileSync(jobsPath, "utf-8")) as { jobs?: Array<{ name?: string; enabled?: boolean }> };
-      const jobs = Array.isArray(raw.jobs) ? raw.jobs : [];
-      return jobs.filter((j) => j.enabled !== false && String(j.name || "").startsWith("antfarm/")).length;
-    } catch {
-      return 0;
-    }
-  })();
+  const workerTotal = readCronJobsSnapshot().workerTotal;
 
   const db = getDb();
   const runningAgentCount = Number((db.prepare("SELECT COUNT(*) AS c FROM steps WHERE status = 'running'").get() as { c: number }).c || 0);
@@ -924,12 +1164,44 @@ function getRtsLiveStatus(): Record<string, unknown> {
 }
 
 function listCronJobsSummary(): Array<Record<string, unknown>> {
+  return readCronJobsSnapshot().jobs;
+}
+
+const cronJobsSnapshotCache: {
+  checkedAtMs: number;
+  mtimeMs: number;
+  workerTotal: number;
+  jobs: Array<Record<string, unknown>>;
+} = {
+  checkedAtMs: 0,
+  mtimeMs: -1,
+  workerTotal: 0,
+  jobs: [],
+};
+
+function readCronJobsSnapshot(maxAgeMs = 750): { workerTotal: number; jobs: Array<Record<string, unknown>> } {
+  const now = Date.now();
+  if ((now - cronJobsSnapshotCache.checkedAtMs) < maxAgeMs) {
+    return { workerTotal: cronJobsSnapshotCache.workerTotal, jobs: cronJobsSnapshotCache.jobs };
+  }
+  cronJobsSnapshotCache.checkedAtMs = now;
   try {
     const jobsPath = path.join(os.homedir(), ".openclaw", "cron", "jobs.json");
-    if (!fs.existsSync(jobsPath)) return [];
+    if (!fs.existsSync(jobsPath)) {
+      cronJobsSnapshotCache.mtimeMs = -1;
+      cronJobsSnapshotCache.workerTotal = 0;
+      cronJobsSnapshotCache.jobs = [];
+      return { workerTotal: 0, jobs: [] };
+    }
+    const st = fs.statSync(jobsPath);
+    const mtimeMs = Number(st.mtimeMs || 0);
+    if (mtimeMs === cronJobsSnapshotCache.mtimeMs) {
+      return { workerTotal: cronJobsSnapshotCache.workerTotal, jobs: cronJobsSnapshotCache.jobs };
+    }
+    cronJobsSnapshotCache.mtimeMs = mtimeMs;
     const raw = JSON.parse(fs.readFileSync(jobsPath, "utf-8")) as { jobs?: Array<Record<string, unknown>> };
     const jobs = Array.isArray(raw.jobs) ? raw.jobs : [];
-    return jobs.map((job) => {
+    const summary = jobs.map((job) => {
       const state = (job.state && typeof job.state === "object") ? job.state as Record<string, unknown> : {};
       return {
         name: String(job.name || ""),
@@ -940,8 +1212,11 @@ function listCronJobsSummary(): Array<Record<string, unknown>> {
         lastStatus: String(state.lastStatus || ""),
       };
     });
+    cronJobsSnapshotCache.jobs = summary;
+    cronJobsSnapshotCache.workerTotal = summary.filter((j) => j.enabled !== false && String(j.name || "").startsWith("antfarm/")).length;
+    return { workerTotal: cronJobsSnapshotCache.workerTotal, jobs: cronJobsSnapshotCache.jobs };
   } catch {
-    return [];
+    return { workerTotal: cronJobsSnapshotCache.workerTotal, jobs: cronJobsSnapshotCache.jobs };
   }
 }
 
@@ -1073,12 +1348,19 @@ function serveHTML(res: http.ServerResponse, fileName = "index.html") {
   res.end(fs.readFileSync(filePath, "utf-8"));
 }
 
+function isLikelyMobileUserAgent(req: http.IncomingMessage): boolean {
+  const ua = String(req.headers["user-agent"] || "").toLowerCase();
+  return /android|iphone|ipad|ipod|mobile|iemobile|opera mini/.test(ua);
+}
+
 function guessMime(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".svg") return "image/svg+xml";
   if (ext === ".png") return "image/png";
   if (ext === ".webp") return "image/webp";
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webmanifest") return "application/manifest+json";
+  if (ext === ".js") return "application/javascript; charset=utf-8";
   return "application/octet-stream";
 }
 
@@ -1839,17 +2121,17 @@ async function generateResearchPlans(repoPath: string, maxPlansRaw: number): Pro
 export function startDashboard(port = 3333): http.Server {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${port}`);
-    const p = url.pathname;
-    const method = req.method ?? "GET";
+      const p = url.pathname;
+      const method = req.method ?? "GET";
 
-    if (method === "OPTIONS") {
-      res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      });
-      return res.end();
-    }
+      if (method === "OPTIONS") {
+        res.writeHead(204, {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        });
+        return res.end();
+      }
 
     if (p === "/api/workflows") {
       return json(res, loadWorkflows());
@@ -1901,7 +2183,48 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/rts/state" && method === "GET") {
-      return json(res, { ok: true, state: getRtsState() });
+      const started = Date.now();
+      const state = getRtsState();
+      const elapsed = Date.now() - started;
+      if (elapsed >= 80) {
+        try {
+          const db = getDb();
+          const runCount = Number((db.prepare("SELECT COUNT(*) AS c FROM runs").get() as { c?: number } | undefined)?.c || 0);
+          const layoutCount = Number((db.prepare("SELECT COUNT(*) AS c FROM rts_layout_entities").get() as { c?: number } | undefined)?.c || 0);
+          console.warn(`[rts:slow] /api/rts/state ${elapsed}ms runs=${runCount} layout=${layoutCount}`);
+        } catch {}
+      }
+      return json(res, { ok: true, state });
+    }
+
+    if (p === "/api/rts/mobile/tree" && method === "GET") {
+      try {
+        return json(res, { ok: true, ...buildMobileRtsTree() });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json(res, { ok: false, error: message, bases: [] }, 500);
+      }
+    }
+
+    if (p === "/api/rts/factory/create" && method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as { baseId?: string; kind?: string };
+        const created = createBaseScopedFactory(getRtsState(), {
+          baseId: String(body?.baseId || ""),
+          kind: String(body?.kind || ""),
+        });
+        saveRtsState(created.state);
+        return json(res, {
+          ok: true,
+          buildingId: created.buildingId,
+          baseId: created.baseId,
+          kind: created.kind,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const status = /required|must be|not found/i.test(message) ? 400 : 500;
+        return json(res, { ok: false, error: message }, status);
+      }
     }
 
     if (p === "/api/rts/state" && method === "POST") {
@@ -1916,7 +2239,13 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/rts/live" && method === "GET") {
-      return json(res, { ok: true, live: getRtsLiveStatus() });
+      const started = Date.now();
+      const live = getRtsLiveStatus();
+      const elapsed = Date.now() - started;
+      if (elapsed >= 80) {
+        try { console.warn(`[rts:slow] /api/rts/live ${elapsed}ms`); } catch {}
+      }
+      return json(res, { ok: true, live });
     }
 
     if (p === "/api/rts/live/stream" && method === "GET") {
@@ -1943,7 +2272,12 @@ export function startDashboard(port = 3333): http.Server {
     }
 
     if (p === "/api/rts/diag" && method === "GET") {
+      const started = Date.now();
       const cronJobs = listCronJobsSummary();
+      const elapsed = Date.now() - started;
+      if (elapsed >= 80) {
+        try { console.warn(`[rts:slow] /api/rts/diag ${elapsed}ms jobs=${cronJobs.length}`); } catch {}
+      }
       return json(res, {
         ok: true,
         diag: {
@@ -2359,6 +2693,27 @@ export function startDashboard(port = 3333): http.Server {
       }
     }
 
+    // Serve PWA assets
+    if (p === "/manifest.webmanifest" || p === "/service-worker.v1.js" || p === "/icon-192.png" || p === "/icon-512.png") {
+      const assetName = path.basename(p);
+      const distPath = path.resolve(__dirname, assetName);
+      const srcPath = path.resolve(__dirname, "..", "..", "src", "server", assetName);
+      const resolvedPath = fs.existsSync(distPath) ? distPath : srcPath;
+      if (fs.existsSync(resolvedPath)) {
+        const cacheControl = assetName.endsWith(".webmanifest")
+          ? "public, max-age=3600"
+          : (assetName.includes("service-worker") ? "no-cache" : "public, max-age=31536000, immutable");
+        res.writeHead(200, {
+          "Content-Type": guessMime(resolvedPath),
+          "Cache-Control": cacheControl,
+          "Access-Control-Allow-Origin": "*",
+        });
+        return res.end(fs.readFileSync(resolvedPath));
+      }
+      res.writeHead(404);
+      return res.end("not found");
+    }
+
     // Serve RTS sprite assets
     if (p.startsWith("/rts-sprites/")) {
       const spriteName = path.basename(p);
@@ -2379,7 +2734,13 @@ export function startDashboard(port = 3333): http.Server {
 
     // Serve frontend
     if (p === "/" || p === "/rts" || p === "/rts/") {
-      return serveHTML(res, "rts.html");
+      const forcedView = String(url.searchParams.get("view") || "").toLowerCase();
+      if (forcedView === "desktop") return serveHTML(res, "rts.html");
+      if (forcedView === "mobile") return serveHTML(res, "rts-mobile.html");
+      return serveHTML(res, isLikelyMobileUserAgent(req) ? "rts-mobile.html" : "rts.html");
+    }
+    if (p === "/rts-mobile" || p === "/rts-mobile/") {
+      return serveHTML(res, "rts-mobile.html");
     }
     if (p === "/classic" || p === "/index" || p === "/index.html") {
       return serveHTML(res, "index.html");

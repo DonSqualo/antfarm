@@ -4,6 +4,7 @@ Task: Add easter egg ant command to antfarm CLI
 Started: 2026-02-11 05:47 ET
 
 ## Codebase Patterns
+- Mobile touch interactions should be routed through shared world gesture guards (`shouldIgnoreTouchWorldGesture`) to avoid conflicts with palette cards and panel controls
 - CLI entry: `src/cli/cli.ts`, commands matched via `group` variable from `process.argv[2]`
 - Dynamic imports used for command modules (e.g., `await import("./ant.js")`)
 - Build: `npm run build` runs `tsc -p tsconfig.json` + copies HTML + chmod
@@ -12,6 +13,12 @@ Started: 2026-02-11 05:47 ET
 - RTS dashboard source assets live in `src/server/rts.html` + `src/server/rts-sprites/`; `npm run build` must copy both into `dist/server/`
 - Feature structure world styling should be derived from a centralized helper (status -> visual state -> CSS class), then consumed in `renderWorld()` class selection
 - RTS API regression tests can use `startDashboard()` + temp repo fixtures + `fetch` to validate end-to-end server flows without browser automation
+- Static dashboard assets should be authored in `src/server/`, copied by `npm run build`, and served in `dashboard.ts` with dist-first + src fallback resolution
+- RTS PWA client hooks should use defensive browser capability guards (`'serviceWorker' in navigator`, `beforeinstallprompt`) so desktop browsers keep existing UX unchanged
+- Mobile RTS shell mode should be toggled by layout classes (`mobile-tab-build|runs|intel`) with desktop fallback behavior explicitly restored in JS when viewport exits mobile breakpoints
+- Action Console mobile refactors should use shared `renderPanelCard(...)` and `openMobileSheet(...)` helpers so collapsible cards, CTA ordering, and long-form editors stay consistent across Feature/Research/Warehouse panels
+- RTS mobile performance-sensitive visual writes (camera transform vars) should be funneled through `updateCameraVisuals()` + `scheduleVisualFrame()` (requestAnimationFrame) instead of direct style writes inside pointer/touch loops
+- Runtime polling in RTS should use self-scheduled `setTimeout` (`scheduleRuntimePoll`) with bounded retry backoff so offline/reconnect UX and poll recovery stay centralized
 
 ---
 
@@ -107,4 +114,66 @@ Started: 2026-02-11 05:47 ET
 - Expanded RTS e2e script to run both palette UI regression and existing-repo base flow regression
 - Files changed: `src/server/dashboard.ts`, `tests/rts-base-existing-repo.e2e.test.ts`, `package.json`, `progress.txt`
 - **Learnings:** RTS base creation server contract now explicitly supports existing-local-repo mode through `/api/rts/base/clone`; regression coverage should assert this contract directly.
+---
+## 2026-02-13 15:24 - US-001: Add PWA asset pipeline and mobile metadata serving
+- Added PWA server assets in `src/server/`: `manifest.webmanifest`, `service-worker.v1.js`, `icon-192.png`, and `icon-512.png`
+- Extended build pipeline in `package.json` to copy new PWA assets into `dist/server/` alongside existing RTS assets
+- Updated `src/server/dashboard.ts` static serving to expose `/manifest.webmanifest`, `/service-worker.v1.js`, `/icon-192.png`, and `/icon-512.png` with explicit MIME types and cache headers
+- Added `tests/pwa-assets-serving.e2e.test.ts` to verify manifest metadata shape, dist copy output, and HTTP 200 + correct content types for manifest/service worker/icon endpoints
+- Files changed: `package.json`, `src/server/dashboard.ts`, `src/server/manifest.webmanifest`, `src/server/service-worker.v1.js`, `src/server/icon-192.png`, `src/server/icon-512.png`, `tests/pwa-assets-serving.e2e.test.ts`, `progress.txt`
+- **Learnings:** PWA installability support for RTS can be validated with lightweight server e2e checks (no browser automation) by asserting manifest/service-worker headers from `startDashboard()`.
+---
+## 2026-02-13 15:40 - US-002: Register service worker and install metadata in RTS client
+- Added installable mobile metadata in `src/server/rts.html`: manifest link, theme-color, and Apple mobile web-app meta tags.
+- Added client PWA bootstrap in `src/server/rts.html` with guarded service worker registration (`'serviceWorker' in navigator`), update checks on updatefound/visibility/focus, and error-safe registration handling.
+- Added minimal in-app install CTA state (`#installAppBtn`) that is only shown when `beforeinstallprompt` is emitted and hidden again after prompt/app install.
+- Added regression test `tests/rts-pwa-client-bootstrap.test.ts` to assert metadata tags, service worker guard/registration wiring, and conditional install prompt state in both `src/server/rts.html` and `dist/server/rts.html`.
+- Updated `test:e2e:rts` to include the new RTS PWA bootstrap regression.
+- Files changed: `src/server/rts.html`, `tests/rts-pwa-client-bootstrap.test.ts`, `package.json`, `progress.txt`.
+- **Learnings:** Keep PWA enhancement hooks behind capability detection so mobile install flows can be added without changing desktop behavior.
+---
+## 2026-02-13 16:07 - US-003: Implement mobile-first layout shell with game UI patterns
+- Added a mobile shell in `src/server/rts.html` with a top status strip (`#mobileStatusStrip`) and thumb-friendly bottom tab dock (`#mobileActionTabs`) containing Build/Runs/Intel tabs.
+- Implemented responsive tab behavior with `initMobileLayoutShell`, `setMobileTab`, and `applyMobilePanelVisibility` so mobile viewports switch visible panel content while desktop keeps the existing right-dock action panel behavior.
+- Added live mobile HUD status updates (`updateMobileStatusStrip`) to surface run count, current selection type, and running agent count.
+- Added regression coverage in `tests/rts-mobile-layout-shell.test.ts` validating status strip/dock presence, tab panel switching wiring, and desktop fallback behavior in both `src/server/rts.html` and `dist/server/rts.html`.
+- Extended `test:e2e:rts` script to include the new responsive shell regression test.
+- Files changed: `src/server/rts.html`, `tests/rts-mobile-layout-shell.test.ts`, `package.json`, `progress.txt`
+- **Learnings:** Mobile RTS HUD ergonomics can be delivered safely by breakpoint-scoped layout classes while preserving desktop contracts through explicit non-mobile reset logic.
+---
+
+
+## 2026-02-13 16:45 - US-004: Add touch-native camera and placement interactions
+- Added touch-native world interaction handling in `src/server/rts.html` with single-finger mobile panning, guarded gesture starts, and touch placement commit flow for all building kinds.
+- Added optional pinch zoom state plumbing with bounded min/max and explicit default disabled lock (`cameraZoom.enabled = false`) so mobile can safely defer zoom without unstable behavior.
+- Added hover suppression + conflict guards (`shouldIgnoreTouchWorldGesture`) so touch interactions don't depend on hover-only UI and don't interfere with palette card drag/drop controls.
+- Added regression test `tests/rts-touch-native-interactions.test.ts` to validate touch pan wiring, touch placement/select compatibility, and bounded pinch zoom fallback in both `src/server/rts.html` and `dist/server/rts.html`.
+- Updated `test:e2e:rts` script to include the new touch interaction regression test.
+- Files changed: `src/server/rts.html`, `tests/rts-touch-native-interactions.test.ts`, `package.json`, `progress.txt`
+- **Learnings:** Keep touch gesture routing centralized at `worldWrapEl` + window-level touch listeners and gate starts with control-target guards to preserve existing click/select/drag contracts.
+---
+## 2026-02-13 18:44 - US-005: Refactor action panels into mobile game cards and sheets
+- Refactored Feature, Research, and Warehouse Action Console layouts into collapsible card groups using new `renderPanelCard(...)` helper with explicit primary CTA ordering in Feature actions.
+- Added mobile bottom-sheet infrastructure (`mobile-sheet`) and wired long-detail flows to it: feature prompt editor now opens in sheet, and research plan detail view opens in sheet from plan rows.
+- Updated modal behavior for Library/Power styles on small screens to use bottom-anchored, viewport-constrained sheet-like containers.
+- Added keyboard-safe mobile form handling via `wireKeyboardSafeFormControls(...)` with focused-control `scrollIntoView` + `visualViewport` resize/scroll inset handling so active inputs remain recoverable when keyboard is open.
+- Added regression coverage in `tests/rts-mobile-panel-cards-sheets.test.ts` validating card groups, sheet wiring, and keyboard-safe form hooks in both `src/server/rts.html` and `dist/server/rts.html`.
+- Files changed: `src/server/rts.html`, `tests/rts-mobile-panel-cards-sheets.test.ts`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** For mobile RTS panel ergonomics, centralize card/sheet primitives in shared render helpers and assert src/dist parity so built dashboard HTML remains aligned with source behavior.
+---
+## 2026-02-13 20:10 - US-006: Optimize render path for smooth mobile performance
+- Refactored high-frequency camera visual updates in `src/server/rts.html` to use requestAnimationFrame coalescing via `scheduleVisualFrame()`/`flushVisualFrame()` so pointer/touch pan loops no longer perform direct per-event style writes.
+- Added mobile performance guard CSS under `@media (max-width:760px)` to disable costly shadow/filter effects on world entities, HUD elements, and mobile tab active states.
+- Reworked sprite preload flow to prioritize visible assets first (`collectVisibleSpriteUrls()`), defer non-critical assets to idle time, and prevent duplicate fetch/decode work with URL-level promise dedupe (`spritePreloadByUrl` + `preloadSpriteOnce`).
+- Added regression coverage in `tests/rts-mobile-performance-guards.test.ts` (src/dist parity) and wired it into `npm run test:e2e:rts`.
+- Files changed: `src/server/rts.html`, `tests/rts-mobile-performance-guards.test.ts`, `package.json`, `dist/server/rts.html`, `progress.txt`
+- **Learnings:** For RTS mobile smoothness, keep high-frequency DOM writes batched in a frame scheduler and treat sprite preloading as a two-phase path (critical visible assets first, bulk assets in idle time).
+---
+## 2026-02-13 21:44 - US-007: Provide offline fallback and reconnect UX for field usage
+- Added connectivity-aware RTS client UX in `src/server/rts.html`: explicit offline/reconnecting banner, mobile NET status chip, online/offline event listeners, and non-blocking status messaging.
+- Replaced fixed runtime polling interval with `scheduleRuntimePoll` + `runRuntimePoll` loop using bounded exponential backoff and clean resume on reconnect.
+- Upgraded `src/server/service-worker.v1.js` fetch strategy for app-shell reliability: navigation network-first with `/rts` cache fallback, runtime caching for static sprites/assets, and explicit offline fallback response.
+- Added regression suite `tests/rts-offline-reconnect-handling.test.ts` (src/dist parity + service worker behavior) and wired it into `npm run test:e2e:rts`.
+- Files changed: `src/server/rts.html`, `src/server/service-worker.v1.js`, `tests/rts-offline-reconnect-handling.test.ts`, `package.json`, `dist/server/rts.html`, `dist/server/service-worker.v1.js`, `progress.txt`.
+- **Learnings:** RTS runtime refresh now follows a self-scheduling timeout loop (not `setInterval`) so reconnect/backoff policy can be centralized with connectivity state UX.
 ---
