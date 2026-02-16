@@ -559,30 +559,6 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
     if (repo) repoBaseIdByRepo.set(normalizePathKey(repo), id);
   }
 
-  const ensureRepoBase = (repoRaw: string): Record<string, unknown> => {
-    const repo = String(repoRaw || "").trim();
-    const key = normalizePathKey(repo);
-    const existingId = repoBaseIdByRepo.get(key);
-    if (existingId) return baseById.get(existingId) as Record<string, unknown>;
-    const id = key ? `base:${key}` : `base:unlinked`;
-    const node: Record<string, unknown> = {
-      id,
-      kind: "base",
-      label: path.basename(repo) || "Base",
-      repo,
-      buildings: [],
-      synthetic: true,
-      x: 0,
-      y: 0,
-    };
-    if (!baseById.has(id)) {
-      baseById.set(id, node);
-      bases.push(node);
-    }
-    if (key) repoBaseIdByRepo.set(key, id);
-    return baseById.get(id) as Record<string, unknown>;
-  };
-
   const attachBuilding = (kind: string, building: Record<string, unknown>) => {
     const buildingId = String(building.id ?? "").trim();
     if (!buildingId) return;
@@ -592,20 +568,6 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
 
     if (explicitBaseId) {
       targetBase = baseById.get(explicitBaseId) ?? null;
-      if (!targetBase) {
-        targetBase = {
-          id: explicitBaseId,
-          kind: "base",
-          label: `Base ${explicitBaseId}`,
-          repo,
-          buildings: [],
-          synthetic: true,
-          x: 0,
-          y: 0,
-        };
-        baseById.set(explicitBaseId, targetBase);
-        bases.push(targetBase);
-      }
     }
 
     if (!targetBase && repo) {
@@ -621,10 +583,10 @@ export function buildMobileRtsTree(state = getRtsState()): { bases: Array<Record
           return best;
         }, null as null | { base: Record<string, unknown>; dist: number })?.base ?? candidates[0];
       }
-      if (!targetBase) targetBase = ensureRepoBase(repo);
+      if (!targetBase) return;
     }
 
-    if (!targetBase) targetBase = ensureRepoBase(repo);
+    if (!targetBase) return;
 
     const buildingNode = {
       id: buildingId,
@@ -677,32 +639,7 @@ export function createBaseScopedFactory(
   }
 
   const customBases = Array.isArray(state.customBases) ? state.customBases as Array<Record<string, unknown>> : [];
-  const normalizedBaseId = normalizePathKey(baseId);
   let base = customBases.find((candidate) => String(candidate?.id || "").trim() === baseId) ?? null;
-  if (!base) {
-    const baseTree = buildMobileRtsTree(state);
-    const treeBase = baseTree.bases.find((candidate) => String(candidate?.id || "").trim() === baseId);
-    const treeRepo = normalizePathKey(String(treeBase?.repo || ""));
-    if (treeRepo) {
-      base = customBases.find((candidate) => normalizePathKey(String(candidate?.repo || "")) === treeRepo) ?? {
-        id: baseId,
-        repo: treeRepo,
-        x: 0,
-        y: 0,
-      };
-    }
-  }
-  if (!base && normalizedBaseId.startsWith("base:/")) {
-    const inferredRepo = normalizedBaseId.slice(5);
-    if (inferredRepo) {
-      base = customBases.find((candidate) => normalizePathKey(String(candidate?.repo || "")) === inferredRepo) ?? {
-        id: baseId,
-        repo: inferredRepo,
-        x: 0,
-        y: 0,
-      };
-    }
-  }
   if (!base) throw new Error(`baseId not found: ${baseId}`);
 
   const featureBuildings = Array.isArray(state.featureBuildings)
