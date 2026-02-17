@@ -2076,7 +2076,11 @@ async function postJson(url, body){
 
 function snapshotPersistableState(){
   return {
-    camera: state.camera || { x:0, y:0 },
+    camera: {
+      x: Number(state.camera?.x || 0),
+      y: Number(state.camera?.y || 0),
+      scale: Number(state.cameraZoom?.scale || 1)
+    },
     hiddenBelts: (state.hiddenBelts && typeof state.hiddenBelts === 'object') ? state.hiddenBelts : {},
     customBases: Array.isArray(state.customBases)
       ? state.customBases.map((base) => ({
@@ -2235,6 +2239,8 @@ async function hydratePersistedState(){
       x: Number(persisted.camera.x) || 0,
       y: Number(persisted.camera.y) || 0
     };
+    const scale = Number(persisted.camera.scale);
+    if (Number.isFinite(scale) && scale > 0) state.cameraZoom.scale = scale;
   }
   if (!state.featureBuildings.length && Array.isArray(persisted.setupDrafts)) {
     state.featureBuildings = persisted.setupDrafts
@@ -2951,6 +2957,8 @@ async function boot(){
     // Warm sprite decode/cache so first placement/select doesn't pop in images.
     void preloadRtsSprites();
     await hydratePersistedState();
+    // hydratePersistedState may update camera; ensure it is reflected in CSS vars.
+    updateCameraVisuals();
   }
   if (initialMobile) {
     void (async () => {
@@ -6697,6 +6705,8 @@ function applyPinchZoomFromTouches(touchA, touchB){
   if (Math.abs(nextScale - Number(state.cameraZoom.scale || 1)) > 0.001) {
     state.cameraZoom.scale = nextScale;
     updateCameraVisuals();
+    state.cameraDrag.zoomed = true;
+    queuePersist();
   }
   state.cameraDrag.pinchDistance = distance;
 }
@@ -6704,9 +6714,16 @@ function applyPinchZoomFromTouches(touchA, touchB){
 const handlePointerMove = (e) => {
   if (state.mobileListMode) return;
   if (state.cameraDrag.active) {
-    state.camera.x = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
-    state.camera.y = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
+    const nextX = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
+    const nextY = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
+    const changed = nextX !== state.camera.x || nextY !== state.camera.y;
+    state.camera.x = nextX;
+    state.camera.y = nextY;
     updateCameraVisuals();
+    if (changed) {
+      state.cameraDrag.moved = true;
+      queuePersist();
+    }
     const kind = dragBuildingType || state.placementMode;
     if (kind) {
       const point = localPointInWorld(e);
@@ -6760,7 +6777,9 @@ worldWrapEl.addEventListener('mousedown', (e) => {
       startX:e.clientX,
       startY:e.clientY,
       originX:state.camera.x,
-      originY:state.camera.y
+      originY:state.camera.y,
+      moved:false,
+      zoomed:false
     };
   }
 });
@@ -6809,7 +6828,9 @@ worldWrapEl.addEventListener('touchstart', (e) => {
     originY:state.camera.y,
     pointerId:touch.identifier,
     viaTouch:true,
-    pinchDistance:0
+    pinchDistance:0,
+    moved:false,
+    zoomed:false
   };
 }, { passive:false });
 
@@ -6826,15 +6847,19 @@ window.addEventListener('touchmove', (e) => {
 }, { passive:false });
 
 window.addEventListener('touchend', () => {
+  const shouldPersist = !!(state.cameraDrag?.viaTouch && (state.cameraDrag?.moved || state.cameraDrag?.zoomed));
   state.cameraDrag.active = false;
   state.cameraDrag.pointerId = null;
   state.cameraDrag.pinchDistance = 0;
+  if (shouldPersist) void persistNow();
 });
 
 window.addEventListener('touchcancel', () => {
+  const shouldPersist = !!(state.cameraDrag?.viaTouch && (state.cameraDrag?.moved || state.cameraDrag?.zoomed));
   state.cameraDrag.active = false;
   state.cameraDrag.pointerId = null;
   state.cameraDrag.pinchDistance = 0;
+  if (shouldPersist) void persistNow();
 });
 
 worldWrapEl.addEventListener('contextmenu', (e) => {
@@ -6842,6 +6867,7 @@ worldWrapEl.addEventListener('contextmenu', (e) => {
 });
 
 window.addEventListener('mouseup', async () => {
+  const shouldPersistCamera = !!(state.cameraDrag?.active && (state.cameraDrag?.moved || state.cameraDrag?.zoomed));
   if (state.draggingEntity && state.draggingMoved) {
     state.suppressWorldClick = true;
     try { await persistDraggedEntityPosition(state.draggingEntity); } catch {}
@@ -6849,6 +6875,7 @@ window.addEventListener('mouseup', async () => {
     // Refresh links/labels once after drag completes, not on every mousemove.
     rebuildScene();
   }
+  if (shouldPersistCamera) await persistNow();
   state.cameraDrag.active = false;
   state.draggingEntity = null;
   state.draggingMoved = false;
