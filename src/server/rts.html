@@ -1222,6 +1222,20 @@ textarea { min-height:132px; resize:vertical; font-family:Inter,system-ui,sans-s
           </span>
           <span class="hotkey">P</span>
         </button>
+        <button class="palette-card" id="cancelPlacementBtn" type="button" title="Cancel placement (Esc)" aria-label="Cancel placement (Escape)" style="--palette-bg:url('/rts-sprites/cancel-button.svg');">
+          <span class="palette-tooltip" role="tooltip">
+            <span class="tooltip-title">Cancel</span>
+            <span class="tooltip-copy">Exit placement mode. Shortcut: Esc.</span>
+          </span>
+          <span class="hotkey">Esc</span>
+        </button>
+        <button class="palette-card" id="deleteSelectedBtn" type="button" title="Delete selected (Delete)" aria-label="Delete selected (Delete)" style="--palette-bg:url('/rts-sprites/delete-button.svg');">
+          <span class="palette-tooltip" role="tooltip">
+            <span class="tooltip-title">Delete</span>
+            <span class="tooltip-copy">Delete selected structure. Shortcut: Delete.</span>
+          </span>
+          <span class="hotkey">Del</span>
+        </button>
       </div>
     </section>
   </div>
@@ -1953,6 +1967,16 @@ async function json(url){
   if (!r.ok) throw new Error(data?.error || `request_failed:${r.status}`);
   return data;
 }
+
+async function syncLocalRepos(){
+  try {
+    const localRepos = await json('/api/local-repos');
+    state.localRepos = Array.isArray(localRepos) ? localRepos : [];
+  } catch {
+    state.localRepos = [];
+  }
+  return state.localRepos;
+}
 async function postJson(url, body){
   const r = await fetch(url, {
     method:'POST',
@@ -1983,18 +2007,17 @@ function snapshotPersistableState(){
           workerPool: normalizeBaseWorkerPool(base?.workerPool || {}),
         }))
       : [],
-    featureBuildings: Array.isArray(state.featureBuildings)
-      ? state.featureBuildings.map((building) => normalizeFeatureDraft(building))
-      : [],
-    // Persist research/warehouse payloads (plans/items) via rts_layout_entities.
-    researchBuildings: Array.isArray(state.researchBuildings)
-      ? state.researchBuildings.map((rb) => normalizeResearchBuilding(rb))
-      : [],
-    warehouseBuildings: Array.isArray(state.warehouseBuildings)
-      ? state.warehouseBuildings.map((wb) => normalizeWarehouseBuilding(wb))
-      : []
-  };
-}
+	    featureBuildings: Array.isArray(state.featureBuildings)
+	      ? state.featureBuildings.map((building) => normalizeFeatureDraft(building))
+	      : [],
+	    // Persist research/warehouse payloads (plans/items) via rts_layout_entities.
+	    researchBuildings: (Array.isArray(state.researchBuildings) ? state.researchBuildings : [])
+	      .map(normalizeResearchBuilding),
+	    warehouseBuildings: Array.isArray(state.warehouseBuildings)
+	      ? state.warehouseBuildings.map((wb) => normalizeWarehouseBuilding(wb))
+	      : []
+	  };
+	}
 
 function queuePersist(){
   if (state.persistTimer) clearTimeout(state.persistTimer);
@@ -2846,7 +2869,7 @@ async function boot(){
   if (initialMobile) {
     void (async () => {
       try { state.workflows = await json('/api/workflows'); } catch { state.workflows = []; }
-      try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
+      await syncLocalRepos();
       try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
       try { await refreshRuntimeState(false); } catch {}
       await refreshMobileTree();
@@ -2860,7 +2883,7 @@ async function boot(){
     // Hydrate layout immediately; other network calls can land later.
     const persistedPromise = hydratePersistedState();
     const workflowsPromise = json('/api/workflows').catch(() => []);
-    const localReposPromise = json('/api/local-repos').catch(() => []);
+    const localReposPromise = syncLocalRepos().catch(() => []);
     const runtimePromise = json('/api/rts/runtime').catch(() => ({ runtime: null }));
     const runtimeStatePromise = refreshRuntimeState(false).catch(() => false);
     await persistedPromise;
@@ -2920,7 +2943,8 @@ async function refreshRuntimeState(throwOnError = false){
     const [runs, liveRes, diagRes] = await Promise.all([
       json('/api/runs'),
       json('/api/rts/live'),
-      json('/api/rts/diag?workflow=feature-dev')
+      json('/api/rts/diag?workflow=feature-dev'),
+      syncLocalRepos()
     ]);
     const nextSig = runsSignature(runs);
     const runsChanged = nextSig !== state.runSig;
@@ -3532,15 +3556,16 @@ function placeResearchAt(x,y,kind = 'research'){
       : 'Research Labs must be placed near a Base.');
     return;
   }
-  const researchBuilding = {
-    id: `${normalizedKind}-${Date.now()}`,
-    kind: normalizedKind,
-    x, y,
-    repo: base.repo || 'unlinked-repo',
-    worktreePath: base.repo || 'unlinked-repo',
-    plans: [],
-    baseId: base.id
-  };
+	  const researchBuilding = {
+	    id: `${normalizedKind}-${Date.now()}`,
+	    kind: normalizedKind,
+	    x, y,
+	    repo: base.repo || 'unlinked-repo',
+	    worktreePath: base.repo || 'unlinked-repo',
+	    agenda: '',
+	    plans: [],
+	    baseId: base.id
+	  };
   state.researchBuildings.push(researchBuilding);
   void postJson('/api/rts/layout/position', {
     entityType: 'research',
@@ -3571,11 +3596,11 @@ function placeWarehouseAt(x,y,kind = 'warehouse'){
   const center = centerPointFor('warehouse', x, y);
   const anchor = (normalizedKind === 'library' || normalizedKind === 'power')
     ? nearUniversity(center.x, center.y)
-    : nearResearch(center.x, center.y);
+    : (nearBase(center.x, center.y) || nearResearch(center.x, center.y));
   if (!anchor) {
     if (normalizedKind === 'library') alert('Libraries must be placed near a University.');
     else if (normalizedKind === 'power') alert('Power Plants must be placed near a University.');
-    else alert('Warehouses must be placed near a Research Lab.');
+    else alert('Warehouses must be placed near a Base or Research Lab.');
     return;
   }
   const repoPath = String(anchor.repo || 'unlinked-repo');
@@ -4111,18 +4136,19 @@ function normalizeResearchBuilding(raw){
   const repo = baseRepoKey(String(src.repo || ''));
   const kindRaw = String(src.kind || src.variant || 'research').toLowerCase();
   const kind = kindRaw === 'university' ? 'university' : 'research';
-  return {
-    ...src,
-    id: String(src.id || `${kind}-${Date.now()}`),
-    kind,
-    repo,
-    worktreePath: String(src.worktreePath || repo),
-    plans: (Array.isArray(src.plans) ? src.plans : []).map((p, idx) => normalizeResearchPlan(p, `lab-plan-${idx + 1}`)),
-    baseId: String(src.baseId || ''),
-    x: Number(src.x || 0),
-    y: Number(src.y || 0)
-  };
-}
+	  return {
+	    ...src,
+	    id: String(src.id || `${kind}-${Date.now()}`),
+	    kind,
+	    repo,
+	    worktreePath: String(src.worktreePath || repo),
+	    agenda: String(src.agenda || ''),
+	    plans: (Array.isArray(src.plans) ? src.plans : []).map((p, idx) => normalizeResearchPlan(p, `lab-plan-${idx + 1}`)),
+	    baseId: String(src.baseId || ''),
+	    x: Number(src.x || 0),
+	    y: Number(src.y || 0)
+	  };
+	}
 
 function normalizeWarehouseBuilding(raw){
   const src = raw && typeof raw === 'object' ? raw : {};
@@ -4284,7 +4310,7 @@ function featureStructureVisualState(building){
 
 function featureStructureClassName(building){
   const visualState = featureStructureVisualState(building);
-  if (visualState === 'draft') return 'is-half-transparent';
+  if (visualState === 'draft' || visualState === 'in-progress') return 'is-half-transparent';
   if (visualState === 'failed') return 'is-failed';
   return '';
 }
@@ -4828,7 +4854,7 @@ function renderRunAgentsConsole(run, selectedAgentId){
         state.runs = await json('/api/runs');
         rebuildScene();
         const refreshed = (state.runs || []).find(r => r.id === runId);
-        if (refreshed) renderRunAgentsConsole(refreshed, 'feature-dev/developer');
+        if (refreshed) renderRunAgentsConsole(refreshed, 'feature-dev_developer');
         if (restartNotice) restartNotice.textContent = rr?.kicked
           ? `Developer redo queued (story ${rr?.storyId || 'rerun'}), kicked immediately.`
           : `Developer redo queued (story ${rr?.storyId || 'rerun'}); waiting for cron fallback.`;
@@ -4970,7 +4996,8 @@ function renderSelection(){
 function renderBaseCloneForm(draft){
   setFeatureMode(false);
   const panel = document.getElementById('actionPanel');
-  const repoOptions = (state.localRepos || []).map(r => {
+  const localRepos = Array.isArray(state.localRepos) ? state.localRepos : [];
+  const repoOptions = localRepos.map(r => {
     const suggested = Number(r.suggestedPort) || getPortForPath(r.path) || '';
     const suffix = suggested ? ` • :${suggested}` : '';
     return `<option value="${esc(r.path)}">${esc(r.name)} • ${esc(r.path)}${suffix}</option>`;
@@ -4999,11 +5026,10 @@ function renderBaseCloneForm(draft){
   wirePanelDeleteButton();
 
   const existingRepoSelect = document.getElementById('existingRepoSelect');
-  existingRepoSelect.addEventListener('change', (e) => {
-    draft.existingRepoPath = e.target.value || '';
+  const applyExistingRepoSelection = () => {
     if (draft.existingRepoPath) {
       draft.targetPath = draft.existingRepoPath;
-      const repoMeta = (state.localRepos || []).find((r) => r.path === draft.existingRepoPath);
+      const repoMeta = localRepos.find((r) => r.path === draft.existingRepoPath);
       draft.port = Number(repoMeta?.suggestedPort) || getPortForPath(draft.existingRepoPath) || draft.port || 3333;
       const pathInput = document.getElementById('cloneTargetPath');
       if (pathInput) pathInput.value = draft.targetPath;
@@ -5011,7 +5037,15 @@ function renderBaseCloneForm(draft){
       if (portInput) portInput.value = String(draft.port);
     }
     queuePersist();
+  };
+  existingRepoSelect.addEventListener('change', (e) => {
+    draft.existingRepoPath = e.target.value || '';
+    applyExistingRepoSelection();
   });
+  if (draft.existingRepoPath) {
+    existingRepoSelect.value = draft.existingRepoPath;
+    applyExistingRepoSelection();
+  }
   document.getElementById('cloneRepoUrl').addEventListener('input', e => { draft.repoUrl = e.target.value; queuePersist(); });
   document.getElementById('cloneTargetPath').addEventListener('input', e => { draft.targetPath = e.target.value; queuePersist(); });
   document.getElementById('basePortInput').addEventListener('input', e => {
@@ -5124,7 +5158,7 @@ function deriveRunAgents(run){
     return workflow.steps.map((wfStep, idx) => {
       const wfStepId = String(wfStep.id || '');
       const stepRows = (run?.steps || []).filter((step) => String(step.step_id || '') === wfStepId);
-      const agentId = String(stepRows[0]?.agent_id || `${workflow.id}/${wfStep.agent}@run:${run?.id || ''}`);
+      const agentId = String(stepRows[0]?.agent_id || `${workflow.id}_${wfStep.agent}@run:${run?.id || ''}`);
       const statuses = stepRows.map((s) => String(s.status || 'pending'));
       const live = getLiveAgentEntry(run?.id, agentId, wfStepId);
       let status = 'waiting';
@@ -5513,15 +5547,18 @@ function renderResearchLabPanel(targetLabId){
   }
   panel.innerHTML = `
     ${panelToolbar(isUni ? 'University Console' : 'Research Console', String(effectiveRepo || requestedRepo || 'unlinked'))}
-    ${renderPanelCard({
-      id: 'researchSourceCard',
-      title: 'Source',
-      open: true,
-      body: `<div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
-      <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
-      <button id="runResearchBtn">Research</button>
-      <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>`
-    })}
+	    ${renderPanelCard({
+	      id: 'researchSourceCard',
+	      title: 'Source',
+	      open: true,
+	      body: `<div class="kv"><strong>Repo:</strong> ${esc(effectiveRepo || requestedRepo || 'unlinked')}</div>
+	      <div class="kv"><strong>Worktree:</strong> ${esc(String(lab.worktreePath || effectiveRepo || requestedRepo || '-'))}</div>
+	      <label for="researchAgendaInput" class="kv">Current Agenda
+	        <textarea id="researchAgendaInput" rows="4" placeholder="What are we trying to discover or ship?">${esc(String(lab.agenda || ''))}</textarea>
+	      </label>
+	      <button id="runResearchBtn">Research</button>
+	      <div class="notice" style="margin-top:8px" id="researchNotice">${isUni ? 'University generates planning artifacts and routes them to Library/Warehouse.' : 'Analyze repo via Antfarm planner agent. Deploy adds a plan to warehouse inventory; delete marks WONT FIX.'}</div>`
+	    })}
     ${renderPanelCard({
       id: 'researchPlanCard',
       title: `Generated Plans (${plans.length})`,
@@ -5545,6 +5582,14 @@ function renderResearchLabPanel(targetLabId){
   `;
   wirePanelDeleteButton();
   wireKeyboardSafeFormControls(panel);
+  const agendaInput = document.getElementById('researchAgendaInput');
+  const syncAgendaFromInput = () => {
+    const nextAgenda = String(agendaInput?.value || '');
+    lab.agenda = nextAgenda;
+    queuePersist();
+  };
+  agendaInput?.addEventListener('input', syncAgendaFromInput);
+  agendaInput?.addEventListener('change', syncAgendaFromInput);
   const notice = document.getElementById('researchNotice');
   const refreshPlanInteractions = () => {
     const list = document.getElementById('researchPlanList');
@@ -6574,6 +6619,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   if (e.key === 'Escape') {
+    cancelActiveFeatureDraft();
     closeLibraryModal();
     clearSelectedEntity();
     setPlacement(null);

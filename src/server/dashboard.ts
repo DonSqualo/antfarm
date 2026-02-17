@@ -15,6 +15,7 @@ import YAML from "yaml";
 
 import type { RunInfo, StepInfo } from "../installer/status.js";
 import { getRunEvents } from "../installer/events.js";
+import { getMedicStatus, getRecentMedicChecks } from "../medic/medic.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const immediateHandoff = createImmediateHandoffHandler();
@@ -145,17 +146,20 @@ function inferSuggestedPortForRepo(repoPathRaw: string): number | null {
   return null;
 }
 
-function listLocalGitRepos(): Array<{ path: string; name: string; suggestedPort?: number }> {
+export function discoverLocalGitRepos(rootsOverride?: string[]): Array<{ path: string; name: string; suggestedPort?: number }> {
   const envRoots = String(process.env.ANTFARM_LOCAL_REPO_ROOTS || "")
     .split(/[,:;]/)
     .map((v) => normalizeRepoPath(v))
     .filter(Boolean);
-  const roots = [
-    ...envRoots,
-    normalizeRepoPath(process.cwd()),
-    normalizeRepoPath(path.resolve(process.cwd(), "..")),
-    normalizeRepoPath(path.join(os.homedir(), ".openclaw", "workspace")),
-  ].filter(Boolean);
+  const roots = (Array.isArray(rootsOverride) && rootsOverride.length
+    ? rootsOverride.map((v) => normalizeRepoPath(v)).filter(Boolean)
+    : [
+        ...envRoots,
+        normalizeRepoPath(process.cwd()),
+        normalizeRepoPath(path.resolve(process.cwd(), "..")),
+        normalizeRepoPath(path.join(os.homedir(), ".openclaw", "workspace")),
+      ].filter(Boolean)
+  );
   const seenRoots = new Set<string>();
   const queue: Array<{ dir: string; depth: number }> = [];
   for (const root of roots) {
@@ -213,6 +217,10 @@ function listLocalGitRepos(): Array<{ path: string; name: string; suggestedPort?
     a.path.localeCompare(b.path)
   );
   return chosen.map((r) => ({ path: r.path, name: r.name, ...(r.suggestedPort ? { suggestedPort: r.suggestedPort } : {}) }));
+}
+
+function listLocalGitRepos(): Array<{ path: string; name: string; suggestedPort?: number }> {
+  return discoverLocalGitRepos();
 }
 
 function isValidPortValue(portValue: unknown): number | null {
@@ -1438,7 +1446,11 @@ async function redoDeveloperFromFailedTest(runIdOrPrefix: string): Promise<{
 
   const developerStep = steps.find((s) => String(s.step_id || "").toLowerCase() === "implement")
     || [...steps]
-      .filter((s) => s.step_index < testStep.step_index && String(s.agent_id || "").toLowerCase().endsWith("/developer"))
+      .filter((s) => {
+        if (s.step_index >= testStep.step_index) return false;
+        const agent = String(s.agent_id || "").toLowerCase();
+        return agent.includes("_developer@run:") || agent.endsWith("_developer") || agent.endsWith("/developer");
+      })
       .sort((a, b) => b.step_index - a.step_index)[0];
   if (!developerStep) throw new Error("developer_step_not_found");
 
@@ -2685,6 +2697,16 @@ export function startDashboard(port = 3333): http.Server {
     if (p === "/api/runs") {
       const wf = url.searchParams.get("workflow") ?? undefined;
       return json(res, getRuns(wf));
+    }
+
+    // Medic API
+    if (p === "/api/medic/status") {
+      return json(res, getMedicStatus());
+    }
+
+    if (p === "/api/medic/checks") {
+      const limit = parseInt(url.searchParams.get("limit") ?? "20", 10);
+      return json(res, getRecentMedicChecks(limit));
     }
 
     if (p.startsWith("/api/")) {

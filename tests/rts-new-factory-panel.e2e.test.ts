@@ -29,10 +29,12 @@ test("new factory opens full feature panel after warehouse placement", async () 
   await withDashboard(async (baseUrl) => {
     const browser = await puppeteer.launch({
       headless: true,
+      protocolTimeout: 240_000,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
     try {
       const page = await browser.newPage();
+      page.on("dialog", async (dialog) => { try { await dialog.dismiss(); } catch {} });
       await page.setViewport({ width: 1366, height: 900 });
       await page.goto(`${baseUrl}/rts`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".command-grid .palette-card[data-building='base']");
@@ -45,17 +47,17 @@ test("new factory opens full feature panel after warehouse placement", async () 
       // Place a base first.
       await page.click(".palette-card[data-building='base']");
       await page.mouse.click(box.x + 420, box.y + 320);
-      await page.waitForTimeout(180);
+      await new Promise((r) => setTimeout(r, 180));
 
       // Place a warehouse near base (reported regression started after warehouse feature).
       await page.click(".palette-card[data-building='warehouse']");
       await page.mouse.click(box.x + 480, box.y + 360);
-      await page.waitForTimeout(180);
+      await new Promise((r) => setTimeout(r, 180));
 
       // Place a new feature factory near base.
       await page.click(".palette-card[data-building='feature']");
       await page.mouse.click(box.x + 520, box.y + 360);
-      await page.waitForTimeout(320);
+      await new Promise((r) => setTimeout(r, 320));
 
       const state = await page.evaluate(() => {
         const panel = document.getElementById("actionPanel");

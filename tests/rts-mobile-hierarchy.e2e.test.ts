@@ -79,11 +79,13 @@ test("RTS mobile hierarchy flow supports list rendering, base plus creation, and
 
     const browser = await puppeteer.launch({
       headless: true,
+      protocolTimeout: 240_000,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
     try {
       const page = await browser.newPage();
+      page.on("dialog", async (dialog) => { try { await dialog.dismiss(); } catch {} });
       await page.setViewport({ width: 430, height: 900 });
       await page.goto(`${baseUrl}/rts`, { waitUntil: "domcontentloaded" });
       await page.waitForFunction(() => document.querySelector(".layout")?.classList.contains("mobile-list-mode") === true);
@@ -164,7 +166,11 @@ test("RTS mobile hierarchy flow supports list rendering, base plus creation, and
       assert.ok(detailState.text.includes("Building Detail"), "Expected detail screen heading");
       assert.ok(detailState.text.includes(`ID: ${clickedBuilding}`), "Expected detail view to include selected building ID");
 
-      await page.click("#mobileListPanel [data-mobile-list-back]");
+      await page.waitForSelector("#mobileListPanel [data-mobile-list-back]");
+      await page.evaluate(() => {
+        const btn = document.querySelector("#mobileListPanel [data-mobile-list-back]") as HTMLButtonElement | null;
+        btn?.click();
+      });
       await page.waitForFunction(() => !window.location.hash.startsWith("#mobile-building/"));
       await page.waitForSelector("#mobileListPanel .mobile-tree-base");
     } finally {

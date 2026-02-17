@@ -32,9 +32,12 @@ const versionGate = createStepVersionGate();
 const inFlight = new Set<string>();
 
 function deriveCronName(workflowId: string, agentId: string): string {
-  const prefix = `${workflowId}/`;
+  const slashPrefix = `${workflowId}/`;
+  const underscorePrefix = `${workflowId}_`;
   const normalized = String(agentId || "").replace(/@run:[^/]+$/, "");
-  const suffix = normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized;
+  let suffix = normalized;
+  if (suffix.startsWith(slashPrefix)) suffix = suffix.slice(slashPrefix.length);
+  else if (suffix.startsWith(underscorePrefix)) suffix = suffix.slice(underscorePrefix.length);
   return `antfarm/${workflowId}/${suffix}`;
 }
 
@@ -57,8 +60,8 @@ type HandoffDeps = {
   selectStep: (stepId: string) => StepRow | undefined;
   listCronJobs: typeof listCronJobs;
   runCronJobNow: typeof runCronJobNow;
-  logInfo: (msg: string, ctx?: { runId?: string; stepId?: string }) => Promise<void>;
-  logWarn: (msg: string, ctx?: { runId?: string; stepId?: string }) => Promise<void>;
+  logInfo: (msg: string, ctx?: { runId?: string; stepId?: string }) => void | Promise<void>;
+  logWarn: (msg: string, ctx?: { runId?: string; stepId?: string }) => void | Promise<void>;
   shouldKick: (stepId: string, updatedAt: string) => boolean;
   inFlight: Set<string>;
 };
@@ -80,8 +83,8 @@ function defaultDeps(): HandoffDeps {
     selectStep: selectStepFromDb,
     listCronJobs,
     runCronJobNow,
-    logInfo: logger.info,
-    logWarn: logger.warn,
+    logInfo: async (msg, ctx) => { logger.info(msg, ctx); },
+    logWarn: async (msg, ctx) => { logger.warn(msg, ctx); },
     shouldKick: versionGate.shouldKick,
     inFlight,
   };

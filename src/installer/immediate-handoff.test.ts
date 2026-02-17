@@ -15,4 +15,3 @@ describe("immediate handoff dedupe gate", () => {
     assert.equal(gate.shouldKick("step-1", "2026-02-12T10:00:01.000Z"), true);
   });
 });
-
