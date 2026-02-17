@@ -1787,17 +1787,24 @@ const PANEL_TARGET_IDS = {
 
 const panelPatchRenderers = new Map();
 
+function normalizePanelTargetId(targetId){
+  return String(targetId || '').trim().toLowerCase();
+}
+
 function registerPanelPatchRenderer(targetId, renderPatch){
   if (!targetId || typeof renderPatch !== 'function') return;
-  panelPatchRenderers.set(String(targetId), renderPatch);
+  panelPatchRenderers.set(normalizePanelTargetId(targetId), renderPatch);
 }
 
 function applyPanelPatch(patch, context = {}){
   if (!patch || typeof patch !== 'object') return false;
-  const targetId = String(patch.target || '').trim().toLowerCase();
+  const targetId = normalizePanelTargetId(patch.target);
   const renderPatch = panelPatchRenderers.get(targetId);
   if (!renderPatch) return false;
-  renderPatch({ mode: patch.mode || 'merge', payload: patch.payload || {} }, context);
+  renderPatch(
+    { mode: patch.mode || 'merge', payload: patch.payload || {}, html: patch.html || '' },
+    context
+  );
   return true;
 }
 

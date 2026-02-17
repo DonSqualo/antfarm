@@ -2564,8 +2564,8 @@ export function startDashboard(port = 3333): http.Server {
           event: "feature.run.started",
           payload: { runId: run.id, workflowId, layoutId: layout?.id || null },
           patches: [
-            { target: PANEL_TARGETS.bottomCommandBar, mode: "merge", payload: { active: "feature" } },
-            { target: PANEL_TARGETS.rightActionSidebar, mode: "replace", payload: { mode: "feature", featureId: layout?.id || null } },
+            { target: PANEL_TARGETS.bottomCommandBar, mode: "merge", payload: { active: "feature", buildingId: layout?.id || null } },
+            { target: PANEL_TARGETS.rightActionSidebar, mode: "replace", payload: { mode: "feature", featureId: layout?.id || null, buildingId: layout?.id || null } },
             { target: PANEL_TARGETS.leftMediaPanel, mode: "merge", payload: { mode: "placeholder" } },
           ],
         });
@@ -2588,7 +2588,7 @@ export function startDashboard(port = 3333): http.Server {
           event: "feature.run.deleted",
           payload: { runId: result.runId || runId },
           patches: [
-            { target: PANEL_TARGETS.bottomCommandBar, mode: "merge", payload: { active: "default" } },
+            { target: PANEL_TARGETS.bottomCommandBar, mode: "merge", payload: { active: "default", buildingId: null } },
             { target: PANEL_TARGETS.rightActionSidebar, mode: "replace", payload: { mode: "default" } },
             { target: PANEL_TARGETS.leftMediaPanel, mode: "merge", payload: { mode: "placeholder" } },
           ],
