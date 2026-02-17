@@ -471,6 +471,9 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   border:none;
   background:none;
   overflow:visible;
+  /* Ensure entity shell receives pointer interactions consistently.
+     This avoids child overlays (chips/progress text) intercepting the hit-test. */
+  pointer-events:none;
 }
 .iso-core:before {
   content:none;
@@ -504,8 +507,9 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   background:linear-gradient(90deg,#40d8ff,#8fffff,#4ec9ff);
   box-shadow:0 0 10px #62deff77;
 }
-.building { width:var(--footprint-w,132px); min-height:var(--footprint-h,88px); }
-.building .iso-core { border-radius:0; padding:0; min-height:var(--footprint-h,88px); cursor:pointer; }
+.building { width:var(--footprint-w,132px); min-height:var(--footprint-h,88px); cursor:pointer; }
+.building.movable { cursor:move; }
+.building .iso-core { border-radius:0; padding:0; min-height:var(--footprint-h,88px); }
 .building .title { font-size:12px; font-weight:600; margin-bottom:7px; }
 .meta { display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted); margin-bottom:7px; }
 .badge { font-size:10px; border:1px solid #5d8cae; border-radius:999px; padding:2px 6px; }
