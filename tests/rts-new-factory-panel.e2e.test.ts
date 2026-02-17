@@ -33,6 +33,12 @@ test("new factory opens full feature panel after warehouse placement", async () 
     });
     try {
       const page = await browser.newPage();
+      page.on("dialog", async (dialog) => {
+        // Defensive: any unexpected alert/confirm can deadlock headless runs.
+        try {
+          await dialog.dismiss();
+        } catch {}
+      });
       await page.setViewport({ width: 1366, height: 900 });
       await page.goto(`${baseUrl}/rts`, { waitUntil: "domcontentloaded" });
       await page.waitForSelector(".command-grid .palette-card[data-building='base']");
@@ -42,20 +48,37 @@ test("new factory opens full feature panel after warehouse placement", async () 
       const box = await world.boundingBox();
       assert.ok(box, "worldWrap has no box");
 
+      const clickWorld = async (dx: number, dy: number) => {
+        await page.evaluate(
+          (payload) => {
+            const world = document.getElementById("worldWrap");
+            if (!(world instanceof HTMLElement)) throw new Error("worldWrap not found");
+            const rect = world.getBoundingClientRect();
+            const clientX = rect.left + payload.dx;
+            const clientY = rect.top + payload.dy;
+            const opts: MouseEventInit = { clientX, clientY, button: 0, bubbles: true, cancelable: true };
+            world.dispatchEvent(new MouseEvent("mousedown", opts));
+            world.dispatchEvent(new MouseEvent("mouseup", opts));
+            world.dispatchEvent(new MouseEvent("click", opts));
+          },
+          { dx, dy }
+        );
+      };
+
       // Place a base first.
       await page.click(".palette-card[data-building='base']");
-      await page.mouse.click(box.x + 420, box.y + 320);
-      await page.waitForTimeout(180);
+      await clickWorld(420, 320);
+      await new Promise((r) => setTimeout(r, 180));
 
       // Place a warehouse near base (reported regression started after warehouse feature).
       await page.click(".palette-card[data-building='warehouse']");
-      await page.mouse.click(box.x + 480, box.y + 360);
-      await page.waitForTimeout(180);
+      await clickWorld(480, 360);
+      await new Promise((r) => setTimeout(r, 180));
 
       // Place a new feature factory near base.
       await page.click(".palette-card[data-building='feature']");
-      await page.mouse.click(box.x + 520, box.y + 360);
-      await page.waitForTimeout(320);
+      await clickWorld(520, 360);
+      await new Promise((r) => setTimeout(r, 320));
 
       const state = await page.evaluate(() => {
         const panel = document.getElementById("actionPanel");

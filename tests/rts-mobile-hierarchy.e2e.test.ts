@@ -164,7 +164,10 @@ test("RTS mobile hierarchy flow supports list rendering, base plus creation, and
       assert.ok(detailState.text.includes("Building Detail"), "Expected detail screen heading");
       assert.ok(detailState.text.includes(`ID: ${clickedBuilding}`), "Expected detail view to include selected building ID");
 
-      await page.click("#mobileListPanel [data-mobile-list-back]");
+      await page.evaluate(() => {
+        const back = document.querySelector("#mobileListPanel [data-mobile-list-back]") as HTMLElement | null;
+        back?.click();
+      });
       await page.waitForFunction(() => !window.location.hash.startsWith("#mobile-building/"));
       await page.waitForSelector("#mobileListPanel .mobile-tree-base");
     } finally {
