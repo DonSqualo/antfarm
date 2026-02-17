@@ -705,6 +705,7 @@ interface CreateBaseScopedFactoryResult {
   buildingId: string;
   baseId: string;
   kind: "feature";
+  building: Record<string, unknown>;
 }
 
 export function createBaseScopedFactory(
@@ -728,7 +729,7 @@ export function createBaseScopedFactory(
   const id = `feature-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const x = Number(base.x ?? 0) + 120;
   const y = Number(base.y ?? 0) + 80;
-  featureBuildings.push({
+  const building = {
     id,
     kind: "feature",
     label: "Factory",
@@ -739,7 +740,8 @@ export function createBaseScopedFactory(
     committed: false,
     phase: "draft",
     createdAt: new Date().toISOString(),
-  });
+  };
+  featureBuildings.push(building);
 
   return {
     state: {
@@ -749,6 +751,7 @@ export function createBaseScopedFactory(
     buildingId: id,
     baseId,
     kind: "feature",
+    building,
   };
 }
 
@@ -2213,12 +2216,30 @@ export function startDashboard(port = 3333): http.Server {
           baseId: String(body?.baseId || ""),
           kind: String(body?.kind || ""),
         });
-        saveRtsState(created.state);
+        // Factory creation is an explicit user action; persist the draft as a feature layout row
+        // so mobile tree and subsequent refreshes can see it (snapshot writes cannot create feature rows).
+        const building = created.building && typeof created.building === "object" ? created.building : {};
+        const repoPath = String(building.repo ?? "").trim();
+        const worktreePath = String(building.worktreePath ?? "").trim();
+        const x = Number(building.x ?? 0);
+        const y = Number(building.y ?? 0);
+        const layout = upsertLayoutPosition({
+          entityType: "feature",
+          entityId: String(created.buildingId || "").trim(),
+          runId: null,
+          repoPath: repoPath || null,
+          worktreePath: worktreePath || null,
+          x,
+          y,
+          allowCreate: true,
+          payload: building,
+        });
         return json(res, {
           ok: true,
           buildingId: created.buildingId,
           baseId: created.baseId,
           kind: created.kind,
+          layoutId: layout.id,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
