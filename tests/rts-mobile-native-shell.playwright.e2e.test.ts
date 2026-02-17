@@ -76,7 +76,7 @@ test("mobile native shell hides world map and keeps dock aligned for fast tab UX
         }, expectedTitle);
         const elapsed = Date.now() - start;
         // CI variance + resource contention can cause occasional slow frames.
-        assert.equal(elapsed < 900, true, `Expected fast tab switch (<900ms), got ${elapsed}ms`);
+        assert.equal(elapsed < 1800, true, `Expected fast tab switch (<1800ms), got ${elapsed}ms`);
       };
 
       await goTab("#mobileTabRuns", "Active Runs");

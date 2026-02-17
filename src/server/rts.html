@@ -130,6 +130,10 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
   overflow:hidden;
   background:#050913;
   touch-action:none;
+  /* Prevent native text-selection highlight during building drag/select interactions.
+     Scoped to the interactive world container so panels/forms remain selectable. */
+  user-select:none;
+  -webkit-user-select:none;
 }
 .world-bg {
   position:absolute; inset:0;
@@ -4511,6 +4515,8 @@ function renderWorld(){
       el.onmousedown = (e) => {
         if (e.button !== 0) return;
         if (state.placementMode) return;
+        // Prevent accidental native text selection (blue highlight) during drag.
+        e.preventDefault();
         e.stopPropagation();
         const point = screenToWorld(e.clientX, e.clientY);
         state.draggingEntity = {
@@ -4548,6 +4554,8 @@ function renderWorld(){
       if (state.mobileListMode) return;
       if (e.button !== 0) return;
       if (state.placementMode) return;
+      // Prevent accidental native text selection (blue highlight) during drag.
+      e.preventDefault();
       e.stopPropagation();
       const point = screenToWorld(e.clientX, e.clientY);
       state.draggingEntity = {
@@ -4622,6 +4630,8 @@ function renderWorld(){
       el.onmousedown = (e) => {
         if (e.button !== 0) return;
         if (state.placementMode) return;
+        // Prevent accidental native text selection (blue highlight) during drag.
+        e.preventDefault();
         e.stopPropagation();
         const point = screenToWorld(e.clientX, e.clientY);
         state.draggingEntity = {
