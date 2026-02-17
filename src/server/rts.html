@@ -454,33 +454,6 @@ button:hover { border-color:#8de7ff; box-shadow:0 0 0 1px #95e6ff44 inset; }
 }
 .build-card strong { display:block; font-size:12px; margin-bottom:5px; color:#caf4ff; }
 .build-card small { color:var(--muted); font-size:11px; display:block; }
-.structure-tree-card { margin-top:8px; }
-.structure-tree { margin-top:6px; display:grid; gap:5px; }
-.tree-node {
-  display:flex;
-  align-items:center;
-  gap:6px;
-  font-size:11px;
-  color:#cbe9ff;
-}
-.tree-child { padding-left:12px; }
-.tree-grandchild { padding-left:24px; }
-.tree-kind {
-  display:inline-flex;
-  align-items:center;
-  min-width:76px;
-  padding:1px 6px;
-  border:1px solid #466a8a;
-  border-radius:999px;
-  color:#97dfff;
-  background:#10253a;
-}
-.tree-kind.university { border-color:#668dd6; color:#b7ccff; }
-.tree-kind.library { border-color:#7bc1ff; color:#c8e5ff; }
-.tree-kind.research { border-color:#4fb99e; color:#9ef8de; }
-.tree-kind.warehouse { border-color:#7ca8b8; color:#c9e7ef; }
-.tree-kind.power { border-color:#d4a467; color:#ffdcae; }
-.tree-kind.feature { border-color:#6bbf75; color:#c2ffd0; }
 .kv { font-size:12px; color:var(--muted); margin-bottom:7px; }
 .kv strong { color:var(--corpus-ice); }
 .entity {
@@ -1810,7 +1783,6 @@ function renderDefaultActionPanel(){
   const panel = document.getElementById('actionPanel');
   if (!panel) return;
   const live = state.live || {};
-  const structureTree = structureTreeMarkup();
   panel.dataset.mode = 'default';
   panel.dataset.featureId = '';
   panel.innerHTML = `
@@ -1819,90 +1791,8 @@ function renderDefaultActionPanel(){
     <div class="kv"><strong>Pending runs:</strong> ${Number(live.pendingRunCount || 0)}</div>
     <div class="kv"><strong>Running agents:</strong> ${Number(live.runningAgentCount || 0)}</div>
     <div class="notice">Place Base, Feature, Research, Warehouse, University, Library, or Power Plant structures from the cards below.</div>
-    <div class="build-card structure-tree-card">
-      <div class="kv"><strong>Structure Tree</strong></div>
-      <div class="structure-tree">${structureTree}</div>
-    </div>
   `;
   wirePanelDeleteButton();
-}
-function distanceBetweenEntities(kindA, itemA, kindB, itemB){
-  const from = centerPointFor(kindA, Number(itemA?.x || 0), Number(itemA?.y || 0));
-  const to = centerPointFor(kindB, Number(itemB?.x || 0), Number(itemB?.y || 0));
-  return Math.hypot(Number(from.x || 0) - Number(to.x || 0), Number(from.y || 0) - Number(to.y || 0));
-}
-function structureNode(kind, label, className = ''){
-  return `<div class="tree-node ${esc(className)}"><span class="tree-kind ${esc(kind)}">${esc(kind)}</span><span>${esc(label)}</span></div>`;
-}
-function structureTreeMarkup(){
-  const bases = (Array.isArray(state.bases) ? state.bases : [])
-    .filter((b) => b && typeof b === 'object' && String(b.id || '').trim())
-    .slice()
-    .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-  if (!bases.length) return '<div class="notice">No base placed yet.</div>';
-  const researchList = Array.isArray(state.researchBuildings) ? state.researchBuildings : [];
-  const warehouseList = Array.isArray(state.warehouseBuildings) ? state.warehouseBuildings : [];
-  const featureList = Array.isArray(state.featureBuildings) ? state.featureBuildings : [];
-  const chunks = [];
-  bases.forEach((base) => {
-    const repoKey = baseRepoKey(String(base.repo || ''));
-    const universities = researchList
-      .filter((rb) => rb.kind === 'university' && baseRepoKey(String(rb.repo || '')) === repoKey)
-      .slice()
-      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-    const researchLabs = researchList
-      .filter((rb) => rb.kind === 'research' && baseRepoKey(String(rb.repo || '')) === repoKey)
-      .slice()
-      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-    const libraries = warehouseList
-      .filter((wb) => wb.kind === 'library' && baseRepoKey(String(wb.repo || '')) === repoKey)
-      .slice()
-      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-    const warehouses = warehouseList
-      .filter((wb) => wb.kind === 'warehouse' && baseRepoKey(String(wb.repo || '')) === repoKey)
-      .slice()
-      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-    const powerPlants = warehouseList
-      .filter((wb) => wb.kind === 'power' && baseRepoKey(String(wb.repo || '')) === repoKey)
-      .slice()
-      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-    const features = featureList
-      .filter((fb) => baseRepoKey(String(fb.repo || '')) === repoKey)
-      .slice()
-      .sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
-    const librariesByUniversity = new Map(universities.map((u) => [String(u.id), []]));
-    const orphanLibraries = [];
-    libraries.forEach((library) => {
-      if (!universities.length) {
-        orphanLibraries.push(library);
-        return;
-      }
-      let nearest = null;
-      universities.forEach((u) => {
-        const dist = distanceBetweenEntities('library', library, 'university', u);
-        if (!nearest || dist < nearest.dist) nearest = { id: String(u.id), dist };
-      });
-      if (!nearest) orphanLibraries.push(library);
-      else librariesByUniversity.get(nearest.id)?.push(library);
-    });
-    const nodes = [
-      structureNode('base', `${String(base.id || 'base')} (${pathLabel(base.repo || '')})`)
-    ];
-    universities.forEach((u) => {
-      nodes.push(structureNode('university', String(u.id || 'university'), 'tree-child'));
-      const attachedLibraries = librariesByUniversity.get(String(u.id)) || [];
-      attachedLibraries.forEach((library) => {
-        nodes.push(structureNode('library', String(library.id || 'library'), 'tree-grandchild'));
-      });
-    });
-    researchLabs.forEach((lab) => nodes.push(structureNode('research', String(lab.id || 'research'), 'tree-child')));
-    orphanLibraries.forEach((library) => nodes.push(structureNode('library', `${String(library.id || 'library')} (unlinked)`, 'tree-child')));
-    warehouses.forEach((warehouse) => nodes.push(structureNode('warehouse', String(warehouse.id || 'warehouse'), 'tree-child')));
-    powerPlants.forEach((plant) => nodes.push(structureNode('power', String(plant.id || 'power'), 'tree-child')));
-    features.forEach((feature) => nodes.push(structureNode('feature', String(feature.id || 'feature'), 'tree-child')));
-    chunks.push(nodes.join(''));
-  });
-  return chunks.join('');
 }
 function isResearchKind(kind){
   return kind === 'research' || kind === 'university';
@@ -2076,7 +1966,11 @@ async function postJson(url, body){
 
 function snapshotPersistableState(){
   return {
-    camera: state.camera || { x:0, y:0 },
+    camera: {
+      x: Number(state.camera?.x || 0),
+      y: Number(state.camera?.y || 0),
+      scale: Number(state.cameraZoom?.scale || 1)
+    },
     hiddenBelts: (state.hiddenBelts && typeof state.hiddenBelts === 'object') ? state.hiddenBelts : {},
     customBases: Array.isArray(state.customBases)
       ? state.customBases.map((base) => ({
@@ -2235,6 +2129,8 @@ async function hydratePersistedState(){
       x: Number(persisted.camera.x) || 0,
       y: Number(persisted.camera.y) || 0
     };
+    const scale = Number(persisted.camera.scale);
+    if (Number.isFinite(scale) && scale > 0) state.cameraZoom.scale = scale;
   }
   if (!state.featureBuildings.length && Array.isArray(persisted.setupDrafts)) {
     state.featureBuildings = persisted.setupDrafts
@@ -2947,11 +2843,6 @@ async function boot(){
     applyMobilePanelVisibility();
     renderMobileListMode();
   }
-  if (!initialMobile) {
-    // Warm sprite decode/cache so first placement/select doesn't pop in images.
-    void preloadRtsSprites();
-    await hydratePersistedState();
-  }
   if (initialMobile) {
     void (async () => {
       try { state.workflows = await json('/api/workflows'); } catch { state.workflows = []; }
@@ -2964,13 +2855,30 @@ async function boot(){
       renderLiveConsole();
     })();
   } else {
-    state.workflows = await json('/api/workflows');
-    try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
-    try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
-    await refreshRuntimeState(true);
+    // Warm sprite decode/cache so first placement/select doesn't pop in images.
+    void preloadRtsSprites();
+    // Hydrate layout immediately; other network calls can land later.
+    const persistedPromise = hydratePersistedState();
+    const workflowsPromise = json('/api/workflows').catch(() => []);
+    const localReposPromise = json('/api/local-repos').catch(() => []);
+    const runtimePromise = json('/api/rts/runtime').catch(() => ({ runtime: null }));
+    const runtimeStatePromise = refreshRuntimeState(false).catch(() => false);
+    await persistedPromise;
+    // hydratePersistedState may update camera; ensure it is reflected in CSS vars.
+    updateCameraVisuals();
+
+    // First paint: show persisted structures even if runs/workflows are still loading.
     rebuildScene();
     renderLiveConsole();
     startLiveStream();
+
+    const [workflows, localRepos, runtimeRes] = await Promise.all([workflowsPromise, localReposPromise, runtimePromise]);
+    state.workflows = Array.isArray(workflows) ? workflows : [];
+    state.localRepos = Array.isArray(localRepos) ? localRepos : [];
+    state.runtime = (runtimeRes && typeof runtimeRes === 'object') ? (runtimeRes.runtime || null) : null;
+    await runtimeStatePromise;
+    rebuildScene();
+    renderLiveConsole();
   }
   const mobileListPanel = document.getElementById('mobileListPanel');
   mobileListPanel?.addEventListener('click', (event) => {
@@ -3708,29 +3616,20 @@ function placePowerAt(x,y){
   placeWarehouseAt(x, y, 'power');
 }
 
+function structureSpriteUrl(kind, variant = ''){
+  if (kind === 'base') return "/rts-sprites/base_sprite-20260212a.webp?v=20260212a";
+  if (kind === 'feature') return "/rts-sprites/feature_factory_sprite.webp?v=20260212v";
+  if (kind === 'university' || (kind === 'research' && String(variant || '') === 'university')) return "/rts-sprites/university_sprite-20260212a.webp?v=20260212a";
+  if (kind === 'research') return "/rts-sprites/research_lab_sprite.webp?v=20260212v";
+  if (kind === 'library' || (kind === 'warehouse' && String(variant || '') === 'library')) return "/rts-sprites/library_sprite-20260212a.webp?v=20260212a";
+  if (kind === 'power' || (kind === 'warehouse' && String(variant || '') === 'power')) return "/rts-sprites/power_sprite-20260212a.webp?v=20260212a";
+  if (kind === 'warehouse') return "/rts-sprites/warehouse_sprite.webp?v=20260212v";
+  return "/rts-sprites/feature_factory_sprite.webp?v=20260212v";
+}
+
 function structureMarkup(kind, variant = ''){
-  if (kind === 'base') {
-    return `<img class="building-sprite" src="/rts-sprites/base_sprite-20260212a.webp?v=20260212a" alt="" />`;
-  }
-  if (kind === 'feature') {
-    return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.webp?v=20260212v" alt="" />`;
-  }
-  if (kind === 'university' || (kind === 'research' && String(variant || '') === 'university')) {
-    return `<img class="building-sprite" src="/rts-sprites/university_sprite-20260212a.webp?v=20260212a" alt="" />`;
-  }
-  if (kind === 'research') {
-    return `<img class="building-sprite" src="/rts-sprites/research_lab_sprite.webp?v=20260212v" alt="" />`;
-  }
-  if (kind === 'library' || (kind === 'warehouse' && String(variant || '') === 'library')) {
-    return `<img class="building-sprite" src="/rts-sprites/library_sprite-20260212a.webp?v=20260212a" alt="" />`;
-  }
-  if (kind === 'power' || (kind === 'warehouse' && String(variant || '') === 'power')) {
-    return `<img class="building-sprite" src="/rts-sprites/power_sprite-20260212a.webp?v=20260212a" alt="" />`;
-  }
-  if (kind === 'warehouse') {
-    return `<img class="building-sprite" src="/rts-sprites/warehouse_sprite.webp?v=20260212v" alt="" />`;
-  }
-  return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.webp?v=20260212v" alt="" />`;
+  const src = structureSpriteUrl(kind, variant);
+  return `<img class="building-sprite" src="${esc(src)}" alt="" />`;
 }
 
 function snapPlacement(kind, worldX, worldY){
@@ -3742,7 +3641,7 @@ function snapPlacement(kind, worldX, worldY){
 }
 
 function hidePlacementGhost(){
-  placementLayerEl.innerHTML = '';
+  if (placementGhostEl) placementGhostEl.style.display = 'none';
 }
 
 function setFeatureMode(active){
@@ -3783,6 +3682,27 @@ function updateCameraVisuals(){
   scheduleVisualFrame();
 }
 
+let placementGhostEl = null;
+let placementGhostImgEl = null;
+let placementGhostKind = '';
+function ensurePlacementGhost(){
+  if (!(placementLayerEl instanceof HTMLElement)) return null;
+  if (placementGhostEl) return placementGhostEl;
+  placementGhostEl = document.createElement('div');
+  placementGhostEl.style.display = 'none';
+  const core = document.createElement('div');
+  core.className = 'iso-core';
+  placementGhostImgEl = document.createElement('img');
+  placementGhostImgEl.className = 'building-sprite';
+  placementGhostImgEl.alt = '';
+  placementGhostImgEl.decoding = 'async';
+  placementGhostImgEl.loading = 'eager';
+  core.appendChild(placementGhostImgEl);
+  placementGhostEl.appendChild(core);
+  placementLayerEl.appendChild(placementGhostEl);
+  return placementGhostEl;
+}
+
 function showPlacementGhost(kind, worldX, worldY){
   if (!kind) return hidePlacementGhost();
   const point = snapPlacement(kind, worldX, worldY);
@@ -3795,13 +3715,23 @@ function showPlacementGhost(kind, worldX, worldY){
       : (kind === 'warehouse'
         ? !nearResearch(center.x, center.y)
         : (kind === 'library' || kind === 'power' ? !nearUniversity(center.x, center.y) : false)));
-  const className = kind === 'base' ? 'base' : 'building';
   const fp = buildingFootprint(kind);
-  placementLayerEl.innerHTML = `
-    <div class="entity ${className} placement-ghost ${invalid ? 'invalid' : ''}" style="left:${screen.x}px;top:${screen.y}px;z-index:${worldDepth(point.y, 1000)};--footprint-w:${fp.w}px;--footprint-h:${fp.h}px;--sprite-w:${fp.spriteW}px;--sprite-h:${fp.spriteH}px">
-      <div class="iso-core">${structureMarkup(kind)}</div>
-    </div>
-  `;
+  const shell = ensurePlacementGhost();
+  if (!shell) return;
+  shell.style.display = '';
+  shell.className = `entity ${kind === 'base' ? 'base' : 'building'} placement-ghost${invalid ? ' invalid' : ''}`;
+  shell.style.left = `${screen.x}px`;
+  shell.style.top = `${screen.y}px`;
+  shell.style.zIndex = String(worldDepth(point.y, 1000));
+  shell.style.setProperty('--footprint-w', `${fp.w}px`);
+  shell.style.setProperty('--footprint-h', `${fp.h}px`);
+  shell.style.setProperty('--sprite-w', `${fp.spriteW}px`);
+  shell.style.setProperty('--sprite-h', `${fp.spriteH}px`);
+  const nextSrc = structureSpriteUrl(kind);
+  if (placementGhostImgEl && (placementGhostKind !== kind || placementGhostImgEl.getAttribute('src') !== nextSrc)) {
+    placementGhostKind = kind;
+    placementGhostImgEl.src = nextSrc;
+  }
 }
 
 function localPointInWorld(event){
@@ -6074,6 +6004,7 @@ function renderRunSetupPanel(targetDraftId){
     return s === 'done' || s === 'skipped';
   });
   const isDraft = !draft.committed;
+  const canLaunchDraft = !!String(draft.repo || '').trim() && !!String(draft.prompt || '').trim();
   const freeReady = canMarkFeatureEmpty({ ...draft, run, prUrl: extractPrUrl(run) || draft.prUrl });
   const freeLabel = draft.empty ? 'Set Filled' : (freeReady ? 'Set Free (PR ready)' : 'Set Free (PR pending)');
   if (!draft.port) {
@@ -6086,7 +6017,7 @@ function renderRunSetupPanel(targetDraftId){
       id: 'featureActionsCard',
       title: 'Actions',
       open: true,
-      body: `<button id="launchFeatureRunBtn" ${String(draft.repo || '').trim() ? '' : 'disabled'}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
+      body: `<button id="launchFeatureRunBtn" ${isDraft ? (canLaunchDraft ? '' : 'disabled') : (String(draft.repo || '').trim() ? '' : 'disabled')}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
       <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
       ${allAgentsCompleted ? `<button id="markFeatureEmptyBtn" style="margin-top:6px" ${freeReady || draft.empty ? '' : 'disabled'}>${freeLabel}</button>` : ''}
       <div class="notice" style="margin-top:8px" id="featureMutationNotice">${missingRoles.length ? `Blocked: no idle ${missingRoles.join(', ')} workers in base ${base?.id || 'unknown'}.` : 'Ready to execute backend actions.'}</div>`
@@ -6108,8 +6039,9 @@ function renderRunSetupPanel(targetDraftId){
       title: 'Feature prompt',
       open: true,
       body: isDraft
-        ? `<button id="openFeaturePromptSheetBtn" class="sheet-open-btn">Open Prompt Editor</button>
-        <div class="notice">Long-form prompt editing opens in a mobile sheet.</div>`
+        ? `<button id="openFeaturePromptSheetBtn" class="sheet-open-btn">Open Fullscreen Editor</button>
+        <label class="kv">Prompt<textarea id="featurePrompt" rows="10" placeholder="Describe detailed scope, constraints, and acceptance criteria...">${esc(String(draft.prompt || ''))}</textarea></label>
+        <div class="notice">Prompt is saved automatically as you type.</div>`
         : `<div class="build-card" style="margin-top:6px"><div class="prompt-text">${esc(String(draft.prompt || run?.task || ''))}</div></div>`
     })}
     ${hasRun ? renderPanelCard({ id: 'featureAgentsCard', title: `Assigned Agents (${runAgents.length})`, open: true, body: renderAgentStatusList(runAgents, run) }) : ''}
@@ -6151,6 +6083,8 @@ function renderRunSetupPanel(targetDraftId){
   if (featurePromptInput) {
     featurePromptInput.addEventListener('input', e => {
       draft.prompt = e.target.value;
+      const launchBtn = document.getElementById('launchFeatureRunBtn');
+      if (launchBtn) launchBtn.disabled = !(String(draft.repo || '').trim() && String(draft.prompt || '').trim());
       void postJson('/api/rts/layout/position', {
         entityType: 'feature',
         entityId: draft.id,
@@ -6196,6 +6130,11 @@ function renderRunSetupPanel(targetDraftId){
       mutationNotice.textContent = 'Cannot launch: factory repo path is missing.';
       return false;
     }
+    const effectivePrompt = String(draft.prompt || '').trim();
+    if (!effectivePrompt) {
+      mutationNotice.textContent = 'Cannot launch: prompt is empty. Describe the work in the prompt box first.';
+      return false;
+    }
     draft.repo = effectiveRepo;
     launchInFlight = true;
     const launchBtn = document.getElementById('launchFeatureRunBtn');
@@ -6209,8 +6148,8 @@ function renderRunSetupPanel(targetDraftId){
       const draftY = Number(draft.y || 0);
       const runResult = await postJson('/api/rts/feature/run', {
         workflowId: 'feature-dev',
-        taskTitle: draft.prompt || `Feature request for ${draft.repo}`,
-        prompt: draft.prompt,
+        taskTitle: effectivePrompt || `Feature request for ${draft.repo}`,
+        prompt: effectivePrompt,
         baseRepoPath: effectiveRepo,
         baseId: draft.baseId || '',
         workerAssignments: draft.workerAssignments || {},
@@ -6697,6 +6636,8 @@ function applyPinchZoomFromTouches(touchA, touchB){
   if (Math.abs(nextScale - Number(state.cameraZoom.scale || 1)) > 0.001) {
     state.cameraZoom.scale = nextScale;
     updateCameraVisuals();
+    state.cameraDrag.zoomed = true;
+    queuePersist();
   }
   state.cameraDrag.pinchDistance = distance;
 }
@@ -6704,9 +6645,16 @@ function applyPinchZoomFromTouches(touchA, touchB){
 const handlePointerMove = (e) => {
   if (state.mobileListMode) return;
   if (state.cameraDrag.active) {
-    state.camera.x = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
-    state.camera.y = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
+    const nextX = state.cameraDrag.originX - (e.clientX - state.cameraDrag.startX);
+    const nextY = state.cameraDrag.originY - (e.clientY - state.cameraDrag.startY);
+    const changed = nextX !== state.camera.x || nextY !== state.camera.y;
+    state.camera.x = nextX;
+    state.camera.y = nextY;
     updateCameraVisuals();
+    if (changed) {
+      state.cameraDrag.moved = true;
+      queuePersist();
+    }
     const kind = dragBuildingType || state.placementMode;
     if (kind) {
       const point = localPointInWorld(e);
@@ -6760,7 +6708,9 @@ worldWrapEl.addEventListener('mousedown', (e) => {
       startX:e.clientX,
       startY:e.clientY,
       originX:state.camera.x,
-      originY:state.camera.y
+      originY:state.camera.y,
+      moved:false,
+      zoomed:false
     };
   }
 });
@@ -6809,7 +6759,9 @@ worldWrapEl.addEventListener('touchstart', (e) => {
     originY:state.camera.y,
     pointerId:touch.identifier,
     viaTouch:true,
-    pinchDistance:0
+    pinchDistance:0,
+    moved:false,
+    zoomed:false
   };
 }, { passive:false });
 
@@ -6826,15 +6778,19 @@ window.addEventListener('touchmove', (e) => {
 }, { passive:false });
 
 window.addEventListener('touchend', () => {
+  const shouldPersist = !!(state.cameraDrag?.viaTouch && (state.cameraDrag?.moved || state.cameraDrag?.zoomed));
   state.cameraDrag.active = false;
   state.cameraDrag.pointerId = null;
   state.cameraDrag.pinchDistance = 0;
+  if (shouldPersist) void persistNow();
 });
 
 window.addEventListener('touchcancel', () => {
+  const shouldPersist = !!(state.cameraDrag?.viaTouch && (state.cameraDrag?.moved || state.cameraDrag?.zoomed));
   state.cameraDrag.active = false;
   state.cameraDrag.pointerId = null;
   state.cameraDrag.pinchDistance = 0;
+  if (shouldPersist) void persistNow();
 });
 
 worldWrapEl.addEventListener('contextmenu', (e) => {
@@ -6842,6 +6798,7 @@ worldWrapEl.addEventListener('contextmenu', (e) => {
 });
 
 window.addEventListener('mouseup', async () => {
+  const shouldPersistCamera = !!(state.cameraDrag?.active && (state.cameraDrag?.moved || state.cameraDrag?.zoomed));
   if (state.draggingEntity && state.draggingMoved) {
     state.suppressWorldClick = true;
     try { await persistDraggedEntityPosition(state.draggingEntity); } catch {}
@@ -6849,6 +6806,7 @@ window.addEventListener('mouseup', async () => {
     // Refresh links/labels once after drag completes, not on every mousemove.
     rebuildScene();
   }
+  if (shouldPersistCamera) await persistNow();
   state.cameraDrag.active = false;
   state.draggingEntity = null;
   state.draggingMoved = false;
