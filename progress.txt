@@ -21,6 +21,7 @@ Started: 2026-02-11 05:47 ET
 - Runtime polling in RTS should use self-scheduled `setTimeout` (`scheduleRuntimePoll`) with bounded retry backoff so offline/reconnect UX and poll recovery stay centralized
 - Puppeteer e2e tests should attach a `page.on('dialog', ...)` handler to dismiss unexpected alerts/confirms; otherwise headless runs can deadlock until protocolTimeout
 - RTS world drag/select interactions should prevent native text selection by scoping `user-select:none` to `.world-wrap` and calling `preventDefault()` in entity `mousedown` drag starts
+- `POST /api/rts/state` persists layout via `rts_layout_entities` and returns derived `featureBuildings`; it won't reliably accept arbitrary feature-building fixtures, so browser e2e tests should target an existing derived building ID from `GET /api/rts/state`
 
 ---
 
@@ -197,4 +198,20 @@ Started: 2026-02-11 05:47 ET
 - Added regression test `tests/rts-world-user-select-guard.e2e.test.ts` asserting scoped CSS + `preventDefault()` wiring in both `src/server/rts.html` and `dist/server/rts.html`.
 - Files changed: `src/server/rts.html`, `tests/rts-world-user-select-guard.e2e.test.ts`, `tests/rts-mobile-hierarchy.e2e.test.ts`, `tests/rts-mobile-native-shell.playwright.e2e.test.ts`, `progress.txt`
 - **Learnings:** Keep selection guards scoped to the interactive world container so Action Console / forms remain selectable.
+---
+
+## 2026-02-17 17:10 - S3: Correct pointer event handling for building selection
+- Routed all building/base entity pointer interactions through the entity shell by setting `.iso-core { pointer-events:none; }` so overlays like `.port-chip`/progress/notice can’t intercept hit-testing.
+- Moved the building pointer cursor to the `.building` shell (with `.building.movable` overriding to `cursor:move`) to match the new hit-test model.
+- Added regression coverage asserting pointer-events/cursor rules and that building click selection wiring updates `state.selected` and refreshes visuals (src/dist parity).
+- Files changed: `src/server/rts.html`, `tests/rts-entity-pointer-events-guard.e2e.test.ts`
+- **Learnings:** In the RTS world, treat `.entity` as the sole interactive hit-target; keep `.iso-core`/inner markup non-interactive unless explicitly needed.
+---
+
+## 2026-02-17 17:30 - S4: Add an end-to-end regression test for building selection
+- Added puppeteer E2E test that clicks and drags a building entity and asserts:
+  - The building becomes `.is-selected`.
+  - `window.getSelection()` has no selected text (best-effort guard against the "blue highlight" regression).
+- Files changed: `tests/rts-building-selection-no-native-selection.e2e.test.ts`, `progress.txt`
+- **Learnings:** RTS layout/building fixtures should generally be sourced from the derived RTS state (`GET /api/rts/state`) rather than posting arbitrary building arrays.
 ---
