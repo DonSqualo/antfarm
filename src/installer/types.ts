@@ -22,9 +22,15 @@ export type WorkflowAgent = {
   description?: string;
   role?: AgentRole;
   model?: string;
+  pollingModel?: string;
   timeoutSeconds?: number;
   workers?: number;
   workspace: WorkflowAgentFiles;
+};
+
+export type PollingConfig = {
+  model?: string;
+  timeoutSeconds?: number;
 };
 
 export type WorkflowStepFailure = {
@@ -71,6 +77,7 @@ export type WorkflowSpec = {
   id: string;
   name?: string;
   version?: number;
+  polling?: PollingConfig;
   agents: WorkflowAgent[];
   steps: WorkflowStep[];
   context?: Record<string, string>;

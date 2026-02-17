@@ -14,7 +14,7 @@ describe("immediate handoff event integration", () => {
       run_id: "run-1",
       status: "pending",
       updated_at: "2026-02-12T10:00:00.000Z",
-      agent_id: "feature-dev/developer",
+      agent_id: "feature-dev_developer@run:run-1",
       workflow_id: "feature-dev",
       run_status: "running",
     };
@@ -54,4 +54,3 @@ describe("immediate handoff event integration", () => {
     }
   });
 });
-

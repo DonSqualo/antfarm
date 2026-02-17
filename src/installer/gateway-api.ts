@@ -6,6 +6,9 @@ import { execFile } from "node:child_process";
 interface GatewayConfig {
   url: string;
   token?: string;
+  /** Unified auth secret — the value to send in the Bearer header.
+   *  Resolves to `token` when auth mode is "token", or `password` when auth mode is "password". */
+  secret?: string;
 }
 
 const GATEWAY_HTTP_TIMEOUT_MS = 5000;
@@ -21,7 +24,12 @@ async function fetchWithTimeout(input: string, init: RequestInit): Promise<Respo
   }
 }
 
-async function readOpenClawConfig(): Promise<{ port?: number; token?: string }> {
+async function readOpenClawConfig(): Promise<{
+  port?: number;
+  token?: string;
+  authMode?: "token" | "password";
+  password?: string;
+}> {
   const configPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
   try {
     const content = await fs.readFile(configPath, "utf-8");
@@ -29,6 +37,10 @@ async function readOpenClawConfig(): Promise<{ port?: number; token?: string }> 
     return {
       port: config.gateway?.port,
       token: config.gateway?.auth?.token,
+      authMode: config.gateway?.auth?.mode as "token" | "password" | undefined,
+      password:
+        process.env.OPENCLAW_GATEWAY_PASSWORD ??
+        config.gateway?.auth?.password,
     };
   } catch {
     return {};
@@ -38,9 +50,21 @@ async function readOpenClawConfig(): Promise<{ port?: number; token?: string }> 
 async function getGatewayConfig(): Promise<GatewayConfig> {
   const config = await readOpenClawConfig();
   const port = config.port ?? 18789;
+
+  // Compute a unified secret: use password when mode is "password", otherwise use token.
+  // The gateway accepts Bearer <secret> for both modes — it just compares against the
+  // configured token or password depending on the auth mode.
+  let secret: string | undefined;
+  if (config.authMode === "password") {
+    secret = config.password;
+  } else {
+    secret = config.token;
+  }
+
   return {
     url: `http://127.0.0.1:${port}`,
     token: config.token,
+    secret,
   };
 }
 
@@ -107,7 +131,8 @@ export async function createAgentCronJob(job: {
   schedule: { kind: string; everyMs?: number; anchorMs?: number };
   sessionTarget: string;
   agentId: string;
-  payload: { kind: string; message: string; timeoutSeconds?: number };
+  payload: { kind: string; message: string; model?: string; timeoutSeconds?: number };
+  delivery?: { mode: "none" | "announce"; channel?: string; to?: string };
   enabled: boolean;
 }): Promise<{ ok: boolean; error?: string; id?: string }> {
   // --- Try HTTP first ---
@@ -124,12 +149,24 @@ export async function createAgentCronJob(job: {
 
     args.push("--session", job.sessionTarget === "isolated" ? "isolated" : "main");
 
+    if (job.agentId) {
+      args.push("--agent", job.agentId);
+    }
+
     if (job.payload?.message) {
       args.push("--message", job.payload.message);
     }
 
     if (job.payload?.timeoutSeconds) {
       args.push("--timeout", `${job.payload.timeoutSeconds}`);
+    }
+
+    if (job.payload?.model) {
+      args.push("--model", job.payload.model);
+    }
+
+    if (job.delivery?.mode === "none") {
+      args.push("--delivery", "none");
     }
 
     if (!job.enabled) {
@@ -156,13 +193,14 @@ async function createAgentCronJobHTTP(job: {
   schedule: { kind: string; everyMs?: number; anchorMs?: number };
   sessionTarget: string;
   agentId: string;
-  payload: { kind: string; message: string; timeoutSeconds?: number };
+  payload: { kind: string; message: string; model?: string; timeoutSeconds?: number };
+  delivery?: { mode: "none" | "announce"; channel?: string; to?: string };
   enabled: boolean;
 }): Promise<{ ok: boolean; error?: string; id?: string } | null> {
   const gateway = await getGatewayConfig();
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
+    if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
     const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
       method: "POST",
@@ -195,7 +233,7 @@ export async function checkCronToolAvailable(): Promise<{ ok: boolean; error?: s
   const gateway = await getGatewayConfig();
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
+    if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
     const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
       method: "POST",
@@ -261,7 +299,7 @@ async function listCronJobsHTTP(): Promise<{ ok: boolean; jobs?: Array<{ id: str
   const gateway = await getGatewayConfig();
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
+    if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
     const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
       method: "POST",
@@ -316,7 +354,7 @@ async function deleteCronJobHTTP(jobId: string): Promise<{ ok: boolean; error?: 
   const gateway = await getGatewayConfig();
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (gateway.token) headers["Authorization"] = `Bearer ${gateway.token}`;
+    if (gateway.secret) headers["Authorization"] = `Bearer ${gateway.secret}`;
 
     const response = await fetchWithTimeout(`${gateway.url}/tools/invoke`, {
       method: "POST",
