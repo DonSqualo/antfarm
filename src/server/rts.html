@@ -2843,13 +2843,6 @@ async function boot(){
     applyMobilePanelVisibility();
     renderMobileListMode();
   }
-  if (!initialMobile) {
-    // Warm sprite decode/cache so first placement/select doesn't pop in images.
-    void preloadRtsSprites();
-    await hydratePersistedState();
-    // hydratePersistedState may update camera; ensure it is reflected in CSS vars.
-    updateCameraVisuals();
-  }
   if (initialMobile) {
     void (async () => {
       try { state.workflows = await json('/api/workflows'); } catch { state.workflows = []; }
@@ -2862,13 +2855,30 @@ async function boot(){
       renderLiveConsole();
     })();
   } else {
-    state.workflows = await json('/api/workflows');
-    try { state.localRepos = await json('/api/local-repos'); } catch { state.localRepos = []; }
-    try { state.runtime = (await json('/api/rts/runtime')).runtime || null; } catch { state.runtime = null; }
-    await refreshRuntimeState(true);
+    // Warm sprite decode/cache so first placement/select doesn't pop in images.
+    void preloadRtsSprites();
+    // Hydrate layout immediately; other network calls can land later.
+    const persistedPromise = hydratePersistedState();
+    const workflowsPromise = json('/api/workflows').catch(() => []);
+    const localReposPromise = json('/api/local-repos').catch(() => []);
+    const runtimePromise = json('/api/rts/runtime').catch(() => ({ runtime: null }));
+    const runtimeStatePromise = refreshRuntimeState(false).catch(() => false);
+    await persistedPromise;
+    // hydratePersistedState may update camera; ensure it is reflected in CSS vars.
+    updateCameraVisuals();
+
+    // First paint: show persisted structures even if runs/workflows are still loading.
     rebuildScene();
     renderLiveConsole();
     startLiveStream();
+
+    const [workflows, localRepos, runtimeRes] = await Promise.all([workflowsPromise, localReposPromise, runtimePromise]);
+    state.workflows = Array.isArray(workflows) ? workflows : [];
+    state.localRepos = Array.isArray(localRepos) ? localRepos : [];
+    state.runtime = (runtimeRes && typeof runtimeRes === 'object') ? (runtimeRes.runtime || null) : null;
+    await runtimeStatePromise;
+    rebuildScene();
+    renderLiveConsole();
   }
   const mobileListPanel = document.getElementById('mobileListPanel');
   mobileListPanel?.addEventListener('click', (event) => {
@@ -3606,29 +3616,20 @@ function placePowerAt(x,y){
   placeWarehouseAt(x, y, 'power');
 }
 
+function structureSpriteUrl(kind, variant = ''){
+  if (kind === 'base') return "/rts-sprites/base_sprite-20260212a.webp?v=20260212a";
+  if (kind === 'feature') return "/rts-sprites/feature_factory_sprite.webp?v=20260212v";
+  if (kind === 'university' || (kind === 'research' && String(variant || '') === 'university')) return "/rts-sprites/university_sprite-20260212a.webp?v=20260212a";
+  if (kind === 'research') return "/rts-sprites/research_lab_sprite.webp?v=20260212v";
+  if (kind === 'library' || (kind === 'warehouse' && String(variant || '') === 'library')) return "/rts-sprites/library_sprite-20260212a.webp?v=20260212a";
+  if (kind === 'power' || (kind === 'warehouse' && String(variant || '') === 'power')) return "/rts-sprites/power_sprite-20260212a.webp?v=20260212a";
+  if (kind === 'warehouse') return "/rts-sprites/warehouse_sprite.webp?v=20260212v";
+  return "/rts-sprites/feature_factory_sprite.webp?v=20260212v";
+}
+
 function structureMarkup(kind, variant = ''){
-  if (kind === 'base') {
-    return `<img class="building-sprite" src="/rts-sprites/base_sprite-20260212a.webp?v=20260212a" alt="" />`;
-  }
-  if (kind === 'feature') {
-    return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.webp?v=20260212v" alt="" />`;
-  }
-  if (kind === 'university' || (kind === 'research' && String(variant || '') === 'university')) {
-    return `<img class="building-sprite" src="/rts-sprites/university_sprite-20260212a.webp?v=20260212a" alt="" />`;
-  }
-  if (kind === 'research') {
-    return `<img class="building-sprite" src="/rts-sprites/research_lab_sprite.webp?v=20260212v" alt="" />`;
-  }
-  if (kind === 'library' || (kind === 'warehouse' && String(variant || '') === 'library')) {
-    return `<img class="building-sprite" src="/rts-sprites/library_sprite-20260212a.webp?v=20260212a" alt="" />`;
-  }
-  if (kind === 'power' || (kind === 'warehouse' && String(variant || '') === 'power')) {
-    return `<img class="building-sprite" src="/rts-sprites/power_sprite-20260212a.webp?v=20260212a" alt="" />`;
-  }
-  if (kind === 'warehouse') {
-    return `<img class="building-sprite" src="/rts-sprites/warehouse_sprite.webp?v=20260212v" alt="" />`;
-  }
-  return `<img class="building-sprite" src="/rts-sprites/feature_factory_sprite.webp?v=20260212v" alt="" />`;
+  const src = structureSpriteUrl(kind, variant);
+  return `<img class="building-sprite" src="${esc(src)}" alt="" />`;
 }
 
 function snapPlacement(kind, worldX, worldY){
@@ -3640,7 +3641,7 @@ function snapPlacement(kind, worldX, worldY){
 }
 
 function hidePlacementGhost(){
-  placementLayerEl.innerHTML = '';
+  if (placementGhostEl) placementGhostEl.style.display = 'none';
 }
 
 function setFeatureMode(active){
@@ -3681,6 +3682,27 @@ function updateCameraVisuals(){
   scheduleVisualFrame();
 }
 
+let placementGhostEl = null;
+let placementGhostImgEl = null;
+let placementGhostKind = '';
+function ensurePlacementGhost(){
+  if (!(placementLayerEl instanceof HTMLElement)) return null;
+  if (placementGhostEl) return placementGhostEl;
+  placementGhostEl = document.createElement('div');
+  placementGhostEl.style.display = 'none';
+  const core = document.createElement('div');
+  core.className = 'iso-core';
+  placementGhostImgEl = document.createElement('img');
+  placementGhostImgEl.className = 'building-sprite';
+  placementGhostImgEl.alt = '';
+  placementGhostImgEl.decoding = 'async';
+  placementGhostImgEl.loading = 'eager';
+  core.appendChild(placementGhostImgEl);
+  placementGhostEl.appendChild(core);
+  placementLayerEl.appendChild(placementGhostEl);
+  return placementGhostEl;
+}
+
 function showPlacementGhost(kind, worldX, worldY){
   if (!kind) return hidePlacementGhost();
   const point = snapPlacement(kind, worldX, worldY);
@@ -3693,13 +3715,23 @@ function showPlacementGhost(kind, worldX, worldY){
       : (kind === 'warehouse'
         ? !nearResearch(center.x, center.y)
         : (kind === 'library' || kind === 'power' ? !nearUniversity(center.x, center.y) : false)));
-  const className = kind === 'base' ? 'base' : 'building';
   const fp = buildingFootprint(kind);
-  placementLayerEl.innerHTML = `
-    <div class="entity ${className} placement-ghost ${invalid ? 'invalid' : ''}" style="left:${screen.x}px;top:${screen.y}px;z-index:${worldDepth(point.y, 1000)};--footprint-w:${fp.w}px;--footprint-h:${fp.h}px;--sprite-w:${fp.spriteW}px;--sprite-h:${fp.spriteH}px">
-      <div class="iso-core">${structureMarkup(kind)}</div>
-    </div>
-  `;
+  const shell = ensurePlacementGhost();
+  if (!shell) return;
+  shell.style.display = '';
+  shell.className = `entity ${kind === 'base' ? 'base' : 'building'} placement-ghost${invalid ? ' invalid' : ''}`;
+  shell.style.left = `${screen.x}px`;
+  shell.style.top = `${screen.y}px`;
+  shell.style.zIndex = String(worldDepth(point.y, 1000));
+  shell.style.setProperty('--footprint-w', `${fp.w}px`);
+  shell.style.setProperty('--footprint-h', `${fp.h}px`);
+  shell.style.setProperty('--sprite-w', `${fp.spriteW}px`);
+  shell.style.setProperty('--sprite-h', `${fp.spriteH}px`);
+  const nextSrc = structureSpriteUrl(kind);
+  if (placementGhostImgEl && (placementGhostKind !== kind || placementGhostImgEl.getAttribute('src') !== nextSrc)) {
+    placementGhostKind = kind;
+    placementGhostImgEl.src = nextSrc;
+  }
 }
 
 function localPointInWorld(event){
@@ -5972,6 +6004,7 @@ function renderRunSetupPanel(targetDraftId){
     return s === 'done' || s === 'skipped';
   });
   const isDraft = !draft.committed;
+  const canLaunchDraft = !!String(draft.repo || '').trim() && !!String(draft.prompt || '').trim();
   const freeReady = canMarkFeatureEmpty({ ...draft, run, prUrl: extractPrUrl(run) || draft.prUrl });
   const freeLabel = draft.empty ? 'Set Filled' : (freeReady ? 'Set Free (PR ready)' : 'Set Free (PR pending)');
   if (!draft.port) {
@@ -5984,7 +6017,7 @@ function renderRunSetupPanel(targetDraftId){
       id: 'featureActionsCard',
       title: 'Actions',
       open: true,
-      body: `<button id="launchFeatureRunBtn" ${String(draft.repo || '').trim() ? '' : 'disabled'}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
+      body: `<button id="launchFeatureRunBtn" ${isDraft ? (canLaunchDraft ? '' : 'disabled') : (String(draft.repo || '').trim() ? '' : 'disabled')}>${isDraft ? 'Create Worktree + Start Run' : 'Relaunch Run'}</button>
       <button id="preparePrBtn" style="margin-top:6px">Check / Prepare PR Link</button>
       ${allAgentsCompleted ? `<button id="markFeatureEmptyBtn" style="margin-top:6px" ${freeReady || draft.empty ? '' : 'disabled'}>${freeLabel}</button>` : ''}
       <div class="notice" style="margin-top:8px" id="featureMutationNotice">${missingRoles.length ? `Blocked: no idle ${missingRoles.join(', ')} workers in base ${base?.id || 'unknown'}.` : 'Ready to execute backend actions.'}</div>`
@@ -6050,6 +6083,8 @@ function renderRunSetupPanel(targetDraftId){
   if (featurePromptInput) {
     featurePromptInput.addEventListener('input', e => {
       draft.prompt = e.target.value;
+      const launchBtn = document.getElementById('launchFeatureRunBtn');
+      if (launchBtn) launchBtn.disabled = !(String(draft.repo || '').trim() && String(draft.prompt || '').trim());
       void postJson('/api/rts/layout/position', {
         entityType: 'feature',
         entityId: draft.id,
@@ -6095,6 +6130,11 @@ function renderRunSetupPanel(targetDraftId){
       mutationNotice.textContent = 'Cannot launch: factory repo path is missing.';
       return false;
     }
+    const effectivePrompt = String(draft.prompt || '').trim();
+    if (!effectivePrompt) {
+      mutationNotice.textContent = 'Cannot launch: prompt is empty. Describe the work in the prompt box first.';
+      return false;
+    }
     draft.repo = effectiveRepo;
     launchInFlight = true;
     const launchBtn = document.getElementById('launchFeatureRunBtn');
@@ -6108,8 +6148,8 @@ function renderRunSetupPanel(targetDraftId){
       const draftY = Number(draft.y || 0);
       const runResult = await postJson('/api/rts/feature/run', {
         workflowId: 'feature-dev',
-        taskTitle: draft.prompt || `Feature request for ${draft.repo}`,
-        prompt: draft.prompt,
+        taskTitle: effectivePrompt || `Feature request for ${draft.repo}`,
+        prompt: effectivePrompt,
         baseRepoPath: effectiveRepo,
         baseId: draft.baseId || '',
         workerAssignments: draft.workerAssignments || {},
